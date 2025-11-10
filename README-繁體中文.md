@@ -2,38 +2,45 @@
 
 ---
 
-# AIDEFEND MCP Service
+# AIDEFEND MCP / REST API Service
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.2-009688.svg)](https://fastapi.tiangolo.com)
 [![Security: Multiple Layers](https://img.shields.io/badge/security-multi--layer-success.svg)](./SECURITY.md)
 
-一個為 [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework) 打造的**本地端、去中心化 RAG (Retrieval-Augmented Generation) 引擎**。此服務提供安全且私密的方式存取 AIDEFEND AI 安全知識庫，所有敏感查詢都不會傳送到外部服務。
+一個為 [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework) 打造的**本地端、去中心化 RAG (Retrieval-Augmented Generation) 引擎服務**。此服務同時支援
+
+- **MCP (Model Context Protocol) 模式**： 適用於和 AI 助理（如 Claude Desktop/ChatGPT）的整合。應用範例： 
+  * 與 **Claude Desktop** 無縫協作，讓 Claude 在分析您的程式碼或撰寫資安報告時，能自動引用 AIDEFEND 的最新資訊。
+  * 支援**其他遵循 Anthropic MCP 標準**的 AI 助理或開發者工具 (包括 OpenAI ChatGPT, Google Gemini)，作為其可引用的本地知識庫。
+
+- **REST API 模式**： 適用於自訂應用程式 (例如，企業內部的資安/AI安全聊天機器人) 與系統整合。應用範例： 
+  * 將 AIDEFEND 整合到**企業內部的資安/AI安全聊天機器人**程式，為資安團隊提供即時、精準的防禦指南。
+  * 開發一個自動化程式來**放進 CI/CD 流水線**，在部署 AI 模型前，查詢 AIDEFEND 來評估潛在的風險與建議的緩解措施。
+  * 將 AIDEFEND 作為一個**RAG（檢索增強生成）的後端**，整合到基於 LangChain、LlamaIndex 或類似框架建立的自定義 LLM 應用程式中。
 
 ## 特色功能
 
-- **100% 隱私保護與本地化**: 所有查詢都在本地端處理 - 你的 prompts 絕不會離開你的基礎設施，完全支援離線運作
+- **100% 隱私保護與本地化**: 所有查詢都在本地端處理 - 你輸入的 prompts 只留在你的環境裡，完全支援離線運作
 - **成本效益高**: 相較於傳送完整 framework，token 用量減少 25 倍 - 大幅降低 LLM API 成本
-- **自動同步**: 自動從 GitHub 下載最新的 AIDEFEND 內容（每小時檢查一次）
+- **自動同步**: 自動從 GitHub 下載最新的 AIDEFEND 內容（預設是每小時檢查一次）
 - **快速向量搜尋**: 採用 LanceDB 實現快速的語意搜尋（毫秒級回應時間）
 - **安全優先**: 全面的輸入驗證、清理與安全Header
 - **Docker環境適用**: 可輕鬆透過 Docker 和 docker-compose 部署
 - **Prod環境適用**: 包含健康檢查、流量限制、結構化日誌與監控
 - **深度防禦**: 多層安全機制（詳見 [SECURITY.md](./SECURITY.md)）
 
-## 為什麼要使用這個 MCP Service？
+## 為什麼要使用這個 MCP / REST API Service？
 
-AIDEFEND 是開源的，所以技術上你*可以*自己建立一些服務，去 AIDEFEND 的 GitHub Repo 抓取 AIDEFEND 的資料並加以查詢使用。但在「可以」和「實際」之間有一些落差:
-
-### 問題
+AIDEFEND 是開源的，所以理論上呢，你可以自己去 AIDEFEND 的 GitHub Repo 抓取 AIDEFEND 的資料來用，或是直接上 [AIDEFEND 的網站](https://edward-playground.github.io/aidefense-framework/) 並加以查詢使用。但從實際面的角度，有以下的問題:
 
 #### **問題 1: 雲端服務的隱私疑慮**
 
-大多數 RAG 服務會將你的查詢傳送到雲端伺服器。你的敏感 prompts（安全問題、機敏資訊）離開了你的掌控。
+如果你使用雲端RAG服務的話，大多數 RAG 服務會將你的查詢傳送到雲端伺服器。你的敏感 prompts（安全問題、機敏資訊）有洩漏的可能。
 
-**這個 MCP Service：**
-- ✅ **100% 本地端處理** - 查詢絕不離開你的機器
+**這個 MCP / REST API Service：**
+- ✅ **100% 本地端處理** - 本地查詢
 - ✅ **支援離線運作** - 初次同步後可完全離線
 - ✅ **零追蹤** - 沒有遙測、沒有外部 API 呼叫
 
@@ -41,30 +48,29 @@ AIDEFEND 是開源的，所以技術上你*可以*自己建立一些服務，去
 
 AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行程式碼。蠻多 LLM 服務有 context window 限制（~8K-128K）。把所有東西貼進 LLM 服務 (ChatGPT/Claude/Gemini/Grok, etc) 有時候會遇到困難。
 
-**這個 MCP Service：**
+**這個 MCP / REST API Service：**
 - ✅ **智慧搜尋** - 在毫秒內找出 3-5 個最相關的段落
 - ✅ **只傳送你需要的** - 不需要手動複製貼上
 
 #### **問題 3: 建立 RAG 系統很複雜**
 
-要自己建立，你需要：
+如果你選擇要自己建立 RAG 功能，你需要：
 - 撰寫 JavaScript parser
 - 設定 vector database（LanceDB、ChromaDB、Pinecone）
 - 配置 embedding models
 - 手動處理更新（`git pull` → 重新解析 → 重新 embedding）
 
-**這個 MCP Service：**
+**這個 MCP / REST API Service：**
 - ✅ **一行指令**: `docker-compose up -d`
 - ✅ **每小時自動更新**
 
 #### **問題 4: Token 成本快速累積**
 
-傳送完整的 AIDEFEND framework = 每次查詢 50K+ tokens。付費 LLM API 按 token 計費。
+傳送完整的 AIDEFEND framework = 每次查詢 50K+ tokens。付費 LLM API 是按 token 計費的。
 
-**這個 MCP Service：**
+**這個 MCP / REST API Service：**
 - ✅ **每次查詢 500-2K tokens**（減少 25 倍）
 - ✅ **付費 LLM API 成本降低 25 倍**（GPT-4、Claude）
-- ✅ **更快的回應** - 更小的 context = 更快的處理
 
 ### 快速比較
 
@@ -87,7 +93,7 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
 - **自動更新** - 永遠同步最新的研究
 - **完全免費** - 開源無訂閱費
 
-> **AIDEFEND framework 是知識庫。而這個 AIDEFEND MCP 服務是用安全且高效的方式來讓你利用 AIDEFEND 這個知識。**
+> **AIDEFEND framework 是 AI 系統防禦知識庫。而這個 AIDEFEND MCP 服務，讓你能用安全且高效的方式來查詢和利用 AIDEFEND 裡的知識。**
 
 ## 架構
 
@@ -119,11 +125,11 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
 │  ┌──────────────┐         ┌──────┴──────┐                   │
 │  │  AIDEFEND    │         │  Query      │                   │
 │  │  Framework   │         │  Engine     │◀────┐             │
-│  │  (GitHub)    │         │  (共享)     │     │             │
+│  │  (GitHub)    │         │  (共享)     │     │              │
 │  └──────────────┘         └──────┬──────┘     │             │
-│                                   │            │             │
-│                          ┌────────┴────────┐   │             │
-│                          │                 │   │             │
+│                                   │           │             │
+│                          ┌────────┴────────┐  │             │
+│                          │                 │  │             │
 │                    ┌─────▼──────┐   ┌──────▼─────┐          │
 │                    │  FastAPI   │   │ MCP Server │          │
 │                    │  REST API  │   │  (stdio)   │          │
