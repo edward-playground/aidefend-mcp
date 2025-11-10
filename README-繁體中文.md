@@ -183,6 +183,17 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
 **何時使用：** 你想要與自訂應用程式、腳本或任何 HTTP 客戶端整合。
 
 1. **啟動服務**
+
+   **使用便利腳本：**
+   ```bash
+   # 在 macOS/Linux 上：
+   ./scripts/start.sh
+
+   # 在 Windows 上：
+   scripts\start.bat
+   ```
+
+   **或直接用 Python 啟動：**
    ```bash
    python -m aidefend_mcp
    # 或等同於：
@@ -531,6 +542,9 @@ aidefend-mcp/
 │   ├── security.py      # 安全驗證
 │   ├── logger.py        # 結構化日誌
 │   └── utils.py         # 工具函式
+├── scripts/             # 便利腳本
+│   ├── start.sh         # 快速啟動腳本（Unix）
+│   └── start.bat        # 快速啟動腳本（Windows）
 ├── data/                # 自動產生的資料目錄
 │   ├── raw_content/     # 下載的 .js 檔案
 │   ├── aidefend_kb.lancedb/  # Vector database

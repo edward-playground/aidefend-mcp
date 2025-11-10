@@ -111,7 +111,7 @@ cd aidefend-mcp
 
 **確認你在正確的位置：**
 ```bash
-# 你應該會看到 README.md、start.sh、start.bat 等檔案
+# 你應該會看到 README.md、scripts/、app/ 等檔案
 ls  # macOS/Linux
 dir # Windows
 ```
@@ -122,13 +122,13 @@ dir # Windows
 
 **在 Windows 上：**
 ```cmd
-start.bat
+scripts\start.bat
 ```
 
 **在 macOS/Linux 上：**
 ```bash
-chmod +x start.sh
-./start.sh
+chmod +x scripts/start.sh
+./scripts/start.sh
 ```
 
 **這個腳本會自動做什麼：**
@@ -999,8 +999,8 @@ docker-compose logs aidefend-mcp
 
 **對於 start.sh：**
 ```bash
-chmod +x start.sh
-./start.sh
+chmod +x scripts/start.sh
+./scripts/start.sh
 ```
 
 **對於 data 目錄：**

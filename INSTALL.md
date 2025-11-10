@@ -111,7 +111,7 @@ cd aidefend-mcp
 
 **Verify you're in the right place:**
 ```bash
-# You should see files like README.md, start.sh, start.bat
+# You should see files like README.md, scripts/, app/
 ls  # macOS/Linux
 dir # Windows
 ```
@@ -122,13 +122,13 @@ dir # Windows
 
 **On Windows:**
 ```cmd
-start.bat
+scripts\start.bat
 ```
 
 **On macOS/Linux:**
 ```bash
-chmod +x start.sh
-./start.sh
+chmod +x scripts/start.sh
+./scripts/start.sh
 ```
 
 **What this script does automatically:**
@@ -999,8 +999,8 @@ docker-compose logs aidefend-mcp
 
 **For start.sh:**
 ```bash
-chmod +x start.sh
-./start.sh
+chmod +x scripts/start.sh
+./scripts/start.sh
 ```
 
 **For data directory:**

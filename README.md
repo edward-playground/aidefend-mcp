@@ -184,6 +184,17 @@ Both modes share the same core logic, ensuring consistent results.
 **When to use:** You want to integrate with custom applications, scripts, or any HTTP client.
 
 1. **Start the service**
+
+   **Using the convenience script:**
+   ```bash
+   # On macOS/Linux:
+   ./scripts/start.sh
+
+   # On Windows:
+   scripts\start.bat
+   ```
+
+   **Or start directly with Python:**
    ```bash
    python -m aidefend_mcp
    # Or equivalently:
@@ -536,6 +547,9 @@ aidefend-mcp/
 │   ├── security.py      # Security validations
 │   ├── logger.py        # Structured logging
 │   └── utils.py         # Utility functions
+├── scripts/             # Convenience scripts
+│   ├── start.sh         # Quick start script (Unix)
+│   └── start.bat        # Quick start script (Windows)
 ├── data/                # Auto-generated data directory
 │   ├── raw_content/     # Downloaded .js files
 │   ├── aidefend_kb.lancedb/  # Vector database
