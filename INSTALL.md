@@ -1,4 +1,4 @@
-[English](INSTALL.md) | [繁體中文](INSTALL-繁體中文.md)
+[English Installation Guide](INSTALL.md) | [繁體中文安裝指南](INSTALL-繁體中文.md)
 
 ---
 

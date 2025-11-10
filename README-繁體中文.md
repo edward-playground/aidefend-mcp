@@ -1,4 +1,4 @@
-[English](README.md) | [繁體中文](README-繁體中文.md)
+[English Readme](README.md) | [繁體中文 Readme](README-繁體中文.md)
 
 ---
 
@@ -9,37 +9,37 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.2-009688.svg)](https://fastapi.tiangolo.com)
 [![Security: Multiple Layers](https://img.shields.io/badge/security-multi--layer-success.svg)](./SECURITY.md)
 
-一個為 [AIDEFEND framework](https://github.com/edward-playground/aidefend-framework) 打造的**本地端、去中心化 RAG (Retrieval-Augmented Generation) 引擎**。此服務提供安全且私密的方式存取 AIDEFEND AI 安全知識庫，所有敏感查詢都不會傳送到外部服務。
+一個為 [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework) 打造的**本地端、去中心化 RAG (Retrieval-Augmented Generation) 引擎**。此服務提供安全且私密的方式存取 AIDEFEND AI 安全知識庫，所有敏感查詢都不會傳送到外部服務。
 
 ## 特色功能
 
 - **100% 隱私保護與本地化**: 所有查詢都在本地端處理 - 你的 prompts 絕不會離開你的基礎設施，完全支援離線運作
 - **成本效益高**: 相較於傳送完整 framework，token 用量減少 25 倍 - 大幅降低 LLM API 成本
-- **自動同步**: 自動從 GitHub 拉取最新的 AIDEFEND 內容（每小時檢查一次）
-- **快速向量搜尋**: 採用 LanceDB 實現高效的語意搜尋（毫秒級回應時間）
-- **安全優先**: 全面的輸入驗證、清理與安全標頭
-- **Docker 就緒**: 可輕鬆透過 Docker 和 docker-compose 部署
-- **生產環境就緒**: 包含健康檢查、流量限制、結構化日誌與監控
+- **自動同步**: 自動從 GitHub 下載最新的 AIDEFEND 內容（每小時檢查一次）
+- **快速向量搜尋**: 採用 LanceDB 實現快速的語意搜尋（毫秒級回應時間）
+- **安全優先**: 全面的輸入驗證、清理與安全Header
+- **Docker環境適用**: 可輕鬆透過 Docker 和 docker-compose 部署
+- **Prod環境適用**: 包含健康檢查、流量限制、結構化日誌與監控
 - **深度防禦**: 多層安全機制（詳見 [SECURITY.md](./SECURITY.md)）
 
 ## 為什麼要使用這個 MCP Service？
 
-AIDEFEND 是開源的，所以技術上你*可以*自己建立。但在「可能」和「實際」之間有很大的落差。
+AIDEFEND 是開源的，所以技術上你*可以*自己建立一些服務，去 AIDEFEND 的 GitHub Repo 抓取 AIDEFEND 的資料並加以查詢使用。但在「可以」和「實際」之間有一些落差:
 
-### 解決的問題
+### 問題
 
 #### **問題 1: 雲端服務的隱私疑慮**
 
-大多數 RAG 服務會將你的查詢傳送到雲端伺服器。你的敏感 prompts（安全問題、專有資訊）離開了你的掌控。
+大多數 RAG 服務會將你的查詢傳送到雲端伺服器。你的敏感 prompts（安全問題、機敏資訊）離開了你的掌控。
 
 **這個 MCP Service：**
 - ✅ **100% 本地端處理** - 查詢絕不離開你的機器
 - ✅ **支援離線運作** - 初次同步後可完全離線
 - ✅ **零追蹤** - 沒有遙測、沒有外部 API 呼叫
 
-#### **問題 2: LLM 無法處理完整的 Framework**
+#### **問題 2: LLM 無法處理完整的 AIDEFEND Framework**
 
-AIDEFEND 有數千行程式碼。LLM 有 token 限制（~8K-128K）。你無法把所有東西貼進 ChatGPT。
+AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行程式碼。蠻多 LLM 服務有 context window 限制（~8K-128K）。把所有東西貼進 LLM 服務 (ChatGPT/Claude/Gemini/Grok, etc) 有時候會遇到困難。
 
 **這個 MCP Service：**
 - ✅ **智慧搜尋** - 在毫秒內找出 3-5 個最相關的段落
@@ -56,11 +56,10 @@ AIDEFEND 有數千行程式碼。LLM 有 token 限制（~8K-128K）。你無法�
 **這個 MCP Service：**
 - ✅ **一行指令**: `docker-compose up -d`
 - ✅ **每小時自動更新**
-- ✅ **零維護** 需求
 
 #### **問題 4: Token 成本快速累積**
 
-傳送完整 framework = 每次查詢 50K+ tokens。付費 LLM API 按 token 計費。
+傳送完整的 AIDEFEND framework = 每次查詢 50K+ tokens。付費 LLM API 按 token 計費。
 
 **這個 MCP Service：**
 - ✅ **每次查詢 500-2K tokens**（減少 25 倍）
@@ -85,10 +84,10 @@ AIDEFEND 有數千行程式碼。LLM 有 token 限制（~8K-128K）。你無法�
 - **保護隱私** - 100% 本地端處理
 - **省錢** - token 減少 25 倍 = API 成本降低 25 倍
 - **離線運作** - 設定後無需網路
-- **自動更新** - 永遠是最新研究
+- **自動更新** - 永遠同步最新的研究
 - **完全免費** - 開源無訂閱費
 
-> **AIDEFEND framework 是知識。此服務以私密且高效的方式傳遞知識。**
+> **AIDEFEND framework 是知識庫。而這個 AIDEFEND MCP 服務是用安全且高效的方式來讓你利用 AIDEFEND 這個知識。**
 
 ## 架構
 
@@ -97,26 +96,26 @@ AIDEFEND 有數千行程式碼。LLM 有 token 限制（~8K-128K）。你無法�
 │                    AIDEFEND MCP Service                     │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌──────────────┐         ┌──────────────┐                │
-│  │              │         │              │                 │
+│  ┌──────────────┐         ┌──────────────┐                  │
+│  │              │         │              │                  │
 │  │  Sync        │────────▶│  LanceDB     │                 │
-│  │  Service     │  Index  │  Vector DB   │                 │
-│  │              │         │              │                 │
-│  └──────┬───────┘         └───────▲──────┘                 │
+│  │  Service     │  Index  │  Vector DB   │                  │
+│  │              │         │              │                  │
+│  └──────┬───────┘         └───────▲──────┘                  │
 │         │                         │                         │
 │         │ GitHub                  │ Query                   │
 │         │ API                     │                         │
 │         ▼                         │                         │
-│  ┌──────────────┐         ┌──────┴──────┐                 │
-│  │  AIDEFEND    │         │  Query      │                  │
-│  │  Framework   │         │  Engine     │                  │
-│  │  (GitHub)    │         │             │                  │
-│  └──────────────┘         └──────▲──────┘                  │
+│  ┌──────────────┐         ┌──────┴──────┐                   │
+│  │  AIDEFEND    │         │  Query      │                   │
+│  │  Framework   │         │  Engine     │                   │
+│  │  (GitHub)    │         │             │                   │
+│  └──────────────┘         └──────▲──────┘                   │
 │                                   │                         │
-│                           ┌───────┴────────┐               │
-│                           │   FastAPI      │               │
-│                           │   REST API     │               │
-│                           └───────▲────────┘               │
+│                           ┌───────┴────────┐                │
+│                           │   FastAPI      │                │
+│                           │   REST API     │                │
+│                           └───────▲────────┘                │
 │                                   │                         │
 └───────────────────────────────────┼─────────────────────────┘
                                     │
@@ -285,15 +284,15 @@ POST /api/v1/sync
 
 作為 AI 安全 framework 的 MCP service，本服務實作了多層安全機制：
 
-- **本地優先處理**: 所有查詢都在本地端處理 - 你的資料絕不離開你的基礎設施
+- **本地優先處理**: 所有查詢都在本地端處理 - 你的資料不會離開你的基礎設施範圍
 - **輸入驗證**: 全面的驗證與清理所有輸入
-- **流量限制**: 防護濫用與 DoS 攻擊
+- **流量限制**: 防止資源濫用與 DoS 攻擊
 - **安全操作**: 路徑遍歷防護、檔案安全與權限控制
 - **網路安全**: SSRF 防護、URL 驗證與安全標頭
 - **容器強化**: 非 root 使用者、最小權限與安全預設值
 - **稽核日誌**: 結構化日誌並自動過濾敏感資料
 
-**關於安全問題、漏洞回報與部署最佳實踐，請參閱 [SECURITY.md](./SECURITY.md)。**
+**關於資安相關資訊，請參閱 [SECURITY.md](./SECURITY.md)。**
 
 ## 監控與日誌
 
@@ -390,7 +389,7 @@ aidefend-mcp/
 
 3. **確認可存取 GitHub**
    ```bash
-   curl https://api.github.com/repos/edward-playground/aidefend-framework/commits/main
+   curl https://api.github.com/repos/edward-playground/aidefense-framework/commits/main
    ```
 
 ### 查詢回傳 "Service not ready"
@@ -402,15 +401,6 @@ aidefend-mcp/
 
 在 `.env` 調整 `RATE_LIMIT_PER_MINUTE` 或用 `ENABLE_RATE_LIMITING=false` 停用。
 
-## 貢獻
-
-歡迎貢獻！請：
-
-1. Fork repository
-2. 建立 feature branch
-3. 執行測試與安全檢查
-4. 提交 pull request
-
 ## 授權
 
 本專案採用 MIT License - 詳見 [LICENSE](LICENSE) 檔案。
@@ -419,7 +409,6 @@ Copyright (c) 2025 Edward Lee (edward-playground)
 
 ## 致謝
 
-- [AIDEFEND Framework](https://github.com/edward-playground/aidefend-framework) - AI 安全知識庫
 - [LanceDB](https://lancedb.com/) - 快速 vector database
 - [FastAPI](https://fastapi.tiangolo.com/) - 現代化 Python web framework
 - [Sentence Transformers](https://www.sbert.net/) - Embedding models
@@ -436,6 +425,4 @@ Copyright (c) 2025 Edward Lee (edward-playground)
 - GitHub Issues: [建立 issue](https://github.com/edward-playground/aidefend-mcp/issues)
 - 安全問題: 請參閱 [SECURITY.md](./SECURITY.md)
 
----
 
-**用 ❤️ 為 AI 安全社群打造**

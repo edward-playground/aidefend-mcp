@@ -1,4 +1,4 @@
-[English](README.md) | [繁體中文](README-繁體中文.md)
+[English Readme](README.md) | [繁體中文 Readme](README-繁體中文.md)
 
 ---
 
@@ -9,7 +9,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.2-009688.svg)](https://fastapi.tiangolo.com)
 [![Security: Multiple Layers](https://img.shields.io/badge/security-multi--layer-success.svg)](./SECURITY.md)
 
-A **local, decentralized RAG (Retrieval-Augmented Generation) engine** for the [AIDEFEND framework](https://github.com/edward-playground/aidefend-framework). This service provides secure, private access to AIDEFEND's AI security knowledge base without sending sensitive queries to external services.
+A **local, decentralized RAG (Retrieval-Augmented Generation) engine** for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework). This service provides secure, private access to AIDEFEND's AI security knowledge base without sending sensitive queries to external services.
 
 ## Features
 
@@ -390,7 +390,7 @@ aidefend-mcp/
 
 3. **Verify network access to GitHub**
    ```bash
-   curl https://api.github.com/repos/edward-playground/aidefend-framework/commits/main
+   curl https://api.github.com/repos/edward-playground/aidefense-framework/commits/main
    ```
 
 ### Queries return "Service not ready"
@@ -419,7 +419,7 @@ Copyright (c) 2025 Edward Lee (edward-playground)
 
 ## Acknowledgments
 
-- [AIDEFEND Framework](https://github.com/edward-playground/aidefend-framework) - The AI security knowledge base
+- [AIDEFEND Framework](https://github.com/edward-playground/aidefense-framework) - The AI security knowledge base
 - [LanceDB](https://lancedb.com/) - Fast vector database
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
 - [Sentence Transformers](https://www.sbert.net/) - Embedding models
