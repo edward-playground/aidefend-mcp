@@ -78,3 +78,6 @@ logs/
 *.tmp
 temp/
 tmp/
+
+# VSCode Claude extension cache
+.claude/
