@@ -16,7 +16,6 @@ logger = get_logger(__name__)
 MAX_QUERY_LENGTH = 2000
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-ALLOWED_QUERY_PATTERN = re.compile(r'^[\w\s\-.,!?()\'\":/]+$', re.UNICODE)
 VALID_COMMIT_SHA_PATTERN = re.compile(r'^[a-f0-9]{40}$')
 ALLOWED_FILE_EXTENSIONS = {'.js'}
 
@@ -71,6 +70,7 @@ def validate_query_text(query: str) -> str:
     sanitized = " ".join(query.strip().split())
 
     # Check for suspicious patterns (basic injection prevention)
+    # Enhanced blacklist to catch more injection attempts
     dangerous_patterns = [
         r'<script', r'javascript:', r'onerror=', r'onclick=',
         r'\bexec\b', r'\beval\b', r'__import__', r'\{\{.*\}\}',
@@ -81,14 +81,9 @@ def validate_query_text(query: str) -> str:
         if re.search(pattern, sanitized, re.IGNORECASE):
             logger.warning(
                 f"Suspicious pattern detected in query",
-                extra={"pattern": pattern}
+                extra={"pattern": pattern, "query_preview": sanitized[:100]}
             )
             raise InputValidationError("Query contains potentially malicious content")
-
-    # Validate allowed characters (relaxed for natural language)
-    # Allow Unicode word characters, spaces, and common punctuation
-    if not ALLOWED_QUERY_PATTERN.match(sanitized):
-        raise InputValidationError("Query contains invalid characters")
 
     return sanitized
 

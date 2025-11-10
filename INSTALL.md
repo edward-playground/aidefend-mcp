@@ -48,24 +48,7 @@ python --version
 
 ---
 
-#### 2. **Node.js (any recent version)**
-
-**What is Node.js?** A JavaScript runtime. We use it to parse the AIDEFEND framework files (which are written in JavaScript).
-
-**Check if you have it:**
-```bash
-node --version
-```
-
-**Expected output:** `v18.x.x` or higher (any recent version works)
-
-**Don't have it?** Download from: https://nodejs.org/
-
-**Recommendation:** Download the "LTS" (Long Term Support) version for stability.
-
----
-
-#### 3. **Git** (for downloading the code)
+#### 2. **Git** (for downloading the code)
 
 **What is Git?** A tool for downloading code from GitHub.
 
@@ -101,8 +84,8 @@ docker-compose --version
 
 ### 💻 System Requirements
 
-- **RAM**: 4GB minimum, 8GB recommended
-- **Disk Space**: 2GB free (for ML models and AIDEFEND content)
+- **RAM**: 2GB minimum, 4GB recommended
+- **Disk Space**: 500MB free (for ML models and AIDEFEND content)
 - **Internet**: Required for initial download (service works offline after setup)
 
 ---
@@ -149,7 +132,7 @@ chmod +x start.sh
 ```
 
 **What this script does automatically:**
-1. ✅ Checks Python and Node.js are installed
+1. ✅ Checks Python is installed
 2. ✅ Creates a virtual environment (isolated Python environment)
 3. ✅ Installs all required Python packages
 4. ✅ Creates configuration file (`.env`)
@@ -163,8 +146,6 @@ AIDEFEND MCP Service - Quick Start
 
 Checking Python version...
 + Python OK
-Checking Node.js...
-+ Node.js OK
 Creating virtual environment...
 + Virtual environment created
 Installing dependencies (this may take a few minutes)...
@@ -183,7 +164,7 @@ This may take a few minutes on first run...
 
 INFO - Starting AIDEFEND sync process
 INFO - Downloading tactics files...
-INFO - Parsing JavaScript files with Node.js...
+INFO - Parsing JavaScript files...
 INFO - Embedding 1250 documents... (this is the slow part)
 INFO - Indexing in vector database...
 INFO - Sync complete!
@@ -192,7 +173,7 @@ INFO - Application startup complete
 INFO - Uvicorn running on http://127.0.0.1:8000
 ```
 
-**First-time installation:** The "Embedding documents" step takes **2-5 minutes** (downloading ML models). This is normal!
+**First-time installation:** The "Embedding documents" step takes **1-3 minutes** (downloading lightweight ONNX models). This is normal!
 
 ---
 
@@ -272,7 +253,7 @@ docker-compose up -d
 **What this does:**
 - `-d` means "detached" (runs in background)
 - Builds a Docker image (first time only, takes 2-3 minutes)
-- Downloads Python/Node.js if needed
+- Downloads Python if needed
 - Starts the service
 - Creates a persistent data volume
 
@@ -388,10 +369,10 @@ pip install -r requirements.txt
 **What this installs:**
 - FastAPI (web framework)
 - LanceDB (vector database)
-- Sentence Transformers (ML model for embeddings)
-- 20+ other packages
+- FastEmbed (lightweight ONNX-based ML model for embeddings)
+- 15+ other packages
 
-**This will take 5-10 minutes on first run** (downloading ML models ~500MB).
+**This will take 2-5 minutes on first run** (downloading ML models ~100MB).
 
 **Expected output:**
 ```
@@ -419,36 +400,7 @@ cp .env.example .env
 
 ---
 
-### Step 5: Verify Node.js is Accessible
-
-```bash
-node --version
-```
-
-**If this fails:**
-1. Make sure Node.js is installed (see [Prerequisites](#what-youll-need-prerequisites))
-2. Restart your terminal
-3. If still failing, set the full path in `.env`:
-
-**Windows:**
-```env
-NODE_EXECUTABLE=C:\Program Files\nodejs\node.exe
-```
-
-**macOS/Linux:**
-```env
-NODE_EXECUTABLE=/usr/local/bin/node
-```
-
-To find the path, run:
-```bash
-which node    # macOS/Linux
-where node    # Windows
-```
-
----
-
-### Step 6: Start the Service
+### Step 5: Start the Service
 
 ```bash
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
@@ -465,7 +417,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 INFO - Starting AIDEFEND sync process
 INFO - Downloading tactics/harden.js...
 INFO - Downloading tactics/protect.js...
-INFO - Parsing JavaScript files with Node.js...
+INFO - Parsing JavaScript files...
 INFO - Embedding 1250 documents...
 INFO - Indexing in LanceDB...
 INFO - Sync complete! Updated to commit abc1234
@@ -474,7 +426,7 @@ INFO - Started server process [12345]
 INFO - Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 ```
 
-**⏳ First run takes 2-5 minutes** for downloading and embedding AIDEFEND content.
+**⏳ First run takes 1-3 minutes** for downloading and embedding AIDEFEND content.
 
 ---
 
@@ -581,6 +533,302 @@ http://localhost:8000/docs
 
 ---
 
+## Setting Up MCP Mode for Claude Desktop
+
+**What is MCP Mode?** MCP (Model Context Protocol) allows Claude Desktop to use AIDEFEND as a tool. Instead of copying/pasting defense tactics, Claude can search the knowledge base directly during conversations.
+
+**When to use MCP Mode:**
+- You want Claude Desktop to access AIDEFEND knowledge automatically
+- You're having AI-assisted security conversations
+- You prefer tool-based integration over HTTP API
+
+**When to use REST API Mode instead:**
+- You're integrating with custom applications
+- You need HTTP endpoints
+- You're building automation scripts
+
+---
+
+### Prerequisites for MCP Mode
+
+✅ You've completed one of the installation methods above
+✅ You have [Claude Desktop](https://claude.ai/download) installed
+✅ The AIDEFEND service is installed (doesn't need to be running for config)
+
+---
+
+### Step 1: Locate Claude Desktop Configuration File
+
+Claude Desktop stores its MCP server configuration in a JSON file:
+
+**macOS:**
+```
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+**Windows:**
+```
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+**How to open it:**
+
+#### macOS:
+```bash
+# Open in default text editor
+open ~/Library/Application\ Support/Claude/claude_desktop_config.json
+
+# Or use nano in terminal
+nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+#### Windows:
+```cmd
+# Open in Notepad
+notepad %APPDATA%\Claude\claude_desktop_config.json
+```
+
+**File doesn't exist?** Create it manually - it's normal if this is your first MCP server.
+
+---
+
+### Step 2: Add AIDEFEND Configuration
+
+Add this configuration to the file. If the file is empty, copy everything below. If you already have other MCP servers configured, add just the `"aidefend"` section inside the existing `"mcpServers"` object.
+
+**Template:**
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+      "command": "python",
+      "args": [
+        "-m",
+        "aidefend_mcp",
+        "--mcp"
+      ],
+      "cwd": "/REPLACE/WITH/YOUR/PATH/TO/aidefend-mcp"
+    }
+  }
+}
+```
+
+**⚠️ IMPORTANT:** Replace `/REPLACE/WITH/YOUR/PATH/TO/aidefend-mcp` with the **absolute path** where you installed AIDEFEND.
+
+**How to find your path:**
+
+**macOS/Linux:**
+```bash
+cd /path/to/aidefend-mcp
+pwd
+```
+Copy the output (e.g., `/Users/yourname/projects/aidefend-mcp`)
+
+**Windows:**
+```cmd
+cd C:\path\to\aidefend-mcp
+cd
+```
+Copy the output, but **use forward slashes** in the JSON file:
+- ✅ Good: `"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
+- ❌ Wrong: `"cwd": "C:\\Users\\YourName\\projects\\aidefend-mcp"`
+
+---
+
+### Step 3: Example Configurations
+
+**Example 1: macOS Installation**
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+      "command": "python",
+      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "cwd": "/Users/alice/projects/aidefend-mcp"
+    }
+  }
+}
+```
+
+**Example 2: Windows Installation**
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+      "command": "python",
+      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "cwd": "C:/Users/Bob/Documents/aidefend-mcp"
+    }
+  }
+}
+```
+
+**Example 3: Multiple MCP Servers**
+
+If you already have other MCP servers (like filesystem or git), add AIDEFEND alongside them:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/alice/Documents"]
+    },
+    "aidefend": {
+      "command": "python",
+      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "cwd": "/Users/alice/projects/aidefend-mcp"
+    }
+  }
+}
+```
+
+---
+
+### Step 4: Restart Claude Desktop
+
+1. **Completely quit Claude Desktop** (not just close the window)
+   - macOS: `Cmd+Q` or right-click icon → Quit
+   - Windows: Right-click taskbar icon → Exit
+
+2. **Reopen Claude Desktop**
+
+3. **Look for the 🔌 icon** in the Claude interface
+   - Click it to see available tools
+   - You should see "aidefend" listed
+
+---
+
+### Step 5: Test the MCP Integration
+
+Try these example prompts in Claude Desktop:
+
+**Test 1: Basic Query**
+```
+Can you search AIDEFEND for prompt injection defenses?
+```
+
+Claude should automatically use the `query_aidefend` tool and return relevant defense tactics.
+
+**Test 2: Check Status**
+```
+What's the status of the AIDEFEND knowledge base?
+```
+
+Claude should use `get_aidefend_status` and report document count and sync status.
+
+**Test 3: Manual Sync**
+```
+Please sync the latest AIDEFEND tactics from GitHub.
+```
+
+Claude should use `sync_aidefend` to update the knowledge base.
+
+---
+
+### Step 6: Understanding the Tools
+
+Claude Desktop now has access to three AIDEFEND tools:
+
+| Tool Name | What It Does | Example Use |
+|-----------|--------------|-------------|
+| `query_aidefend` | Searches the AIDEFEND knowledge base | "Find defenses for model poisoning" |
+| `get_aidefend_status` | Checks if service is ready and synced | "Is AIDEFEND up to date?" |
+| `sync_aidefend` | Manually updates the knowledge base | "Sync latest AIDEFEND tactics" |
+
+Claude will automatically choose which tool to use based on your question.
+
+---
+
+### Troubleshooting MCP Mode
+
+#### ❌ Claude Desktop doesn't show the 🔌 icon
+
+**Possible causes:**
+1. Configuration file has syntax errors
+2. Path to AIDEFEND is incorrect
+3. Claude Desktop wasn't fully restarted
+
+**Solutions:**
+1. **Validate JSON syntax** - Use https://jsonlint.com/ to check your config file
+2. **Check path is absolute** - Must start with `/` (macOS/Linux) or `C:/` (Windows)
+3. **Use forward slashes** on Windows - Even though Windows uses `\`, JSON requires `/`
+4. **Fully quit Claude** - Use Cmd+Q (macOS) or Exit from taskbar (Windows)
+
+---
+
+#### ❌ Tools appear but give "Connection failed" errors
+
+**Cause:** The AIDEFEND service code has issues or dependencies are missing.
+
+**Solutions:**
+1. **Test the service manually:**
+   ```bash
+   cd /path/to/aidefend-mcp
+   python -m aidefend_mcp --mcp
+   ```
+
+   You should see: `Waiting for MCP client connections...`
+
+2. **Check for Python errors** - If you see error messages, the service needs fixing
+
+3. **Verify dependencies are installed:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+---
+
+#### ❌ First query takes 2-3 minutes
+
+**This is normal!** The first query triggers:
+1. Initial sync with GitHub (downloads AIDEFEND tactics)
+2. Parsing all JavaScript files
+3. Generating embeddings
+4. Building vector database
+
+**After the first sync**, queries take less than 1 second.
+
+**Tip:** Run a manual sync before using Claude:
+```bash
+python -m aidefend_mcp  # Start in API mode
+# Visit http://localhost:8000/api/v1/status to check sync status
+```
+
+---
+
+#### ❌ "Database sync in progress" error
+
+**Cause:** You're querying while the background sync is running.
+
+**Solution:** Wait 30 seconds and try again. This protects against data corruption during sync.
+
+---
+
+### Using Both REST API and MCP Modes
+
+**Can I use both?** Yes! They're completely independent:
+
+- **MCP Mode**: For Claude Desktop conversations
+- **REST API Mode**: For HTTP integrations, scripts, other applications
+
+**Running both simultaneously:**
+
+Terminal 1:
+```bash
+python -m aidefend_mcp          # REST API on http://localhost:8000
+```
+
+Terminal 2:
+```bash
+# Configure Claude Desktop with MCP mode (as shown above)
+# MCP runs automatically when Claude Desktop connects
+```
+
+Both modes share the same knowledge base and sync service - they stay in sync automatically.
+
+---
+
 ## Troubleshooting Common Issues
 
 ### ❌ Issue: "Python not found" or "python: command not found"
@@ -603,31 +851,6 @@ python3 --version
 
 # If that works, use python3 for all commands
 python3 -m venv venv
-```
-
----
-
-### ❌ Issue: "Node.js not found" or "node: command not found"
-
-**Solution:**
-1. Install Node.js from https://nodejs.org/
-2. Restart your terminal
-3. Verify: `node --version`
-
-**Still not working?**
-
-Find where Node.js is installed:
-```bash
-# Windows
-where node
-
-# macOS/Linux
-which node
-```
-
-Copy the path and add to `.env`:
-```env
-NODE_EXECUTABLE=/path/to/node
 ```
 
 ---
@@ -684,7 +907,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 
 **Meaning:** The initial sync is still running.
 
-**Solution:** Wait 2-5 minutes for the embedding process to complete.
+**Solution:** Wait 1-3 minutes for the embedding process to complete.
 
 **Check sync status:**
 ```bash
@@ -741,7 +964,7 @@ docker-compose logs aidefend-mcp
 
 1. **Out of memory:**
    - Open Docker Desktop → Settings → Resources
-   - Increase memory to at least 4GB
+   - Increase memory to at least 2GB
 
 2. **Network issues:**
    - Check internet connection
@@ -755,12 +978,12 @@ docker-compose logs aidefend-mcp
 
 ### ❌ Issue: Embedding process is very slow (>10 minutes)
 
-**Normal on first run:** 2-5 minutes for ~1250 documents
+**Normal on first run:** 1-3 minutes for ~1250 documents
 
 **If it takes longer:**
 
 **Possible causes:**
-1. **Slow internet** - downloading ML models (~500MB)
+1. **Slow internet** - downloading ML models (~100MB)
 2. **Slow CPU** - embedding is CPU-intensive
 3. **Low RAM** - system is swapping to disk
 
@@ -840,7 +1063,6 @@ Download from: https://curl.se/windows/
 3. **Create a new issue** with:
    - Your operating system (Windows 11, macOS 14, Ubuntu 22.04, etc.)
    - Python version: `python --version`
-   - Node.js version: `node --version`
    - Full error message (copy-paste)
    - What you tried
    - Relevant log files

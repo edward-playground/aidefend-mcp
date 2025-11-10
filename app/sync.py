@@ -6,10 +6,11 @@ Handles GitHub sync, parsing, embedding, and indexing with security.
 import asyncio
 import httpx
 import lancedb
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 from app.config import settings
 from app.logger import get_logger
@@ -22,23 +23,89 @@ from app.security import (
     compute_file_checksum
 )
 from app.utils import (
-    parse_js_file_with_nodejs,
+    parse_js_file_with_regex,
     save_version_info,
     get_local_commit_sha,
-    check_nodejs_available,
     format_bytes
 )
 
 logger = get_logger(__name__)
 
-# Global state for sync status
-_sync_in_progress = False
+# Sync lock configuration
+LOCK_FILE = settings.DATA_PATH / ".sync.lock"
+LOCK_TIMEOUT_SECONDS = 1800  # 30 minutes
+
+# Global state for last sync error
 _last_sync_error: Optional[str] = None
 
 
+def _acquire_sync_lock() -> bool:
+    """
+    Acquire sync lock using atomic file creation.
+
+    Returns:
+        True if lock acquired, False if another process holds the lock
+    """
+    try:
+        # Check if stale lock exists (older than timeout)
+        if LOCK_FILE.exists():
+            lock_age = time.time() - LOCK_FILE.stat().st_mtime
+            if lock_age > LOCK_TIMEOUT_SECONDS:
+                logger.warning(
+                    f"Removing stale lock file (age: {lock_age:.0f}s)",
+                    extra={"lock_age_seconds": lock_age, "timeout": LOCK_TIMEOUT_SECONDS}
+                )
+                LOCK_FILE.unlink(missing_ok=True)
+            else:
+                logger.info("Sync already in progress (lock file exists)")
+                return False
+
+        # Try to create lock file atomically
+        # Using 'x' mode fails if file exists, making this atomic
+        with open(LOCK_FILE, 'x') as f:
+            f.write(f"{datetime.now(timezone.utc).isoformat()}\n")
+
+        logger.info("Acquired sync lock")
+        return True
+
+    except FileExistsError:
+        # Another process created the lock between our check and creation
+        logger.info("Sync already in progress (lock acquired by another process)")
+        return False
+    except Exception as e:
+        logger.error(f"Error acquiring sync lock: {e}")
+        return False
+
+
+def _release_sync_lock() -> None:
+    """Release sync lock by removing lock file."""
+    try:
+        LOCK_FILE.unlink(missing_ok=True)
+        logger.info("Released sync lock")
+    except Exception as e:
+        logger.warning(f"Error releasing sync lock: {e}")
+
+
 def is_sync_in_progress() -> bool:
-    """Check if sync is currently running."""
-    return _sync_in_progress
+    """
+    Check if sync is currently running by checking lock file existence.
+
+    Returns:
+        True if lock file exists and is not stale
+    """
+    if not LOCK_FILE.exists():
+        return False
+
+    # Check if lock is stale
+    try:
+        lock_age = time.time() - LOCK_FILE.stat().st_mtime
+        if lock_age > LOCK_TIMEOUT_SECONDS:
+            logger.warning(f"Stale lock detected (age: {lock_age:.0f}s)")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error checking lock file: {e}")
+        return False
 
 
 def get_last_sync_error() -> Optional[str]:
@@ -155,7 +222,7 @@ async def download_file(filename: str, commit_sha: str) -> Optional[Path]:
 
 def parse_tactic_file(file_path: Path) -> Optional[Dict[str, Any]]:
     """
-    Parse a tactic .js file using Node.js.
+    Parse a tactic .js file using regex.
 
     Args:
         file_path: Path to .js file
@@ -164,7 +231,7 @@ def parse_tactic_file(file_path: Path) -> Optional[Dict[str, Any]]:
         Parsed tactic data or None if failed
     """
     try:
-        parsed_data = parse_js_file_with_nodejs(file_path)
+        parsed_data = parse_js_file_with_regex(file_path)
 
         # Validate expected structure
         if not isinstance(parsed_data, dict):
@@ -300,10 +367,10 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> bool:
     try:
         logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
 
-        # Load embedding model in thread pool
+        # Load embedding model in thread pool (fastembed uses ONNX Runtime)
         model = await asyncio.to_thread(
-            SentenceTransformer,
-            settings.EMBEDDING_MODEL
+            TextEmbedding,
+            model_name=settings.EMBEDDING_MODEL
         )
 
         logger.info(f"Embedding {len(documents)} documents...")
@@ -311,13 +378,15 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> bool:
         # Extract texts for batch embedding
         texts = [doc["text"] for doc in documents]
 
-        # Embed in batches
-        embeddings = await asyncio.to_thread(
-            model.encode,
+        # Embed in batches (fastembed returns generator, convert to list)
+        embeddings_generator = await asyncio.to_thread(
+            model.embed,
             texts,
-            show_progress_bar=True,
             batch_size=32
         )
+
+        # Convert generator to list and ensure numpy arrays
+        embeddings = list(embeddings_generator)
 
         logger.info("Creating LanceDB records...")
 
@@ -373,31 +442,24 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> bool:
 
 async def run_sync() -> bool:
     """
-    Execute complete sync process.
+    Execute complete sync process with file-based locking.
 
     Returns:
         True if sync successful, False otherwise
     """
-    global _sync_in_progress, _last_sync_error
+    global _last_sync_error
 
-    if _sync_in_progress:
+    # Try to acquire lock
+    if not _acquire_sync_lock():
         logger.warning("Sync already in progress, skipping")
         return False
 
-    _sync_in_progress = True
     _last_sync_error = None
 
     try:
         logger.info("=" * 60)
         logger.info("Starting AIDEFEND sync process")
         logger.info("=" * 60)
-
-        # Check Node.js availability
-        if not await asyncio.to_thread(check_nodejs_available):
-            error_msg = "Node.js is not available. Please install Node.js to continue."
-            logger.error(error_msg)
-            _last_sync_error = error_msg
-            return False
 
         # Fetch latest commit
         latest_sha = await fetch_latest_commit_sha()
@@ -438,9 +500,13 @@ async def run_sync() -> bool:
         # Parse all files
         all_documents = []
         for file_path in downloaded_files:
-            tactic_data = parse_tactic_file(file_path)
+            # Use asyncio.to_thread to avoid blocking the event loop
+            # (parse_tactic_file involves file I/O and CPU-intensive regex operations)
+            tactic_data = await asyncio.to_thread(parse_tactic_file, file_path)
             if tactic_data:
-                documents = extract_documents_from_tactic(tactic_data)
+                # Use asyncio.to_thread for extract_documents_from_tactic as well
+                # (involves CPU-intensive data transformation)
+                documents = await asyncio.to_thread(extract_documents_from_tactic, tactic_data)
                 all_documents.extend(documents)
             else:
                 error_msg = f"Failed to parse {file_path.name}"
@@ -483,7 +549,8 @@ async def run_sync() -> bool:
         return False
 
     finally:
-        _sync_in_progress = False
+        # Always release lock when done
+        _release_sync_lock()
 
 
 async def sync_loop():

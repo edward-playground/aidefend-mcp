@@ -70,12 +70,12 @@ class Settings(BaseSettings):
 
     # Embedding Configuration
     EMBEDDING_MODEL: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
-        description="Sentence transformer model for embeddings"
+        default="BAAI/bge-small-en-v1.5",
+        description="FastEmbed model for embeddings (ONNX-based, lightweight)"
     )
     EMBEDDING_DIMENSION: int = Field(
         default=384,
-        description="Embedding vector dimension (384 for all-MiniLM-L6-v2)"
+        description="Embedding vector dimension (384 for bge-small-en-v1.5)"
     )
 
     # Sync Configuration
@@ -162,12 +162,6 @@ class Settings(BaseSettings):
     ENABLE_FILE_LOGGING: bool = Field(
         default=True,
         description="Enable logging to file"
-    )
-
-    # Node.js Configuration
-    NODE_EXECUTABLE: str = Field(
-        default="node",
-        description="Path to Node.js executable"
     )
 
     # Security Headers

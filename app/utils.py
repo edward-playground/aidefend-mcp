@@ -3,8 +3,7 @@ Utility functions for AIDEFEND MCP Service.
 """
 
 import json
-import subprocess
-import tempfile
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone
@@ -20,14 +19,20 @@ from app.security import (
 logger = get_logger(__name__)
 
 
-class NodeJSParserError(Exception):
-    """Raised when Node.js parsing fails."""
+class JavaScriptParserError(Exception):
+    """Raised when JavaScript parsing fails."""
     pass
 
 
-def parse_js_file_with_nodejs(js_file_path: Path) -> Dict[str, Any]:
+def parse_js_file_with_regex(js_file_path: Path) -> Dict[str, Any]:
     """
-    Parse JavaScript file using Node.js to safely extract exported object.
+    Parse JavaScript file using regex to extract exported object.
+
+    This function extracts JSON data from JavaScript export statements like:
+    export const tacticName = { ... };
+
+    Note: This is designed for the specific AIDEFEND framework file format.
+    If the format changes significantly, this parser may need updates.
 
     Args:
         js_file_path: Path to .js file
@@ -36,7 +41,7 @@ def parse_js_file_with_nodejs(js_file_path: Path) -> Dict[str, Any]:
         Parsed JavaScript object as Python dict
 
     Raises:
-        NodeJSParserError: If parsing fails
+        JavaScriptParserError: If parsing fails
     """
     # Security validations
     try:
@@ -45,95 +50,73 @@ def parse_js_file_with_nodejs(js_file_path: Path) -> Dict[str, Any]:
         validate_file_size(validated_path)
     except Exception as e:
         logger.error(f"Security validation failed for {js_file_path}: {e}")
-        raise NodeJSParserError(f"File validation failed: {e}")
-
-    # Create temporary Node.js script to parse the file
-    parser_script = f"""
-const module = {{}};
-const exports = {{}};
-
-// Read the file
-const fs = require('fs');
-const content = fs.readFileSync({json.dumps(str(validated_path))}, 'utf-8');
-
-// Use Function constructor to safely evaluate the export
-// This extracts the exported object without executing arbitrary code
-const extractExport = new Function('exports', 'module', content + '; return exports;');
-const exported = extractExport(exports, module);
-
-// Find the exported constant (e.g., modelTactic, hardenTactic, etc.)
-let result = null;
-for (const key in exported) {{
-    if (key.endsWith('Tactic')) {{
-        result = exported[key];
-        break;
-    }}
-}}
-
-// If not found in exports, try to extract from content directly
-if (!result) {{
-    const match = content.match(/export\\s+const\\s+(\\w+Tactic)\\s*=\\s*(\\{{[\\s\\S]*?\\}});?\\s*$/m);
-    if (match) {{
-        const objContent = match[2];
-        result = eval('(' + objContent + ')');
-    }}
-}}
-
-if (!result) {{
-    console.error('ERROR: Could not find exported tactic object');
-    process.exit(1);
-}}
-
-// Output as JSON
-console.log(JSON.stringify(result, null, 2));
-"""
+        raise JavaScriptParserError(f"File validation failed: {e}")
 
     try:
-        # Write parser script to temporary file
-        with tempfile.NamedTemporaryFile(
-            mode='w',
-            suffix='.js',
-            delete=False,
-            encoding='utf-8'
-        ) as tmp_script:
-            tmp_script.write(parser_script)
-            tmp_script_path = tmp_script.name
+        # Read file content
+        with open(validated_path, 'r', encoding='utf-8') as f:
+            content = f.read()
 
-        # Execute Node.js parser
-        result = subprocess.run(
-            [settings.NODE_EXECUTABLE, tmp_script_path],
-            capture_output=True,
-            text=True,
-            timeout=30,  # 30 second timeout
-            check=False
-        )
+        # Pattern to match: export const <name> = { ... }; or { ... }
+        # Semicolon is optional in JavaScript
+        # Uses re.DOTALL to allow . to match newlines
+        pattern = r'export\s+const\s+(\w+)\s*=\s*(\{.*?\})\s*;?'
+        match = re.search(pattern, content, re.DOTALL)
 
-        # Clean up temporary script
-        Path(tmp_script_path).unlink(missing_ok=True)
-
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() or result.stdout.strip()
+        if not match:
             logger.error(
-                f"Node.js parser failed for {js_file_path.name}",
-                extra={"error": error_msg}
+                f"Could not find exported object in {js_file_path.name}",
+                extra={"pattern": "export const <name> = {...};"}
             )
-            raise NodeJSParserError(f"Node.js parsing failed: {error_msg}")
+            raise JavaScriptParserError(
+                f"No exported object found in {js_file_path.name}. "
+                f"Expected format: 'export const <name> = {{...}};' (semicolon optional)"
+            )
 
-        # Parse JSON output
+        tactic_name = match.group(1)
+        obj_content = match.group(2)
+
+        # Clean up JavaScript object to make it valid JSON:
+        # 1. Remove JavaScript comments
+        obj_content = re.sub(r'//.*?$', '', obj_content, flags=re.MULTILINE)  # Single-line comments
+        obj_content = re.sub(r'/\*.*?\*/', '', obj_content, flags=re.DOTALL)  # Multi-line comments
+
+        # 2. Remove trailing commas before closing braces/brackets
+        obj_content = re.sub(r',(\s*[}\]])', r'\1', obj_content)
+
+        # Note: AIDEFEND framework .js files already have quoted keys ("name", "id", etc.)
+        # We do NOT add quotes to avoid corrupting HTML content in string values
+        # (e.g., <h5>Concept:</h5> would become <h5>"Concept":</h5>)
+
+        # Parse as JSON
         try:
-            parsed_data = json.loads(result.stdout)
-            logger.info(f"Successfully parsed {js_file_path.name}")
+            parsed_data = json.loads(obj_content)
+            logger.info(
+                f"Successfully parsed {js_file_path.name} using regex",
+                extra={"tactic_name": tactic_name}
+            )
             return parsed_data
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error for {js_file_path.name}: {e}")
-            raise NodeJSParserError(f"Invalid JSON output from Node.js parser: {e}")
+            logger.error(
+                f"JSON decode error for {js_file_path.name}",
+                extra={
+                    "error": str(e),
+                    "line": e.lineno,
+                    "column": e.colno,
+                    "obj_preview": obj_content[:200]
+                }
+            )
+            raise JavaScriptParserError(
+                f"Failed to parse JavaScript object as JSON in {js_file_path.name}: {e}. "
+                f"The file format may have changed. Please check the file structure."
+            )
 
-    except subprocess.TimeoutExpired:
-        logger.error(f"Node.js parser timeout for {js_file_path.name}")
-        raise NodeJSParserError("Node.js parser timeout (30s)")
+    except JavaScriptParserError:
+        # Re-raise our custom errors
+        raise
     except Exception as e:
         logger.error(f"Unexpected error parsing {js_file_path.name}: {e}")
-        raise NodeJSParserError(f"Unexpected parsing error: {e}")
+        raise JavaScriptParserError(f"Unexpected parsing error: {e}")
 
 
 def save_version_info(commit_sha: str, additional_info: Optional[Dict[str, Any]] = None) -> None:
@@ -202,36 +185,6 @@ def get_local_commit_sha() -> Optional[str]:
     if version_info:
         return version_info.get("commit_sha")
     return None
-
-
-def check_nodejs_available() -> bool:
-    """
-    Check if Node.js is available and working.
-
-    Returns:
-        True if Node.js is available, False otherwise
-    """
-    try:
-        result = subprocess.run(
-            [settings.NODE_EXECUTABLE, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
-        )
-        if result.returncode == 0:
-            version = result.stdout.strip()
-            logger.info(f"Node.js available: {version}")
-            return True
-        else:
-            logger.warning(f"Node.js check failed: {result.stderr}")
-            return False
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        logger.warning(f"Node.js not available: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"Error checking Node.js: {e}")
-        return False
 
 
 def format_bytes(bytes_size: int) -> str:

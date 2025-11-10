@@ -92,9 +92,19 @@ Get a production-ready RAG system that:
 
 ## Architecture
 
+### Dual-Mode Design
+
+This service supports **two modes** to fit different use cases:
+
+1. **REST API Mode** - For system integration (existing applications, custom tools)
+2. **MCP Mode** - For AI assistants (Claude Desktop, other MCP-compatible clients)
+
+Both modes share the same core logic, ensuring consistent results.
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    AIDEFEND MCP Service                     │
+│                      (Dual-Mode Support)                    │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌──────────────┐         ┌──────────────┐                  │
@@ -109,34 +119,46 @@ Get a production-ready RAG system that:
 │         ▼                         │                         │
 │  ┌──────────────┐         ┌──────┴──────┐                   │
 │  │  AIDEFEND    │         │  Query      │                   │
-│  │  Framework   │         │  Engine     │                   │
-│  │  (GitHub)    │         │             │                   │
-│  └──────────────┘         └──────▲──────┘                   │
-│                                   │                         │
-│                           ┌───────┴────────┐                │
-│                           │   FastAPI      │                │
-│                           │   REST API     │                │
-│                           └───────▲────────┘                │
-│                                   │                         │
-└───────────────────────────────────┼─────────────────────────┘
-                                    │
-                            ┌───────┴────────┐
-                            │  Your LLM      │
-                            │  Application   │
-                            └────────────────┘
+│  │  Framework   │         │  Engine     │◀────┐             │
+│  │  (GitHub)    │         │ (Shared)    │     │             │
+│  └──────────────┘         └──────┬──────┘     │             │
+│                                   │            │             │
+│                          ┌────────┴────────┐   │             │
+│                          │                 │   │             │
+│                    ┌─────▼──────┐   ┌──────▼─────┐          │
+│                    │  FastAPI   │   │ MCP Server │          │
+│                    │  REST API  │   │  (stdio)   │          │
+│                    └─────┬──────┘   └──────┬─────┘          │
+│                          │                 │                │
+└──────────────────────────┼─────────────────┼────────────────┘
+                           │                 │
+                  ┌────────┴────────┐ ┌──────┴──────┐
+                  │  Your LLM       │ │   Claude    │
+                  │  Application    │ │   Desktop   │
+                  │  (HTTP Client)  │ │  (MCP)      │
+                  └─────────────────┘ └─────────────┘
 ```
+
+### When to Use Each Mode
+
+| Use Case | Recommended Mode | Why |
+|----------|------------------|-----|
+| **Claude Desktop integration** | MCP Mode | Native tool support, no HTTP needed |
+| **Custom scripts/automation** | REST API Mode | Standard HTTP, easy to integrate |
+| **System integration** | REST API Mode | Works with any HTTP client |
+| **AI assistant conversations** | MCP Mode | Optimized for AI assistant workflows |
+| **Both simultaneously** | Run both! | They can coexist on the same machine |
 
 ## Prerequisites
 
 - **Python 3.9+**
-- **Node.js** (for parsing AIDEFEND JavaScript files)
 - **Docker** (optional, for containerized deployment)
-- **4GB RAM** minimum (8GB recommended)
-- **2GB disk space** for models and data
+- **2GB RAM** minimum (4GB recommended)
+- **500MB disk space** for models and data
 
 ## Quick Start
 
-### Option 1: Local Installation
+### Step 1: Installation (Common for Both Modes)
 
 1. **Clone the repository**
    ```bash
@@ -152,32 +174,78 @@ Get a production-ready RAG system that:
 3. **Configure environment**
    ```bash
    cp .env.example .env
-   # Edit .env if needed
+   # Edit .env if needed (optional)
    ```
 
-4. **Verify Node.js is installed**
+### Step 2: Choose Your Mode
+
+#### Option A: REST API Mode (For HTTP Integration)
+
+**When to use:** You want to integrate with custom applications, scripts, or any HTTP client.
+
+1. **Start the service**
    ```bash
-   node --version
+   python -m aidefend_mcp
+   # Or equivalently:
+   # python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
    ```
 
-5. **Run the service**
-   ```bash
-   python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-   ```
-
-6. **Check status**
+2. **Verify it's running**
    ```bash
    curl http://localhost:8000/health
    ```
 
-The service will automatically:
-- Download AIDEFEND framework files from GitHub
-- Parse and index the content
-- Start the API server
+3. **Access API docs**
 
-Access the API documentation at: http://localhost:8000/docs
+   Open your browser: http://localhost:8000/docs
 
-### Option 2: Docker Deployment
+The service will automatically sync with GitHub and index the AIDEFEND framework on first run.
+
+#### Option B: MCP Mode (For Claude Desktop)
+
+**When to use:** You want Claude Desktop to access AIDEFEND knowledge directly as a tool.
+
+1. **Configure Claude Desktop**
+
+   Edit Claude Desktop's config file:
+   - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+   Add this configuration:
+   ```json
+   {
+     "mcpServers": {
+       "aidefend": {
+         "command": "python",
+         "args": [
+           "-m",
+           "aidefend_mcp",
+           "--mcp"
+         ],
+         "cwd": "/absolute/path/to/aidefend-mcp"
+       }
+     }
+   }
+   ```
+
+   **Important:** Replace `/absolute/path/to/aidefend-mcp` with your actual directory path!
+
+2. **Restart Claude Desktop**
+
+   Close and reopen Claude Desktop completely.
+
+3. **Verify connection**
+
+   In Claude Desktop, you should see "aidefend" in the MCP tools list (look for the 🔌 icon). Try asking:
+   ```
+   "Can you search AIDEFEND for prompt injection defenses?"
+   ```
+
+   Claude will automatically use the `query_aidefend` tool to search the knowledge base.
+
+**For detailed MCP setup instructions, see [INSTALL.md](INSTALL.md).**
+
+#### Option C: Docker Deployment (REST API Mode)
 
 1. **Build and run with docker-compose**
    ```bash
@@ -194,9 +262,15 @@ Access the API documentation at: http://localhost:8000/docs
    curl http://localhost:8000/health
    ```
 
-## API Usage
+**Note:** MCP mode requires direct Python execution and cannot run in Docker (Claude Desktop needs direct stdio access).
 
-### Query Endpoint
+## Usage Guide
+
+### REST API Mode Usage
+
+The REST API provides HTTP endpoints for integration with any application.
+
+#### Query Endpoint
 
 ```bash
 POST /api/v1/query
@@ -265,6 +339,108 @@ POST /api/v1/sync
 
 Manually triggers a sync operation (rate limited to 5/minute).
 
+---
+
+### MCP Mode Usage
+
+When running in MCP mode (`python -m aidefend_mcp --mcp`), the service provides tools for AI assistants like Claude Desktop.
+
+#### Available MCP Tools
+
+1. **query_aidefend** - Search the AIDEFEND knowledge base
+2. **get_aidefend_status** - Check service status and sync info
+3. **sync_aidefend** - Manually trigger knowledge base sync
+
+#### How to Use in Claude Desktop
+
+Once configured, Claude Desktop can automatically use these tools when you ask AIDEFEND-related questions.
+
+**Example Conversations:**
+
+```
+You: "How do I defend against prompt injection attacks?"
+
+Claude: [Uses query_aidefend tool automatically]
+       Based on the AIDEFEND framework, here are the key defenses...
+```
+
+```
+You: "What's the status of the AIDEFEND knowledge base?"
+
+Claude: [Uses get_aidefend_status tool]
+       The AIDEFEND service has 42 indexed documents...
+```
+
+```
+You: "Can you sync the latest AIDEFEND tactics?"
+
+Claude: [Uses sync_aidefend tool]
+       Syncing with GitHub... The knowledge base has been updated successfully!
+```
+
+#### Using Tools Explicitly
+
+You can also ask Claude to use specific tools:
+
+```
+You: "Use the query_aidefend tool to search for 'model poisoning defenses'"
+
+Claude: [Calls query_aidefend with your exact query]
+```
+
+#### MCP Tool Schemas
+
+For developers integrating with other MCP clients, here are the tool schemas:
+
+**query_aidefend:**
+```json
+{
+  "name": "query_aidefend",
+  "description": "Search the AIDEFEND AI security defense knowledge base...",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Your search query in natural language"
+      },
+      "top_k": {
+        "type": "number",
+        "description": "Number of results to return (default: 5, max: 20)",
+        "default": 5
+      }
+    },
+    "required": ["query"]
+  }
+}
+```
+
+**get_aidefend_status:**
+```json
+{
+  "name": "get_aidefend_status",
+  "description": "Get the current status of the AIDEFEND knowledge base...",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}
+```
+
+**sync_aidefend:**
+```json
+{
+  "name": "sync_aidefend",
+  "description": "Manually trigger synchronization with the AIDEFEND GitHub repository...",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}
+```
+
 ## Configuration
 
 All configuration is done via environment variables. See [.env.example](./.env.example) for all options.
@@ -279,7 +455,6 @@ All configuration is done via environment variables. See [.env.example](./.env.e
 | `ENABLE_RATE_LIMITING` | `true` | Enable rate limiting on API endpoints |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Max requests per minute per IP |
 | `MAX_QUERY_LENGTH` | `2000` | Maximum query text length |
-| `NODE_EXECUTABLE` | `node` | Path to Node.js executable |
 
 ## Security
 
@@ -349,11 +524,13 @@ bandit -r app/
 
 ```
 aidefend-mcp/
+├── __main__.py          # Unified entry point (mode selection)
+├── mcp_server.py        # MCP protocol server implementation
 ├── app/
 │   ├── __init__.py
-│   ├── main.py          # FastAPI application
+│   ├── main.py          # FastAPI application (REST API mode)
 │   ├── config.py        # Configuration management
-│   ├── core.py          # Query engine
+│   ├── core.py          # Query engine (shared by both modes)
 │   ├── sync.py          # GitHub sync service
 │   ├── schemas.py       # Pydantic models
 │   ├── security.py      # Security validations
@@ -369,8 +546,10 @@ aidefend-mcp/
 ├── docker-compose.yml
 ├── requirements.txt
 ├── requirements-dev.txt
+├── pyproject.toml       # Project configuration
 ├── .env.example
 ├── README.md
+├── INSTALL.md           # Installation guide
 └── SECURITY.md
 ```
 
@@ -378,17 +557,12 @@ aidefend-mcp/
 
 ### Service won't start
 
-1. **Check Node.js is installed**
-   ```bash
-   node --version
-   ```
-
-2. **Check logs**
+1. **Check logs**
    ```bash
    tail -f data/logs/aidefend_mcp.log
    ```
 
-3. **Verify network access to GitHub**
+2. **Verify network access to GitHub**
    ```bash
    curl https://api.github.com/repos/edward-playground/aidefense-framework/commits/main
    ```
@@ -401,6 +575,42 @@ aidefend-mcp/
 ### Rate limiting issues
 
 Adjust `RATE_LIMIT_PER_MINUTE` in `.env` or disable with `ENABLE_RATE_LIMITING=false`.
+
+### MCP Mode Issues
+
+#### Claude Desktop doesn't show the tools
+
+1. **Verify config file path**
+   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+2. **Check config syntax**
+   - Must be valid JSON (use a JSON validator)
+   - Use absolute paths, not relative paths
+   - Ensure `cwd` points to the correct directory
+
+3. **Restart Claude Desktop**
+   - Completely quit and reopen the application
+   - Check for error messages in Claude's console
+
+4. **Test MCP server manually**
+   ```bash
+   python -m aidefend_mcp --mcp
+   ```
+   - You should see "Waiting for MCP client connections..." in stderr
+   - If it crashes, check the error message
+
+#### MCP tools are slow or timeout
+
+- The first query triggers initial sync (1-3 minutes)
+- Check if sync is complete: `python -m aidefend_mcp` then visit http://localhost:8000/api/v1/status
+- After initial sync, queries should be fast (< 1 second)
+
+#### "Database sync in progress" error
+
+- Wait a few moments and retry
+- This protects against race conditions during sync
+- Check logs for sync errors: `tail -f data/logs/aidefend_mcp.log`
 
 ## Contributing
 
@@ -422,7 +632,7 @@ Copyright (c) 2025 Edward Lee (edward-playground)
 - [AIDEFEND Framework](https://github.com/edward-playground/aidefense-framework) - The AI security knowledge base
 - [LanceDB](https://lancedb.com/) - Fast vector database
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
-- [Sentence Transformers](https://www.sbert.net/) - Embedding models
+- [FastEmbed](https://qdrant.github.io/fastembed/) - Lightweight ONNX-based embedding models
 
 ## Author
 

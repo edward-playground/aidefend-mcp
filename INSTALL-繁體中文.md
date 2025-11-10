@@ -48,24 +48,7 @@ python --version
 
 ---
 
-#### 2. **Node.js（任何近期版本）**
-
-**什麼是 Node.js？** 一個 JavaScript 執行環境。我們用它來解析 AIDEFEND framework 檔案（這些檔案是用 JavaScript 寫的）。
-
-**檢查你是否已安裝：**
-```bash
-node --version
-```
-
-**預期輸出：** `v18.x.x` 或更高版本（任何近期版本都可以）
-
-**還沒安裝？** 請從這裡下載：https://nodejs.org/
-
-**建議：** 下載「LTS」（Long Term Support，長期支援）版本以獲得穩定性。
-
----
-
-#### 3. **Git**（用於下載程式碼）
+#### 2. **Git**（用於下載程式碼）
 
 **什麼是 Git？** 一個從 GitHub 下載程式碼的工具。
 
@@ -101,8 +84,8 @@ docker-compose --version
 
 ### 💻 系統需求
 
-- **RAM**: 最低 4GB，建議 8GB
-- **磁碟空間**: 2GB 可用空間（用於 ML models 和 AIDEFEND 內容）
+- **RAM**: 最低 2GB，建議 4GB
+- **磁碟空間**: 500MB 可用空間（用於 ML models 和 AIDEFEND 內容）
 - **網路**: 初次下載時需要（設定後可離線運作）
 
 ---
@@ -149,7 +132,7 @@ chmod +x start.sh
 ```
 
 **這個腳本會自動做什麼：**
-1. ✅ 檢查 Python 和 Node.js 是否已安裝
+1. ✅ 檢查 Python 是否已安裝
 2. ✅ 建立 virtual environment（隔離的 Python 環境）
 3. ✅ 安裝所有必要的 Python 套件
 4. ✅ 建立設定檔（`.env`）
@@ -163,8 +146,6 @@ AIDEFEND MCP Service - Quick Start
 
 Checking Python version...
 + Python OK
-Checking Node.js...
-+ Node.js OK
 Creating virtual environment...
 + Virtual environment created
 Installing dependencies (this may take a few minutes)...
@@ -183,7 +164,7 @@ This may take a few minutes on first run...
 
 INFO - Starting AIDEFEND sync process
 INFO - Downloading tactics files...
-INFO - Parsing JavaScript files with Node.js...
+INFO - Parsing JavaScript files...
 INFO - Embedding 1250 documents... (this is the slow part)
 INFO - Indexing in vector database...
 INFO - Sync complete!
@@ -192,7 +173,7 @@ INFO - Application startup complete
 INFO - Uvicorn running on http://127.0.0.1:8000
 ```
 
-**第一次安裝：**「Embedding documents」這個步驟需要 **2-5 分鐘**（下載 ML models）。這是正常的！
+**第一次安裝：**「Embedding documents」這個步驟需要 **1-3 分鐘**（下載輕量級 ONNX models）。這是正常的！
 
 ---
 
@@ -272,7 +253,7 @@ docker-compose up -d
 **這會做什麼：**
 - `-d` 表示「detached」（在背景執行）
 - 建立 Docker image（第一次需要 2-3 分鐘）
-- 如需要會下載 Python/Node.js
+- 如需要會下載 Python
 - 啟動服務
 - 建立持久化的 data volume
 
@@ -388,10 +369,10 @@ pip install -r requirements.txt
 **這會安裝什麼：**
 - FastAPI（web framework）
 - LanceDB（vector database）
-- Sentence Transformers（用於 embeddings 的 ML model）
-- 20+ 個其他套件
+- FastEmbed（輕量級 ONNX-based ML model，用於 embeddings）
+- 15+ 個其他套件
 
-**第一次執行時需要 5-10 分鐘**（下載 ML models ~500MB）。
+**第一次執行時需要 2-5 分鐘**（下載 ML models ~100MB）。
 
 **預期輸出：**
 ```
@@ -419,36 +400,7 @@ cp .env.example .env
 
 ---
 
-### 步驟 5: 確認 Node.js 可以存取
-
-```bash
-node --version
-```
-
-**如果這個指令失敗：**
-1. 確保 Node.js 已安裝（參見[前置需求](#你需要準備什麼前置需求)）
-2. 重新啟動你的終端機
-3. 如果還是失敗，在 `.env` 設定完整路徑：
-
-**Windows：**
-```env
-NODE_EXECUTABLE=C:\Program Files\nodejs\node.exe
-```
-
-**macOS/Linux：**
-```env
-NODE_EXECUTABLE=/usr/local/bin/node
-```
-
-要找到路徑，執行：
-```bash
-which node    # macOS/Linux
-where node    # Windows
-```
-
----
-
-### 步驟 6: 啟動服務
+### 步驟 5: 啟動服務
 
 ```bash
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
@@ -465,7 +417,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 INFO - Starting AIDEFEND sync process
 INFO - Downloading tactics/harden.js...
 INFO - Downloading tactics/protect.js...
-INFO - Parsing JavaScript files with Node.js...
+INFO - Parsing JavaScript files...
 INFO - Embedding 1250 documents...
 INFO - Indexing in LanceDB...
 INFO - Sync complete! Updated to commit abc1234
@@ -474,7 +426,7 @@ INFO - Started server process [12345]
 INFO - Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 ```
 
-**⏳ 第一次執行需要 2-5 分鐘** 來下載並 embedding AIDEFEND 內容。
+**⏳ 第一次執行需要 1-3 分鐘** 來下載並 embedding AIDEFEND 內容。
 
 ---
 
@@ -581,6 +533,302 @@ http://localhost:8000/docs
 
 ---
 
+## 設定 Claude Desktop 的 MCP 模式
+
+**什麼是 MCP 模式？** MCP (Model Context Protocol) 讓 Claude Desktop 能將 AIDEFEND 當作工具使用。不需要複製貼上防禦戰術，Claude 可以在對話中直接搜尋知識庫。
+
+**何時使用 MCP 模式：**
+- 你希望 Claude Desktop 自動存取 AIDEFEND 知識
+- 你正在進行 AI 輔助的安全對話
+- 你偏好基於工具的整合而非 HTTP API
+
+**何時改用 REST API 模式：**
+- 你要與自訂應用程式整合
+- 你需要 HTTP endpoints
+- 你正在建立自動化腳本
+
+---
+
+### MCP 模式的前置需求
+
+✅ 你已完成上述其中一種安裝方法
+✅ 你已安裝 [Claude Desktop](https://claude.ai/download)
+✅ AIDEFEND 服務已安裝（設定時不需要執行）
+
+---
+
+### 步驟 1：找到 Claude Desktop 設定檔
+
+Claude Desktop 將 MCP server 設定儲存在 JSON 檔案中：
+
+**macOS:**
+```
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+**Windows:**
+```
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+**如何開啟它：**
+
+#### macOS:
+```bash
+# 用預設文字編輯器開啟
+open ~/Library/Application\ Support/Claude/claude_desktop_config.json
+
+# 或在終端機使用 nano
+nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+#### Windows:
+```cmd
+# 用記事本開啟
+notepad %APPDATA%\Claude\claude_desktop_config.json
+```
+
+**檔案不存在？** 手動建立它 - 如果這是你的第一個 MCP server，這是正常的。
+
+---
+
+### 步驟 2：加入 AIDEFEND 設定
+
+將此設定加入檔案中。如果檔案是空的，複製下面全部內容。如果你已經設定了其他 MCP servers，只需在現有的 `"mcpServers"` 物件內加入 `"aidefend"` 區段。
+
+**範本：**
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+      "command": "python",
+      "args": [
+        "-m",
+        "aidefend_mcp",
+        "--mcp"
+      ],
+      "cwd": "/REPLACE/WITH/YOUR/PATH/TO/aidefend-mcp"
+    }
+  }
+}
+```
+
+**⚠️ 重要：** 將 `/REPLACE/WITH/YOUR/PATH/TO/aidefend-mcp` 替換為你安裝 AIDEFEND 的**絕對路徑**。
+
+**如何找到你的路徑：**
+
+**macOS/Linux:**
+```bash
+cd /path/to/aidefend-mcp
+pwd
+```
+複製輸出結果（例如：`/Users/yourname/projects/aidefend-mcp`）
+
+**Windows:**
+```cmd
+cd C:\path\to\aidefend-mcp
+cd
+```
+複製輸出結果，但在 JSON 檔案中**使用正斜線**：
+- ✅ 正確：`"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
+- ❌ 錯誤：`"cwd": "C:\\Users\\YourName\\projects\\aidefend-mcp"`
+
+---
+
+### 步驟 3：設定範例
+
+**範例 1：macOS 安裝**
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+      "command": "python",
+      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "cwd": "/Users/alice/projects/aidefend-mcp"
+    }
+  }
+}
+```
+
+**範例 2：Windows 安裝**
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+      "command": "python",
+      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "cwd": "C:/Users/Bob/Documents/aidefend-mcp"
+    }
+  }
+}
+```
+
+**範例 3：多個 MCP Servers**
+
+如果你已經有其他 MCP servers（如 filesystem 或 git），將 AIDEFEND 加在旁邊：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/alice/Documents"]
+    },
+    "aidefend": {
+      "command": "python",
+      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "cwd": "/Users/alice/projects/aidefend-mcp"
+    }
+  }
+}
+```
+
+---
+
+### 步驟 4：重新啟動 Claude Desktop
+
+1. **完全退出 Claude Desktop**（不只是關閉視窗）
+   - macOS：`Cmd+Q` 或右鍵圖示 → 結束
+   - Windows：右鍵工作列圖示 → 結束
+
+2. **重新開啟 Claude Desktop**
+
+3. **尋找 🔌 圖示**（在 Claude 介面中）
+   - 點擊它查看可用工具
+   - 你應該會看到「aidefend」列在其中
+
+---
+
+### 步驟 5：測試 MCP 整合
+
+在 Claude Desktop 中試試這些範例提示：
+
+**測試 1：基本查詢**
+```
+可以搜尋 AIDEFEND 中關於 prompt injection 的防禦手法嗎？
+```
+
+Claude 應該會自動使用 `query_aidefend` 工具並回傳相關的防禦戰術。
+
+**測試 2：檢查狀態**
+```
+AIDEFEND 知識庫的狀態如何？
+```
+
+Claude 應該會使用 `get_aidefend_status` 並回報文件數量和同步狀態。
+
+**測試 3：手動同步**
+```
+請從 GitHub 同步最新的 AIDEFEND 戰術。
+```
+
+Claude 應該會使用 `sync_aidefend` 來更新知識庫。
+
+---
+
+### 步驟 6：了解工具
+
+Claude Desktop 現在可以存取三個 AIDEFEND 工具：
+
+| 工具名稱 | 功能 | 範例用法 |
+|-----------|--------------|-------------|
+| `query_aidefend` | 搜尋 AIDEFEND 知識庫 | 「找出 model poisoning 的防禦手法」 |
+| `get_aidefend_status` | 檢查服務是否就緒並已同步 | 「AIDEFEND 是最新的嗎？」 |
+| `sync_aidefend` | 手動更新知識庫 | 「同步最新的 AIDEFEND 戰術」 |
+
+Claude 會根據你的問題自動選擇要使用哪個工具。
+
+---
+
+### MCP 模式疑難排解
+
+#### ❌ Claude Desktop 沒有顯示 🔌 圖示
+
+**可能原因：**
+1. 設定檔有語法錯誤
+2. AIDEFEND 的路徑不正確
+3. Claude Desktop 沒有完全重新啟動
+
+**解決方法：**
+1. **驗證 JSON 語法** - 使用 https://jsonlint.com/ 檢查你的設定檔
+2. **檢查路徑是絕對路徑** - 必須以 `/`（macOS/Linux）或 `C:/`（Windows）開頭
+3. **Windows 使用正斜線** - 雖然 Windows 使用 `\`，但 JSON 需要 `/`
+4. **完全退出 Claude** - 使用 Cmd+Q（macOS）或從工作列結束（Windows）
+
+---
+
+#### ❌ 工具出現但給出「Connection failed」錯誤
+
+**原因：** AIDEFEND 服務程式碼有問題或缺少依賴套件。
+
+**解決方法：**
+1. **手動測試服務：**
+   ```bash
+   cd /path/to/aidefend-mcp
+   python -m aidefend_mcp --mcp
+   ```
+
+   你應該會看到：`Waiting for MCP client connections...`
+
+2. **檢查 Python 錯誤** - 如果看到錯誤訊息，服務需要修復
+
+3. **確認已安裝依賴套件：**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+---
+
+#### ❌ 第一次查詢需要 2-3 分鐘
+
+**這是正常的！** 第一次查詢會觸發：
+1. 初始與 GitHub 同步（下載 AIDEFEND 戰術）
+2. 解析所有 JavaScript 檔案
+3. 產生 embeddings
+4. 建立 vector database
+
+**初始同步之後**，查詢只需不到 1 秒。
+
+**提示：** 在使用 Claude 之前先執行手動同步：
+```bash
+python -m aidefend_mcp  # 以 API 模式啟動
+# 造訪 http://localhost:8000/api/v1/status 檢查同步狀態
+```
+
+---
+
+#### ❌ 「Database sync in progress」錯誤
+
+**原因：** 你在背景同步執行時進行查詢。
+
+**解決方法：** 等待 30 秒後再試一次。這是為了保護同步期間的資料不受損壞。
+
+---
+
+### 同時使用 REST API 和 MCP 模式
+
+**可以同時使用兩者嗎？** 可以！它們是完全獨立的：
+
+- **MCP 模式**：用於 Claude Desktop 對話
+- **REST API 模式**：用於 HTTP 整合、腳本、其他應用程式
+
+**同時執行兩者：**
+
+終端機 1：
+```bash
+python -m aidefend_mcp          # REST API 在 http://localhost:8000
+```
+
+終端機 2：
+```bash
+# 如上所示設定 Claude Desktop 的 MCP 模式
+# 當 Claude Desktop 連線時，MCP 會自動執行
+```
+
+兩種模式共享相同的知識庫和同步服務 - 它們會自動保持同步。
+
+---
+
 ## 疑難排解常見問題
 
 ### ❌ 問題：「Python not found」或「python: command not found」
@@ -603,31 +851,6 @@ python3 --version
 
 # 如果有用，所有指令都用 python3
 python3 -m venv venv
-```
-
----
-
-### ❌ 問題：「Node.js not found」或「node: command not found」
-
-**解決方案：**
-1. 從 https://nodejs.org/ 安裝 Node.js
-2. 重新啟動你的終端機
-3. 確認：`node --version`
-
-**還是不行？**
-
-找出 Node.js 安裝在哪裡：
-```bash
-# Windows
-where node
-
-# macOS/Linux
-which node
-```
-
-複製路徑並加到 `.env`：
-```env
-NODE_EXECUTABLE=/path/to/node
 ```
 
 ---
@@ -684,7 +907,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 
 **意思：** 初次同步還在執行中。
 
-**解決方案：** 等待 2-5 分鐘讓 embedding 程序完成。
+**解決方案：** 等待 1-3 分鐘讓 embedding 程序完成。
 
 **檢查同步狀態：**
 ```bash
@@ -741,7 +964,7 @@ docker-compose logs aidefend-mcp
 
 1. **記憶體不足：**
    - 開啟 Docker Desktop → Settings → Resources
-   - 將記憶體增加到至少 4GB
+   - 將記憶體增加到至少 2GB
 
 2. **網路問題：**
    - 檢查網路連線
@@ -755,12 +978,12 @@ docker-compose logs aidefend-mcp
 
 ### ❌ 問題：Embedding 程序非常慢（>10 分鐘）
 
-**第一次執行是正常的：** 約 1250 個文件需要 2-5 分鐘
+**第一次執行是正常的：** 約 1250 個文件需要 1-3 分鐘
 
 **如果花更久時間：**
 
 **可能原因：**
-1. **網路慢** - 正在下載 ML models（~500MB）
+1. **網路慢** - 正在下載 ML models（~100MB）
 2. **CPU 慢** - embedding 是會耗用大量 CPU 資源的
 3. **RAM 不足** - 系統正在同時跑其他服務
 
@@ -840,7 +1063,6 @@ PowerShell 內建 curl。
 3. **建立新的 issue** 並包含：
    - 你的作業系統（Windows 11、macOS 14、Ubuntu 22.04 等）
    - Python 版本：`python --version`
-   - Node.js 版本：`node --version`
    - 完整的錯誤訊息（複製貼上）
    - 你嘗試過什麼
    - 相關的日誌檔案

@@ -22,11 +22,6 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 # Stage 2: Runtime stage
 FROM python:3.11-slim
 
-# Install Node.js (required for parsing .js files)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
 # Create non-root user for security
 RUN groupadd -r aidefend && useradd -r -g aidefend aidefend
 
@@ -38,6 +33,9 @@ COPY --from=builder /root/.local /home/aidefend/.local
 
 # Copy application code
 COPY app/ ./app/
+
+# Copy LICENSE for open source compliance
+COPY LICENSE /app/LICENSE
 
 # Create data directory and set permissions
 RUN mkdir -p /app/data /app/data/logs /app/data/raw_content && \

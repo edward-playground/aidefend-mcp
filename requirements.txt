@@ -13,10 +13,11 @@ pydantic-settings==2.1.0
 # Vector database
 lancedb==0.5.7
 
-# Embedding and ML
-sentence-transformers==2.3.1
-torch==2.2.0
-transformers==4.37.2
+# Embedding and ML (lightweight ONNX-based)
+fastembed==0.2.6
+
+# MCP (Model Context Protocol) SDK
+mcp==0.9.0
 
 # HTTP client
 httpx==0.26.0

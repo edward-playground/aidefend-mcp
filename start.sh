@@ -1,10 +1,35 @@
 #!/bin/bash
 # Quick start script for AIDEFEND MCP Service
+# Supports both REST API mode and MCP mode
 
 set -e
 
+# Parse command-line arguments
+MODE="api"  # Default mode
+if [ "$1" = "--mcp" ] || [ "$1" = "-m" ]; then
+    MODE="mcp"
+elif [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "AIDEFEND MCP Service - Quick Start Script"
+    echo ""
+    echo "Usage: ./start.sh [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  (no options)    Start in REST API mode (default)"
+    echo "  --mcp, -m       Start in MCP mode for Claude Desktop"
+    echo "  --help, -h      Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  ./start.sh           # Start REST API server"
+    echo "  ./start.sh --mcp     # Start MCP server"
+    exit 0
+fi
+
 echo "=========================================="
-echo "AIDEFEND MCP Service - Quick Start"
+if [ "$MODE" = "mcp" ]; then
+    echo "AIDEFEND MCP Service - MCP Mode"
+else
+    echo "AIDEFEND MCP Service - REST API Mode"
+fi
 echo "=========================================="
 echo ""
 
@@ -12,15 +37,6 @@ echo ""
 echo "Checking Python version..."
 python_version=$(python --version 2>&1 | awk '{print $2}')
 echo "✓ Python $python_version"
-
-# Check Node.js
-echo "Checking Node.js..."
-if ! command -v node &> /dev/null; then
-    echo "✗ Node.js not found. Please install Node.js first."
-    exit 1
-fi
-node_version=$(node --version)
-echo "✓ Node.js $node_version"
 
 # Create .env if not exists
 if [ ! -f .env ]; then
@@ -53,16 +69,38 @@ fi
 
 echo ""
 echo "=========================================="
-echo "Starting AIDEFEND MCP Service..."
-echo "=========================================="
-echo ""
-echo "The service will:"
-echo "  1. Download AIDEFEND framework from GitHub"
-echo "  2. Parse and index the content"
-echo "  3. Start the API server on http://localhost:8000"
-echo ""
-echo "This may take a few minutes on first run..."
-echo ""
+if [ "$MODE" = "mcp" ]; then
+    echo "Starting AIDEFEND MCP Server..."
+    echo "=========================================="
+    echo ""
+    echo "The service will:"
+    echo "  1. Download AIDEFEND framework from GitHub (if needed)"
+    echo "  2. Parse and index the content"
+    echo "  3. Start the MCP server (stdio mode)"
+    echo ""
+    echo "Note: This server communicates via stdin/stdout."
+    echo "      Configure Claude Desktop to connect to this server."
+    echo ""
+    echo "Press Ctrl+C to stop the server."
+    echo ""
 
-# Start the service
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+    # Start MCP server
+    python -m aidefend_mcp --mcp
+else
+    echo "Starting AIDEFEND REST API Server..."
+    echo "=========================================="
+    echo ""
+    echo "The service will:"
+    echo "  1. Download AIDEFEND framework from GitHub (if needed)"
+    echo "  2. Parse and index the content"
+    echo "  3. Start the API server on http://localhost:8000"
+    echo ""
+    echo "API documentation will be available at:"
+    echo "  http://localhost:8000/docs"
+    echo ""
+    echo "This may take a few minutes on first run..."
+    echo ""
+
+    # Start REST API server
+    python -m aidefend_mcp
+fi

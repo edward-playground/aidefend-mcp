@@ -7,12 +7,13 @@ import asyncio
 import lancedb
 from typing import List, Optional
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 from app.config import settings
 from app.logger import get_logger
 from app.schemas import QueryRequest, ContextChunk
 from app.utils import load_version_info
+from app.sync import is_sync_in_progress
 
 logger = get_logger(__name__)
 
@@ -37,7 +38,7 @@ class QueryEngine:
         """Initialize query engine (lazy loading)."""
         self._db: Optional[lancedb.DBConnection] = None
         self._table: Optional[lancedb.Table] = None
-        self._model: Optional[SentenceTransformer] = None
+        self._model: Optional[TextEmbedding] = None
         self._initialized = False
         self._init_lock = asyncio.Lock()
 
@@ -65,11 +66,11 @@ class QueryEngine:
                     )
                     return False
 
-                # Load embedding model
+                # Load embedding model (fastembed uses ONNX Runtime)
                 logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
                 self._model = await asyncio.to_thread(
-                    SentenceTransformer,
-                    settings.EMBEDDING_MODEL
+                    TextEmbedding,
+                    model_name=settings.EMBEDDING_MODEL
                 )
                 logger.info("Embedding model loaded")
 
@@ -120,6 +121,16 @@ class QueryEngine:
         Raises:
             QueryEngineNotInitializedError: If engine not initialized
         """
+        # Check if sync is in progress (read-write lock protection)
+        if is_sync_in_progress():
+            logger.warning(
+                "Query attempted while sync is in progress",
+                extra={"query_preview": request.query_text[:50]}
+            )
+            raise QueryEngineNotInitializedError(
+                "Database sync in progress. Please try again in a few moments."
+            )
+
         # Ensure initialized
         if not self._initialized:
             initialized = await self.initialize()
@@ -143,11 +154,11 @@ class QueryEngine:
                 }
             )
 
-            # Embed query
-            query_vector = await asyncio.to_thread(
-                self._model.encode,
-                request.query_text
+            # Embed query (fastembed returns generator, get first result)
+            query_embeddings = await asyncio.to_thread(
+                lambda: list(self._model.embed([request.query_text]))
             )
+            query_vector = query_embeddings[0]
 
             # Perform vector search
             results = await asyncio.to_thread(
