@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  aidefend-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aidefend-mcp-service
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist data across container restarts
+      - aidefend-data:/app/data
+    environment:
+      # Override settings via environment variables
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-3600}
+      - ENABLE_AUTO_SYNC=${ENABLE_AUTO_SYNC:-true}
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - ENABLE_RATE_LIMITING=${ENABLE_RATE_LIMITING:-true}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # Need write access for database
+    tmpfs:
+      - /tmp
+    networks:
+      - aidefend-network
+
+volumes:
+  aidefend-data:
+    driver: local
+
+networks:
+  aidefend-network:
+    driver: bridge
