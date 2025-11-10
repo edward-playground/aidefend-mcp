@@ -5,8 +5,8 @@
 # AIDEFEND MCP / REST API Service
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109.2-009688.svg)](https://fastapi.tiangolo.com)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%20|%203.13-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.121.1-009688.svg)](https://fastapi.tiangolo.com)
 [![Security: Multiple Layers](https://img.shields.io/badge/security-multi--layer-success.svg)](./SECURITY.md)
 
 A **local, decentralized RAG (Retrieval-Augmented Generation) engine** for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework).
@@ -156,7 +156,7 @@ Both modes share the same core logic, ensuring consistent results.
 
 ## Prerequisites
 
-- **Python 3.9+**
+- **Python 3.9 - 3.13** (tested on 3.13.6)
 - **Docker** (optional, for containerized deployment)
 - **2GB RAM** minimum (4GB recommended)
 - **500MB disk space** for models and data

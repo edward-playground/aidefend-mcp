@@ -28,7 +28,7 @@ Before installing, make sure you have these programs installed on your computer.
 
 ### ✅ Required Software
 
-#### 1. **Python 3.9 or higher**
+#### 1. **Python 3.9 - 3.13**
 
 **What is Python?** A programming language. This service is written in Python.
 
@@ -37,7 +37,7 @@ Before installing, make sure you have these programs installed on your computer.
 python --version
 ```
 
-**Expected output:** `Python 3.9.x` or higher (e.g., `Python 3.11.5`)
+**Expected output:** `Python 3.9.x` or higher (e.g., `Python 3.11.5`, `Python 3.13.6`)
 
 **Don't have it?** Download from: https://www.python.org/downloads/
 
