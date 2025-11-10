@@ -1,32 +1,33 @@
 # AIDEFEND MCP Service Dependencies
-# All versions pinned for security and reproducibility
+# Updated to latest stable versions for Python 3.13 compatibility
+# Last updated: 2025-11-10
 
 # FastAPI and server
-fastapi==0.109.2
-uvicorn[standard]==0.27.1
-python-multipart==0.0.9
+fastapi==0.121.1
+uvicorn[standard]==0.38.0
+python-multipart==0.0.20
 
 # Pydantic and settings
-pydantic==2.6.1
-pydantic-settings==2.1.0
+pydantic==2.12.4
+pydantic-settings==2.7.1
 
 # Vector database
-lancedb==0.5.7
+lancedb==0.25.3
 
 # Embedding and ML (lightweight ONNX-based)
-fastembed==0.2.6
+fastembed==0.7.3
 
 # MCP (Model Context Protocol) SDK
-mcp==0.9.0
+mcp==1.21.0
 
 # HTTP client
-httpx==0.26.0
+httpx==0.28.1
 
 # Rate limiting
 slowapi==0.1.9
 
-# Python standard library backports (if needed for 3.9)
-typing-extensions==4.9.0
+# Python standard library backports
+typing-extensions==4.15.0
 
 # Security
 # (No additional packages needed - using stdlib + our custom security module)

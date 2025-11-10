@@ -28,7 +28,7 @@
 
 ### ✅ 必要軟體
 
-#### 1. **Python 3.9 或更高版本**
+#### 1. **Python 3.9 - 3.13**
 
 **什麼是 Python？** 一種程式語言。這個服務是用 Python 寫的。
 
@@ -37,7 +37,7 @@
 python --version
 ```
 
-**預期輸出：** `Python 3.9.x` 或更高版本（例如 `Python 3.11.5`）
+**預期輸出：** `Python 3.9.x` 或更高版本（例如 `Python 3.11.5`、`Python 3.13.6`）
 
 **還沒安裝？** 請從這裡下載：https://www.python.org/downloads/
 

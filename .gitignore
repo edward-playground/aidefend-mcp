@@ -81,3 +81,8 @@ tmp/
 
 # VSCode Claude extension cache
 .claude/
+
+# Claude output files
+CLAUDE*.md
+UPGRADE*.md
+UPDATE*.md
