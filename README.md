@@ -2,14 +2,19 @@
 
 ---
 
-# AIDEFEND MCP Service
+# AIDEFEND MCP / REST API Service
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109.2-009688.svg)](https://fastapi.tiangolo.com)
 [![Security: Multiple Layers](https://img.shields.io/badge/security-multi--layer-success.svg)](./SECURITY.md)
 
-A **local, decentralized RAG (Retrieval-Augmented Generation) engine** for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework). This service provides secure, private access to AIDEFEND's AI security knowledge base without sending sensitive queries to external services.
+A **local, decentralized RAG (Retrieval-Augmented Generation) engine** for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework).
+This service provides secure, private access to the AIDEFEND knowledge base without sending sensitive queries to external services. Two modes are supported:
+
+- **REST API**: For custom applications and system integration.
+
+- **MCP Server**: For native integration with AI assistants like Claude Desktop.
 
 ## Features
 
@@ -22,9 +27,9 @@ A **local, decentralized RAG (Retrieval-Augmented Generation) engine** for the [
 - **Production Ready**: Health checks, rate limiting, structured logging, and monitoring
 - **Defense in Depth**: Multiple security layers (see [SECURITY.md](./SECURITY.md))
 
-## Why Use This MCP Service?
+## Why Use This MCP / REST API Service?
 
-AIDEFEND is open source, so you *could* build this yourself. But there's a huge gap between "possible" and "practical."
+AIDEFEND is open source, so you *could* retrieve the framework content and build the query function yourself. But there's a huge gap between "possible" and "practical."
 
 ### The Problems This Solves
 
@@ -32,16 +37,16 @@ AIDEFEND is open source, so you *could* build this yourself. But there's a huge 
 
 Most RAG services send your queries to cloud servers. Your sensitive prompts (security questions, proprietary info) leave your control.
 
-**This MCP Service:**
+**This MCP / REST API Service:**
 - ✅ **100% local processing** - queries never leave your machine
 - ✅ **Works offline** after initial sync
 - ✅ **Zero tracking** - no telemetry, no external API calls
 
 #### **Problem 2: LLMs Can't Handle the Full Framework**
 
-AIDEFEND has thousands of lines. LLMs have token limits (~8K-128K). You can't paste everything into ChatGPT.
+AIDEFEND has thousands of lines. LLMs have token limits (~8K-128K). There are cases that you can't paste everything into ChatGPT.
 
-**This MCP Service:**
+**This MCP / REST API Service:**
 - ✅ **Smart search** - finds the 3-5 most relevant sections in milliseconds
 - ✅ **Only sends what you need** - no manual copy-pasting
 
@@ -53,7 +58,7 @@ To build this yourself, you'd need to:
 - Configure embedding models
 - Handle updates manually (`git pull` → re-parse → re-embed)
 
-**This MCP Service:**
+**This MCP / REST API Service:**
 - ✅ **One command**: `docker-compose up -d`
 - ✅ **Auto-updates** every hour
 - ✅ **Zero maintenance** required
@@ -62,7 +67,7 @@ To build this yourself, you'd need to:
 
 Sending the full framework = 50K+ tokens per query. Paid LLM APIs charge per token.
 
-**This MCP Service:**
+**This MCP / REST API Service:**
 - ✅ **500-2K tokens per query** (25x reduction)
 - ✅ **25x lower API costs** for paid LLMs (GPT-4, Claude)
 - ✅ **Faster responses** - smaller context = quicker processing
@@ -88,7 +93,7 @@ Get a production-ready RAG system that:
 - **Auto-updates** - always current with latest research
 - **Costs nothing** - free and open source
 
-> **The AIDEFEND framework is the knowledge base. This service delivers it privately and efficiently.**
+> **The AIDEFEND framework is the knowledge base. This service helps you to leverage AIDEFEND privately and efficiently.**
 
 ## Architecture
 
@@ -119,12 +124,12 @@ Both modes share the same core logic, ensuring consistent results.
 │         ▼                         │                         │
 │  ┌──────────────┐         ┌──────┴──────┐                   │
 │  │  AIDEFEND    │         │  Query      │                   │
-│  │  Framework   │         │  Engine     │◀────┐             │
+│  │  Framework   │         │  Engine     │◀────┐            │
 │  │  (GitHub)    │         │ (Shared)    │     │             │
 │  └──────────────┘         └──────┬──────┘     │             │
-│                                   │            │             │
-│                          ┌────────┴────────┐   │             │
-│                          │                 │   │             │
+│                                   │           │             │
+│                          ┌────────┴────────┐  │             │
+│                          │                 │  │             │
 │                    ┌─────▼──────┐   ┌──────▼─────┐          │
 │                    │  FastAPI   │   │ MCP Server │          │
 │                    │  REST API  │   │  (stdio)   │          │
@@ -469,7 +474,7 @@ All configuration is done via environment variables. See [.env.example](./.env.e
 
 ## Security
 
-As an MCP service for an AI security framework, this service implements multiple security layers:
+As an MCP service for an AI security framework, this service itself implements multiple security layers:
 
 - **Local-First Processing**: All queries processed locally - your data never leaves your infrastructure
 - **Input Validation**: Comprehensive validation and sanitization of all inputs
