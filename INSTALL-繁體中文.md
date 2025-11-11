@@ -425,27 +425,25 @@ cp .env.example .env
 ### 步驟 5: 啟動服務
 
 ```bash
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+python __main__.py
 ```
 
 **這個指令的意思：**
-- `python -m uvicorn` - 執行 Uvicorn web server
-- `app.main:app` - 從 `app/main.py` 載入 app
-- `--host 127.0.0.1` - 只接受本地端連線（安全）
-- `--port 8000` - 在 port 8000 執行
+- 執行 AIDEFEND 服務的主程式
+- 預設會啟動 REST API 模式
+- 服務會在 `127.0.0.1:8000` 執行
+- 所有設定從 `.env` 檔案載入
 
 **預期輸出：**
 ```
-INFO - Starting AIDEFEND sync process
-INFO - Downloading tactics/harden.js...
-INFO - Downloading tactics/protect.js...
-INFO - Parsing JavaScript files...
-INFO - Embedding 1250 documents...
-INFO - Indexing in LanceDB...
-INFO - Sync complete! Updated to commit abc1234
-INFO - QueryEngine initialized successfully
-INFO - Started server process [12345]
-INFO - Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+Starting AIDEFEND REST API Server...
+API will be available at: http://127.0.0.1:8000
+API documentation: http://127.0.0.1:8000/docs
+------------------------------------------------------------
+INFO:     Started server process [xxxxx]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 ```
 
 **⏳ 第一次執行需要 1-3 分鐘** 來下載並 embedding AIDEFEND 內容。
@@ -626,35 +624,47 @@ notepad %APPDATA%\Claude\claude_desktop_config.json
     "aidefend": {
       "command": "python",
       "args": [
-        "-m",
-        "aidefend_mcp",
+        "/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp/__main__.py",
         "--mcp"
       ],
-      "cwd": "/REPLACE/WITH/YOUR/PATH/TO/aidefend-mcp"
+      "cwd": "/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp"
     }
   }
 }
 ```
 
-**⚠️ 重要：** 將 `/REPLACE/WITH/YOUR/PATH/TO/aidefend-mcp` 替換為你安裝 AIDEFEND 的**絕對路徑**。
+**⚠️ 重要：**
+- 將 `args` 中的路徑替換為 `__main__.py` 檔案的**完整絕對路徑**，例如 "C:/Users/你的使用者名稱/資料夾/aidefend-mcp/__main__.py", "--mcp"
+- 將 `cwd` 替換為專案**根目錄**的絕對路徑
+
+**注意：**
+- ✅ `args` 必須使用 `__main__.py` 的**完整路徑**（使用相對路徑會導致連接失敗）
+- ✅ `cwd` 必須設定為專案根目錄（讓 Python 能正確載入相對模組）
 
 **如何找到你的路徑：**
 
 **macOS/Linux:**
 ```bash
 cd /path/to/aidefend-mcp
-pwd
+echo "args: [\"$(pwd)/__main__.py\", \"--mcp\"]"
+echo "cwd: \"$(pwd)\""
 ```
-複製輸出結果（例如：`/Users/yourname/projects/aidefend-mcp`）
+複製輸出結果使用。
 
 **Windows:**
-```cmd
+```powershell
 cd C:\path\to\aidefend-mcp
-cd
+$path = (Get-Location).Path -replace '\\', '/'
+Write-Host "args: [`"$path/__main__.py`", `"--mcp`"]"
+Write-Host "cwd: `"$path`""
 ```
-複製輸出結果，但在 JSON 檔案中**使用正斜線**：
-- ✅ 正確：`"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
-- ❌ 錯誤：`"cwd": "C:\\Users\\YourName\\projects\\aidefend-mcp"`
+這會輸出已轉換為正斜線的完整路徑。
+
+**重要提示：**
+- ✅ 正確：在 JSON 中使用**正斜線** `/`
+  - `"args": ["C:/Users/YourName/projects/aidefend-mcp/__main__.py", "--mcp"]`
+  - `"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
+- ❌ 錯誤：在 JSON 中使用反斜線 `\`（會導致解析錯誤）
 
 ---
 
@@ -666,7 +676,7 @@ cd
   "mcpServers": {
     "aidefend": {
       "command": "python",
-      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "args": ["/Users/alice/projects/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "/Users/alice/projects/aidefend-mcp"
     }
   }
@@ -679,7 +689,7 @@ cd
   "mcpServers": {
     "aidefend": {
       "command": "python",
-      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "args": ["C:/Users/Bob/Documents/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "C:/Users/Bob/Documents/aidefend-mcp"
     }
   }
@@ -699,7 +709,7 @@ cd
     },
     "aidefend": {
       "command": "python",
-      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "args": ["/Users/alice/projects/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "/Users/alice/projects/aidefend-mcp"
     }
   }
@@ -788,10 +798,10 @@ Claude 會根據你的問題自動選擇要使用哪個工具。
 1. **手動測試服務：**
    ```bash
    cd /path/to/aidefend-mcp
-   python -m aidefend_mcp --mcp
+   python __main__.py --mcp
    ```
 
-   你應該會看到：`Waiting for MCP client connections...`
+   你應該會看到：`Starting AIDEFEND MCP Server (stdio mode)...`
 
 2. **檢查 Python 錯誤** - 如果看到錯誤訊息，服務需要修復
 
@@ -814,7 +824,7 @@ Claude 會根據你的問題自動選擇要使用哪個工具。
 
 **提示：** 在使用 Claude 之前先執行手動同步：
 ```bash
-python -m aidefend_mcp  # 以 API 模式啟動
+python __main__.py  # 以 API 模式啟動
 # 造訪 http://localhost:8000/api/v1/status 檢查同步狀態
 ```
 
@@ -839,7 +849,7 @@ python -m aidefend_mcp  # 以 API 模式啟動
 
 終端機 1：
 ```bash
-python -m aidefend_mcp          # REST API 在 http://localhost:8000
+python __main__.py          # REST API 在 http://localhost:8000
 ```
 
 終端機 2：
@@ -891,6 +901,17 @@ pip3 install -r requirements.txt
 # 用 python -m pip
 python -m pip install -r requirements.txt
 ```
+
+---
+
+### ❌ 問題：執行 scripts\start.bat 時出現 ... was unexpected at this time. 錯誤
+
+**意思：** 這是 Windows 命令提示字元 (cmd.exe) 的語法解析錯誤。這通常是因為 start.bat 檔案中包含了不可見的特殊字元（例如從網頁複製貼上時帶入的）或錯誤的檔案編碼。
+
+**解決方案：**
+
+1. **首選方案：** 確保您是從 GitHub **直接 git clone** 下載的，而不是從網頁複製貼上 start.bat 檔案的內容。
+2. **備用方案（最可靠）：** **放棄使用 start.bat**，並**改用「方法 3: 手動安裝」**中的步驟。手動執行 `python -m venv venv`、`venv\Scripts\activate`、`pip install -r requirements.txt` 和 `python __main__.py` 可以 100% 繞過這個批次檔解析錯誤。
 
 ---
 

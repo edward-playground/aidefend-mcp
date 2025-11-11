@@ -425,27 +425,25 @@ cp .env.example .env
 ### Step 5: Start the Service
 
 ```bash
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+python __main__.py
 ```
 
 **What this command means:**
-- `python -m uvicorn` - Run the Uvicorn web server
-- `app.main:app` - Load the app from `app/main.py`
-- `--host 127.0.0.1` - Only accept local connections (secure)
-- `--port 8000` - Run on port 8000
+- Runs the AIDEFEND service main program
+- Starts in REST API mode by default
+- Service will run on `127.0.0.1:8000`
+- All configuration loaded from `.env` file
 
 **Expected output:**
 ```
-INFO - Starting AIDEFEND sync process
-INFO - Downloading tactics/harden.js...
-INFO - Downloading tactics/protect.js...
-INFO - Parsing JavaScript files...
-INFO - Embedding 1250 documents...
-INFO - Indexing in LanceDB...
-INFO - Sync complete! Updated to commit abc1234
-INFO - QueryEngine initialized successfully
-INFO - Started server process [12345]
-INFO - Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+Starting AIDEFEND REST API Server...
+API will be available at: http://127.0.0.1:8000
+API documentation: http://127.0.0.1:8000/docs
+------------------------------------------------------------
+INFO:     Started server process [xxxxx]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 ```
 
 **⏳ First run takes 1-3 minutes** for downloading and embedding AIDEFEND content.
@@ -626,35 +624,46 @@ Add this configuration to the file. If the file is empty, copy everything below.
     "aidefend": {
       "command": "python",
       "args": [
-        "-m",
-        "aidefend_mcp",
+        "/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp/__main__.py",
         "--mcp"
       ],
-      "cwd": "/REPLACE/WITH/YOUR/PATH/TO/aidefend-mcp"
+      "cwd": "/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp"
     }
   }
 }
 ```
 
-**⚠️ IMPORTANT:** Replace `/REPLACE/WITH/YOUR/PATH/TO/aidefend-mcp` with the **absolute path** where you installed AIDEFEND.
+**⚠️ IMPORTANT:**
+- Replace `/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp/__main__.py` with the **complete absolute path** to the `__main__.py` file in the `args` field
+- Replace `/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp` with the **complete absolute path** to the project root directory in the `cwd` field
+
+**Note:** You must use **full paths** in both `args` and `cwd` fields. The `cwd` field is necessary for Python to resolve relative imports within the project.
 
 **How to find your path:**
 
 **macOS/Linux:**
 ```bash
 cd /path/to/aidefend-mcp
-pwd
+path=$(pwd)
+echo "args: [\"$path/__main__.py\", \"--mcp\"]"
+echo "cwd: \"$path\""
 ```
-Copy the output (e.g., `/Users/yourname/projects/aidefend-mcp`)
+Copy both outputs for use in the configuration.
 
 **Windows:**
-```cmd
+```powershell
 cd C:\path\to\aidefend-mcp
-cd
+$path = (Get-Location).Path -replace '\\', '/'
+Write-Host "args: [`"$path/__main__.py`", `"--mcp`"]"
+Write-Host "cwd: `"$path`""
 ```
-Copy the output, but **use forward slashes** in the JSON file:
-- ✅ Good: `"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
-- ❌ Wrong: `"cwd": "C:\\Users\\YourName\\projects\\aidefend-mcp"`
+This outputs both the `args` and `cwd` values with forward slashes (e.g., `C:/Users/YourName/projects/aidefend-mcp`)
+
+**Important tips:**
+- ✅ Good: Use **forward slashes** `/` in JSON
+  - `"args": ["C:/Users/YourName/projects/aidefend-mcp/__main__.py", "--mcp"]`
+  - `"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
+- ❌ Wrong: Using backslashes `\` (will cause parsing errors)
 
 ---
 
@@ -666,7 +675,7 @@ Copy the output, but **use forward slashes** in the JSON file:
   "mcpServers": {
     "aidefend": {
       "command": "python",
-      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "args": ["/Users/alice/projects/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "/Users/alice/projects/aidefend-mcp"
     }
   }
@@ -679,7 +688,7 @@ Copy the output, but **use forward slashes** in the JSON file:
   "mcpServers": {
     "aidefend": {
       "command": "python",
-      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "args": ["C:/Users/Bob/Documents/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "C:/Users/Bob/Documents/aidefend-mcp"
     }
   }
@@ -699,7 +708,7 @@ If you already have other MCP servers (like filesystem or git), add AIDEFEND alo
     },
     "aidefend": {
       "command": "python",
-      "args": ["-m", "aidefend_mcp", "--mcp"],
+      "args": ["/Users/alice/projects/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "/Users/alice/projects/aidefend-mcp"
     }
   }
@@ -788,10 +797,10 @@ Claude will automatically choose which tool to use based on your question.
 1. **Test the service manually:**
    ```bash
    cd /path/to/aidefend-mcp
-   python -m aidefend_mcp --mcp
+   python __main__.py --mcp
    ```
 
-   You should see: `Waiting for MCP client connections...`
+   You should see: `Starting AIDEFEND MCP Server (stdio mode)...`
 
 2. **Check for Python errors** - If you see error messages, the service needs fixing
 
@@ -814,7 +823,7 @@ Claude will automatically choose which tool to use based on your question.
 
 **Tip:** Run a manual sync before using Claude:
 ```bash
-python -m aidefend_mcp  # Start in API mode
+python __main__.py  # Start in API mode
 # Visit http://localhost:8000/api/v1/status to check sync status
 ```
 
@@ -839,7 +848,7 @@ python -m aidefend_mcp  # Start in API mode
 
 Terminal 1:
 ```bash
-python -m aidefend_mcp          # REST API on http://localhost:8000
+python __main__.py          # REST API on http://localhost:8000
 ```
 
 Terminal 2:
@@ -894,6 +903,17 @@ python -m pip install -r requirements.txt
 
 ---
 
+### ❌ Issue: Running scripts\start.bat shows "... was unexpected at this time." error
+
+**Meaning:** This is a Windows Command Prompt (cmd.exe) syntax parsing error. This usually happens when the start.bat file contains invisible special characters (e.g., from copying/pasting from a web page) or incorrect file encoding.
+
+**Solutions:**
+
+1. **Preferred solution:** Ensure you downloaded via **git clone** directly from GitHub, rather than copying/pasting the start.bat file content from a web page.
+2. **Alternative solution (most reliable):** **Abandon using start.bat** and **use "Method 3: Manual Installation"** steps instead. Manually run `python -m venv venv`, `venv\Scripts\activate`, `pip install -r requirements.txt`, and `python __main__.py` to 100% bypass this batch file parsing error.
+
+---
+
 ### ❌ Issue: "Address already in use" or "Port 8000 is already allocated"
 
 **Meaning:** Another program is using port 8000.
@@ -919,10 +939,7 @@ Edit `.env`:
 API_PORT=8001
 ```
 
-Or run with a different port:
-```bash
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
-```
+Then restart the service normally with `python __main__.py` (it will read the new port from `.env`)
 
 ---
 

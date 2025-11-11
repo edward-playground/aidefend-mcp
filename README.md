@@ -204,9 +204,7 @@ Both modes share the same core logic, ensuring consistent results.
 
    **Or start directly with Python:**
    ```bash
-   python -m aidefend_mcp
-   # Or equivalently:
-   # python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+   python __main__.py
    ```
 
 2. **Verify it's running**
@@ -239,8 +237,7 @@ The service will automatically sync with GitHub and index the AIDEFEND framework
        "aidefend": {
          "command": "python",
          "args": [
-           "-m",
-           "aidefend_mcp",
+           "/absolute/path/to/aidefend-mcp/__main__.py",
            "--mcp"
          ],
          "cwd": "/absolute/path/to/aidefend-mcp"
@@ -249,7 +246,17 @@ The service will automatically sync with GitHub and index the AIDEFEND framework
    }
    ```
 
-   **Important:** Replace `/absolute/path/to/aidefend-mcp` with your actual directory path!
+   **Important:** Replace paths with **complete absolute paths**!
+   - Replace `/absolute/path/to/aidefend-mcp/__main__.py` in the `args` field
+   - Replace `/absolute/path/to/aidefend-mcp` in the `cwd` field
+
+   **Note:** You must use full paths in both fields. The `cwd` field is necessary for Python to resolve relative imports within the project.
+   - Windows example:
+     - `"args": ["C:/Users/YourName/projects/aidefend-mcp/__main__.py", "--mcp"]`
+     - `"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
+   - macOS/Linux example:
+     - `"args": ["/Users/yourname/projects/aidefend-mcp/__main__.py", "--mcp"]`
+     - `"cwd": "/Users/yourname/projects/aidefend-mcp"`
 
 2. **Restart Claude Desktop**
 
@@ -364,7 +371,7 @@ Manually triggers a sync operation (rate limited to 5/minute).
 
 ### MCP Mode Usage
 
-When running in MCP mode (`python -m aidefend_mcp --mcp`), the service provides tools for AI assistants like Claude Desktop.
+When running in MCP mode (`python __main__.py --mcp`), the service provides tools for AI assistants like Claude Desktop.
 
 #### Available MCP Tools
 
@@ -689,15 +696,15 @@ Adjust `RATE_LIMIT_PER_MINUTE` in `.env` or disable with `ENABLE_RATE_LIMITING=f
 
 4. **Test MCP server manually**
    ```bash
-   python -m aidefend_mcp --mcp
+   python __main__.py --mcp
    ```
-   - You should see "Waiting for MCP client connections..." in stderr
+   - You should see "Starting AIDEFEND MCP Server (stdio mode)..." in stderr
    - If it crashes, check the error message
 
 #### MCP tools are slow or timeout
 
 - The first query triggers initial sync (1-3 minutes)
-- Check if sync is complete: `python -m aidefend_mcp` then visit http://localhost:8000/api/v1/status
+- Check if sync is complete: `python __main__.py` then visit http://localhost:8000/api/v1/status
 - After initial sync, queries should be fast (< 1 second)
 
 #### "Database sync in progress" error

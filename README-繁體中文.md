@@ -204,9 +204,7 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
 
    **或直接用 Python 啟動：**
    ```bash
-   python -m aidefend_mcp
-   # 或等同於：
-   # python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+   python __main__.py
    ```
 
 2. **驗證是否正在執行**
@@ -239,8 +237,7 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
        "aidefend": {
          "command": "python",
          "args": [
-           "-m",
-           "aidefend_mcp",
+           "/absolute/path/to/aidefend-mcp/__main__.py",
            "--mcp"
          ],
          "cwd": "/absolute/path/to/aidefend-mcp"
@@ -249,7 +246,17 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
    }
    ```
 
-   **重要：** 將 `/absolute/path/to/aidefend-mcp` 替換為你的實際目錄路徑！
+   **重要：** 將路徑替換為**完整絕對路徑**！
+   - 替換 `/absolute/path/to/aidefend-mcp/__main__.py` 在 `args` 中
+   - 替換 `/absolute/path/to/aidefend-mcp` 在 `cwd` 中
+
+   **注意：** 必須使用完整路徑。`cwd` 欄位是必要的，這樣 Python 才能正確解析專案內的相對匯入。
+   - Windows 範例：
+     - `"args": ["C:/Users/YourName/projects/aidefend-mcp/__main__.py", "--mcp"]`
+     - `"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
+   - macOS/Linux 範例：
+     - `"args": ["/Users/yourname/projects/aidefend-mcp/__main__.py", "--mcp"]`
+     - `"cwd": "/Users/yourname/projects/aidefend-mcp"`
 
 2. **重新啟動 Claude Desktop**
 
@@ -360,7 +367,7 @@ POST /api/v1/sync
 
 ### MCP 模式使用方式
 
-當以 MCP 模式執行時（`python -m aidefend_mcp --mcp`），本服務會為 AI 助理（如 Claude Desktop）提供工具。
+當以 MCP 模式執行時（`python __main__.py --mcp`），本服務會為 AI 助理（如 Claude Desktop）提供工具。
 
 #### 可用的 MCP 工具
 
@@ -675,15 +682,15 @@ aidefend-mcp/
 
 4. **手動測試 MCP server**
    ```bash
-   python -m aidefend_mcp --mcp
+   python __main__.py --mcp
    ```
-   - 你應該會在 stderr 看到「Waiting for MCP client connections...」
+   - 你應該會在 stderr 看到「Starting AIDEFEND MCP Server (stdio mode)...」
    - 如果當機，請檢查錯誤訊息
 
 #### MCP 工具速度慢或逾時
 
 - 首次查詢會觸發初始同步（1-3 分鐘）
-- 檢查同步是否完成：`python -m aidefend_mcp` 然後造訪 http://localhost:8000/api/v1/status
+- 檢查同步是否完成：`python __main__.py` 然後造訪 http://localhost:8000/api/v1/status
 - 初始同步後，查詢應該很快（< 1 秒）
 
 #### "Database sync in progress" 錯誤
