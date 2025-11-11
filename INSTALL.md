@@ -592,6 +592,7 @@ Claude Desktop stores its MCP server configuration in a JSON file:
 ```
 %APPDATA%\Claude\claude_desktop_config.json
 ```
+On most modern Windows machine, this path is C:\Users\\[Your User Name]\AppData\Roaming\Claude\
 
 **How to open it:**
 

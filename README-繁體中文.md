@@ -230,6 +230,8 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
    - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
    - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
+      - (在大部分的 Windows 機器上，這個位置可能在: C:\Users\\[您的使用者名稱]\AppData\Roaming\Claude\\)
+
    加入此設定：
    ```json
    {

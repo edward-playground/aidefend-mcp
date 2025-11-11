@@ -170,7 +170,7 @@ Both modes share the same core logic, ensuring consistent results.
 
 1. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/edward-playground/aidefend-mcp.git
    cd aidefend-mcp
    ```
 
@@ -229,6 +229,8 @@ The service will automatically sync with GitHub and index the AIDEFEND framework
    Edit Claude Desktop's config file:
    - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
    - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+    
+      - (On most modern Windows machine, this path is C:\Users\\[Your User Name]\AppData\Roaming\Claude\\)
 
    Add this configuration:
    ```json
