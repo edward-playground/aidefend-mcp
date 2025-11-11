@@ -606,7 +606,7 @@ This repository includes automated security scanning via GitHub Actions:
 - Grouped updates for dev dependencies
 
 **View security reports:** Check the "Security" tab in your GitHub repository.
-```
+
 
 ### Project Structure
 
@@ -643,6 +643,7 @@ aidefend-mcp/
 ├── INSTALL.md           # Installation guide
 └── SECURITY.md
 ```
+
 
 ## Troubleshooting
 
