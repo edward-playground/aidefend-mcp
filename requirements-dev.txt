@@ -12,13 +12,13 @@ httpx==0.28.1  # For testing async endpoints
 
 # Code quality
 black==24.10.0
-flake8==7.1.1
-mypy==1.14.1
+flake8==7.3.0
+mypy==1.18.2
 isort==5.13.2
 
 # Security scanning
-safety==3.2.11
-bandit==1.8.0
+safety==3.7.0
+bandit==1.8.6
 
 # Development tools
 ipython==8.31.0
