@@ -20,7 +20,7 @@ class Settings(BaseSettings):
         description="GitHub repository owner"
     )
     GITHUB_REPO_NAME: str = Field(
-        default="aidefend-framework",
+        default="aidefense-framework",
         description="GitHub repository name"
     )
     GITHUB_BRANCH: str = Field(

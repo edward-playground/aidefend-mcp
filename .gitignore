@@ -67,8 +67,8 @@ dmypy.json
 # Distribution / packaging
 *.whl
 
-# Docker
-*.dockerignore
+# Docker volumes and runtime data
+docker-compose.override.yml
 
 # Logs
 logs/

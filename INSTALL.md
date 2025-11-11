@@ -63,6 +63,28 @@ git --version
 
 ---
 
+#### 3. **Node.js 18+** (required for parsing JavaScript files)
+
+**What is Node.js?** A JavaScript runtime required to parse AIDEFEND framework files that use JavaScript template literals.
+
+**Check if you have it:**
+```bash
+node --version
+```
+
+**Expected output:** `v18.x.x` or higher (e.g., `v22.18.0`)
+
+**Don't have it?** Download from: https://nodejs.org/
+
+**Installation tips:**
+- **Windows**: Use the installer from nodejs.org
+- **macOS**: Use the installer or `brew install node`
+- **Linux**: `sudo apt install nodejs` or `sudo yum install nodejs`
+
+**Why is this needed?** AIDEFEND framework uses JavaScript ES6 template literals (backticks) which cannot be parsed with Python alone. The service uses Node.js subprocess to natively parse these files.
+
+---
+
 ### 🐳 Optional: Docker (for containerized deployment)
 
 **What is Docker?** A tool that packages the service and all its dependencies into a "container" - think of it like a portable, isolated environment.

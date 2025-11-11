@@ -157,6 +157,9 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
 ## 前置需求
 
 - **Python 3.9 - 3.13**（已在 3.13.6 上測試）
+- **Node.js 18+**（解析 JavaScript 文件時必需）
+  - 下載：https://nodejs.org/
+  - 驗證：`node --version`
 - **Docker**（選配，用於容器化部署）
 - **2GB RAM** 最低需求（建議 4GB）
 - **500MB 磁碟空間** 用於 models 和資料
@@ -467,6 +470,22 @@ Claude: [以你的確切查詢呼叫 query_aidefend]
 | `ENABLE_RATE_LIMITING` | `true` | 在 API endpoints 啟用流量限制 |
 | `RATE_LIMIT_PER_MINUTE` | `60` | 每個 IP 每分鐘的最大請求數 |
 | `MAX_QUERY_LENGTH` | `2000` | 查詢文字的最大長度 |
+| `API_WORKERS` | `1` | ⚠️ **必須為 1** - 不支援多 worker 模式 |
+
+### 重要：單一 Worker 限制
+
+**⚠️ 本服務需要 `API_WORKERS=1`**
+
+同步架構使用檔案鎖定和記憶體內狀態管理，需要單一 worker process。使用 `API_WORKERS > 1` 會導致：
+
+- 同步衝突和競態條件
+- 某些 worker 在同步後提供過時資料
+- 查詢結果不一致
+
+**在 production 部署時**，如果需要水平擴展：
+- 在負載平衡器後部署多個獨立實例
+- 使用獨立的同步服務/cron job 更新共享資料庫
+- 每個 API 實例執行時設定 `API_WORKERS=1`
 
 ## 安全性
 
@@ -483,6 +502,35 @@ Claude: [以你的確切查詢呼叫 query_aidefend]
 **關於資安相關資訊，請參閱 [SECURITY.md](./SECURITY.md)。**
 
 ## 監控與日誌
+
+### 健康檢查端點
+
+`/health` endpoint 提供全面的服務健康狀態：
+
+```bash
+curl http://localhost:8000/health
+```
+
+**回應：**
+```json
+{
+  "status": "healthy",  // 或 "degraded"、"unhealthy"
+  "checks": {
+    "database": true,
+    "embedding_model": true,
+    "sync_service": true
+  },
+  "timestamp": "2025-11-11T00:00:00Z"
+}
+```
+
+**健康狀態等級：**
+- `healthy` - 所有系統正常運作，資料新鮮
+- `degraded` - 系統可運作但資料過時（上次同步 > 2x 同步間隔）
+- `unhealthy` - 關鍵元件故障（資料庫、embedding model）
+
+**過時資料偵測：**
+健康檢查會自動偵測同步是否長時間失敗。如果資料年齡超過 `2 × SYNC_INTERVAL_SECONDS`，狀態會變為 `degraded` 以警告監控系統。
 
 ### 結構化日誌
 
@@ -501,14 +549,6 @@ Claude: [以你的確切查詢呼叫 query_aidefend]
     "top_score": 0.234
   }
 }
-```
-
-### 健康監控
-
-`/health` endpoint 提供元件級的健康檢查：
-
-```bash
-curl http://localhost:8000/health
 ```
 
 ## 開發
@@ -531,6 +571,29 @@ mypy app/
 safety check
 bandit -r app/
 ```
+
+### 自動化安全掃描
+
+本 repository 包含自動化安全掃描，透過 GitHub Actions 執行：
+
+**🔒 安全工作流程 (`.github/workflows/security.yml`)**
+- **Bandit**: Python 程式碼靜態安全分析
+- **Safety**: 相依套件漏洞掃描
+- **CodeQL**: 進階語義程式碼分析
+
+**自動執行時機：**
+- 每次 push 到 `main` 或 `develop` 分支
+- 所有 pull request
+- 每週排程（週一 00:00 UTC）
+- 可透過 GitHub Actions UI 手動觸發
+
+**📦 Dependabot (`.github/dependabot.yml`)**
+- 自動化相依套件更新
+- 每週掃描 Python 套件和 GitHub Actions
+- 自動發送 PR 修補安全漏洞
+- 開發用相依套件集中更新
+
+**查看安全報告：** 檢查 GitHub repository 的「Security」標籤。
 
 ### 專案結構
 
