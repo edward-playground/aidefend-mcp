@@ -22,6 +22,11 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 # Stage 2: Runtime stage
 FROM python:3.11-slim
 
+# Install Node.js (required for parsing JavaScript files with template literals)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user for security
 RUN groupadd -r aidefend && useradd -r -g aidefend aidefend
 
@@ -33,6 +38,9 @@ COPY --from=builder /root/.local /home/aidefend/.local
 
 # Copy application code
 COPY app/ ./app/
+COPY __main__.py ./
+COPY mcp_server.py ./
+COPY parse_js_module.mjs ./
 
 # Copy LICENSE for open source compliance
 COPY LICENSE /app/LICENSE

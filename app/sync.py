@@ -23,7 +23,7 @@ from app.security import (
     compute_file_checksum
 )
 from app.utils import (
-    parse_js_file_with_regex,
+    parse_js_file_with_node,
     save_version_info,
     get_local_commit_sha,
     format_bytes
@@ -231,7 +231,7 @@ def parse_tactic_file(file_path: Path) -> Optional[Dict[str, Any]]:
         Parsed tactic data or None if failed
     """
     try:
-        parsed_data = parse_js_file_with_regex(file_path)
+        parsed_data = parse_js_file_with_node(file_path)
 
         # Validate expected structure
         if not isinstance(parsed_data, dict):
@@ -534,6 +534,21 @@ async def run_sync() -> bool:
             latest_sha,
             {"total_documents": len(all_documents)}
         )
+
+        # Reload query engine to use new database
+        # (Use try-except to prevent reload failures from failing the entire sync)
+        try:
+            # Import here to avoid circular import issues
+            from app.core import query_engine
+            logger.info("Reloading query engine to use updated database...")
+            reload_success = await query_engine.reload()
+            if reload_success:
+                logger.info("Query engine reloaded successfully")
+            else:
+                logger.warning("Query engine reload returned False - may not be initialized yet")
+        except Exception as e:
+            logger.warning(f"Failed to reload query engine after sync: {e}")
+            logger.warning("Query engine will reload on next request or service restart")
 
         logger.info("=" * 60)
         logger.info(f"Sync complete! Updated to commit {latest_sha[:8]}")

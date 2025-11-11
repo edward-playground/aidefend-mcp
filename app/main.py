@@ -6,7 +6,7 @@ Provides REST API endpoints with comprehensive security.
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,6 +52,15 @@ async def lifespan(app: FastAPI):
     logger.info("AIDEFEND MCP Service starting up...")
     logger.info(f"Version: {__version__}")
     logger.info("=" * 60)
+
+    # Check for multi-worker configuration issue
+    if settings.API_WORKERS > 1:
+        logger.warning("=" * 60)
+        logger.warning("⚠️  CONFIGURATION WARNING: API_WORKERS > 1 detected")
+        logger.warning("⚠️  Multi-worker mode is NOT supported by this service.")
+        logger.warning("⚠️  Sync architecture requires single worker for data consistency.")
+        logger.warning("⚠️  Please set API_WORKERS=1 in your configuration.")
+        logger.warning("=" * 60)
 
     # Startup tasks
     try:
@@ -235,6 +244,9 @@ async def health_check():
     """
     Health check endpoint for container orchestration.
     Returns basic health status of all components.
+
+    Also checks data staleness - if data hasn't been synced in 2x the sync interval,
+    returns 'degraded' status to alert monitoring systems.
     """
     checks = {
         "database": False,
@@ -248,7 +260,29 @@ async def health_check():
         checks["database"] = engine_healthy
         checks["embedding_model"] = engine_healthy
 
-        overall_status = "healthy" if all(checks.values()) else "unhealthy"
+        # Check data staleness
+        version_info = load_version_info()
+        overall_status = "healthy"
+
+        if version_info and "last_synced_at" in version_info:
+            try:
+                last_synced = datetime.fromisoformat(version_info["last_synced_at"].replace('Z', '+00:00'))
+                age_seconds = (datetime.now(timezone.utc) - last_synced).total_seconds()
+                max_age_seconds = settings.SYNC_INTERVAL_SECONDS * 2
+
+                if age_seconds > max_age_seconds:
+                    overall_status = "degraded"
+                    checks["sync_service"] = False
+                    logger.warning(
+                        f"Data is stale: last sync was {age_seconds / 3600:.1f} hours ago "
+                        f"(max: {max_age_seconds / 3600:.1f} hours)"
+                    )
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse last_synced_at: {e}")
+
+        # Overall status considers all checks
+        if not all(checks.values()):
+            overall_status = "degraded" if overall_status == "healthy" and checks["database"] else "unhealthy"
 
         return HealthResponse(
             status=overall_status,

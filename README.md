@@ -157,6 +157,9 @@ Both modes share the same core logic, ensuring consistent results.
 ## Prerequisites
 
 - **Python 3.9 - 3.13** (tested on 3.13.6)
+- **Node.js 18+** (required for parsing JavaScript files)
+  - Download: https://nodejs.org/
+  - Verify: `node --version`
 - **Docker** (optional, for containerized deployment)
 - **2GB RAM** minimum (4GB recommended)
 - **500MB disk space** for models and data
@@ -471,6 +474,22 @@ All configuration is done via environment variables. See [.env.example](./.env.e
 | `ENABLE_RATE_LIMITING` | `true` | Enable rate limiting on API endpoints |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Max requests per minute per IP |
 | `MAX_QUERY_LENGTH` | `2000` | Maximum query text length |
+| `API_WORKERS` | `1` | ⚠️ **Must be 1** - Multi-worker mode not supported |
+
+### Important: Single Worker Limitation
+
+**⚠️ This service requires `API_WORKERS=1`**
+
+The sync architecture uses file-based locking and in-memory state management that requires a single worker process. Running with `API_WORKERS > 1` will cause:
+
+- Sync conflicts and race conditions
+- Stale data served by some workers after sync
+- Inconsistent query results
+
+**For production deployments**, if you need horizontal scaling:
+- Deploy multiple independent instances behind a load balancer
+- Use a separate sync service/cron job to update a shared database
+- Each API instance runs with `API_WORKERS=1`
 
 ## Security
 
@@ -487,6 +506,35 @@ As an MCP service for an AI security framework, this service itself implements m
 **For security issues, vulnerability reporting, and deployment best practices, see [SECURITY.md](./SECURITY.md).**
 
 ## Monitoring & Logs
+
+### Health Check Endpoint
+
+The `/health` endpoint provides comprehensive service health status:
+
+```bash
+curl http://localhost:8000/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",  // or "degraded", "unhealthy"
+  "checks": {
+    "database": true,
+    "embedding_model": true,
+    "sync_service": true
+  },
+  "timestamp": "2025-11-11T00:00:00Z"
+}
+```
+
+**Health Status Levels:**
+- `healthy` - All systems operational, data is fresh
+- `degraded` - System operational but data is stale (last sync > 2x sync interval)
+- `unhealthy` - Critical component failure (database, embedding model)
+
+**Stale Data Detection:**
+The health check automatically detects if sync has failed for an extended period. If data age exceeds `2 × SYNC_INTERVAL_SECONDS`, status becomes `degraded` to alert monitoring systems.
 
 ### Structured Logging
 
@@ -534,6 +582,30 @@ mypy app/
 # Security scan
 safety check
 bandit -r app/
+```
+
+### Automated Security Scanning
+
+This repository includes automated security scanning via GitHub Actions:
+
+**🔒 Security Workflows (`.github/workflows/security.yml`)**
+- **Bandit**: Static security analysis for Python code
+- **Safety**: Dependency vulnerability scanning
+- **CodeQL**: Advanced semantic code analysis
+
+**Runs automatically on:**
+- Every push to `main` or `develop` branches
+- All pull requests
+- Weekly schedule (Mondays at 00:00 UTC)
+- Manual trigger via GitHub Actions UI
+
+**📦 Dependabot (`.github/dependabot.yml`)**
+- Automated dependency updates
+- Weekly scans for Python packages and GitHub Actions
+- Automatic pull requests for security patches
+- Grouped updates for dev dependencies
+
+**View security reports:** Check the "Security" tab in your GitHub repository.
 ```
 
 ### Project Structure

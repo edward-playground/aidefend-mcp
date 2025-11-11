@@ -63,6 +63,28 @@ git --version
 
 ---
 
+#### 3. **Node.js 18+**（解析 JavaScript 檔案必要）
+
+**什麼是 Node.js？** 一個 JavaScript 執行環境，用於解析 AIDEFEND framework 中使用 JavaScript template literals 的檔案。
+
+**檢查你是否已安裝：**
+```bash
+node --version
+```
+
+**預期輸出：** `v18.x.x` 或更高版本（例如 `v22.18.0`）
+
+**還沒安裝？** 請從這裡下載：https://nodejs.org/
+
+**安裝提示：**
+- **Windows**: 使用 nodejs.org 的安裝程式
+- **macOS**: 使用安裝程式或 `brew install node`
+- **Linux**: `sudo apt install nodejs` 或 `sudo yum install nodejs`
+
+**為什麼需要這個？** AIDEFEND framework 使用 JavaScript ES6 template literals（反引號），無法單獨用 Python 解析。本服務使用 Node.js subprocess 來原生解析這些檔案。
+
+---
+
 ### 🐳 選配：Docker（用於容器化部署）
 
 **什麼是 Docker？** 一個將服務及其所有相依套件打包成「容器」的工具 - 可以想像成一個可攜帶的、隔離的環境。

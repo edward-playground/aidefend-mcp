@@ -3,6 +3,8 @@ Utility functions for AIDEFEND MCP Service.
 """
 
 import json
+import subprocess
+import sys
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -18,21 +20,22 @@ from app.security import (
 
 logger = get_logger(__name__)
 
+# Path to Node.js parser script (in project root)
+NODE_PARSER_SCRIPT = Path(__file__).parent.parent / "parse_js_module.mjs"
+
 
 class JavaScriptParserError(Exception):
     """Raised when JavaScript parsing fails."""
     pass
 
 
-def parse_js_file_with_regex(js_file_path: Path) -> Dict[str, Any]:
+def parse_js_file_with_node(js_file_path: Path) -> Dict[str, Any]:
     """
-    Parse JavaScript file using regex to extract exported object.
+    Parse JavaScript file using Node.js subprocess.
 
-    This function extracts JSON data from JavaScript export statements like:
-    export const tacticName = { ... };
-
-    Note: This is designed for the specific AIDEFEND framework file format.
-    If the format changes significantly, this parser may need updates.
+    This function uses Node.js to natively parse ES modules with full JavaScript
+    syntax support (including template literals with backticks), then returns
+    the exported object as a Python dict.
 
     Args:
         js_file_path: Path to .js file
@@ -52,81 +55,76 @@ def parse_js_file_with_regex(js_file_path: Path) -> Dict[str, Any]:
         logger.error(f"Security validation failed for {js_file_path}: {e}")
         raise JavaScriptParserError(f"File validation failed: {e}")
 
+    # Check Node.js parser script exists
+    if not NODE_PARSER_SCRIPT.exists():
+        raise JavaScriptParserError(
+            f"Node.js parser script not found at {NODE_PARSER_SCRIPT}. "
+            f"Expected location: {NODE_PARSER_SCRIPT.resolve()}"
+        )
+
     try:
-        # Read file content
-        with open(validated_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # Execute Node.js parser
+        # Command: node parse_js_module.mjs /path/to/file.js
+        result = subprocess.run(
+            ["node", str(NODE_PARSER_SCRIPT), str(validated_path.resolve())],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            timeout=30,  # 30 second timeout
+            check=True   # Raise CalledProcessError if exit code != 0
+        )
 
-        # Pattern to match: export const <name> = { ... }; or { ... }
-        # Semicolon is optional in JavaScript
-        # Uses re.DOTALL to allow . to match newlines
-        pattern = r'export\s+const\s+(\w+)\s*=\s*(\{.*?\})\s*;?'
-        match = re.search(pattern, content, re.DOTALL)
+        # Parse JSON output from stdout
+        parsed_data = json.loads(result.stdout)
 
-        if not match:
-            logger.error(
-                f"Could not find exported object in {js_file_path.name}",
-                extra={"pattern": "export const <name> = {...};"}
-            )
-            raise JavaScriptParserError(
-                f"No exported object found in {js_file_path.name}. "
-                f"Expected format: 'export const <name> = {{...}};' (semicolon optional)"
-            )
+        logger.info(
+            f"Successfully parsed {js_file_path.name} with Node.js",
+            extra={
+                "tactic": parsed_data.get("name", "unknown"),
+                "file_size": validated_path.stat().st_size
+            }
+        )
 
-        tactic_name = match.group(1)
-        obj_content = match.group(2)
+        return parsed_data
 
-        # Clean up JavaScript object to make it valid JSON:
-        # 1. Remove JavaScript comments
-        obj_content = re.sub(r'//.*?$', '', obj_content, flags=re.MULTILINE)  # Single-line comments
-        obj_content = re.sub(r'/\*.*?\*/', '', obj_content, flags=re.DOTALL)  # Multi-line comments
+    except FileNotFoundError:
+        # Node.js not found in PATH
+        raise JavaScriptParserError(
+            "Node.js (node) not found in system PATH. "
+            "Please install Node.js from https://nodejs.org/ and ensure 'node' "
+            "command is available in your terminal."
+        )
 
-        # 2. Remove trailing commas before closing braces/brackets
-        obj_content = re.sub(r',(\s*[}\]])', r'\1', obj_content)
+    except subprocess.TimeoutExpired:
+        raise JavaScriptParserError(
+            f"Node.js parser timed out after 30 seconds for {js_file_path.name}. "
+            f"File may be too large or contain infinite loops."
+        )
 
-        # Note: AIDEFEND framework .js files already have quoted keys ("name", "id", etc.)
-        # We do NOT add quotes to avoid corrupting HTML content in string values
-        # (e.g., <h5>Concept:</h5> would become <h5>"Concept":</h5>)
+    except subprocess.CalledProcessError as e:
+        # Node.js script exited with error
+        error_output = e.stderr.strip() if e.stderr else "No error message"
+        raise JavaScriptParserError(
+            f"Node.js parser failed for {js_file_path.name}. "
+            f"Exit code: {e.returncode}. Error: {error_output}"
+        )
 
-        # Parse as JSON
-        try:
-            parsed_data = json.loads(obj_content)
-            logger.info(
-                f"Successfully parsed {js_file_path.name} using regex",
-                extra={"tactic_name": tactic_name}
-            )
-            return parsed_data
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"JSON decode error for {js_file_path.name}",
-                extra={
-                    "error": str(e),
-                    "line": e.lineno,
-                    "column": e.colno,
-                    "obj_preview": obj_content[:200]
-                }
-            )
-            raise JavaScriptParserError(
-                f"Failed to parse JavaScript object as JSON in {js_file_path.name}: {e}. "
-                f"The file format may have changed. Please check the file structure."
-            )
+    except json.JSONDecodeError as e:
+        # Node.js output was not valid JSON
+        stdout_preview = result.stdout[:200] if result.stdout else "(empty)"
+        raise JavaScriptParserError(
+            f"Node.js parser produced invalid JSON for {js_file_path.name}. "
+            f"JSON error: {e}. Output preview: {stdout_preview}"
+        )
 
-    except JavaScriptParserError:
-        # Re-raise our custom errors
-        raise
     except Exception as e:
-        logger.error(f"Unexpected error parsing {js_file_path.name}: {e}")
-        raise JavaScriptParserError(f"Unexpected parsing error: {e}")
+        raise JavaScriptParserError(
+            f"Unexpected error parsing {js_file_path.name} with Node.js: {e}"
+        )
 
 
 def save_version_info(commit_sha: str, additional_info: Optional[Dict[str, Any]] = None) -> None:
-    """
-    Save version information to local file.
-
-    Args:
-        commit_sha: Git commit SHA
-        additional_info: Additional metadata to save
-    """
+    """Save version information to local file."""
     version_data = {
         "commit_sha": commit_sha,
         "last_synced_at": datetime.now(timezone.utc).isoformat(),
@@ -142,9 +140,7 @@ def save_version_info(commit_sha: str, additional_info: Optional[Dict[str, Any]]
         with open(settings.VERSION_FILE, 'w', encoding='utf-8') as f:
             json.dump(version_data, f, indent=2)
 
-        # Set secure permissions
         set_secure_file_permissions(settings.VERSION_FILE)
-
         logger.info(f"Saved version info: {commit_sha[:8]}")
     except Exception as e:
         logger.error(f"Failed to save version info: {e}")
@@ -152,12 +148,7 @@ def save_version_info(commit_sha: str, additional_info: Optional[Dict[str, Any]]
 
 
 def load_version_info() -> Optional[Dict[str, Any]]:
-    """
-    Load version information from local file.
-
-    Returns:
-        Version data dict or None if not found
-    """
+    """Load version information from local file."""
     try:
         if not settings.VERSION_FILE.exists():
             return None
@@ -175,12 +166,7 @@ def load_version_info() -> Optional[Dict[str, Any]]:
 
 
 def get_local_commit_sha() -> Optional[str]:
-    """
-    Get the currently synced commit SHA.
-
-    Returns:
-        Commit SHA string or None
-    """
+    """Get the currently synced commit SHA."""
     version_info = load_version_info()
     if version_info:
         return version_info.get("commit_sha")
@@ -188,15 +174,7 @@ def get_local_commit_sha() -> Optional[str]:
 
 
 def format_bytes(bytes_size: int) -> str:
-    """
-    Format bytes into human-readable string.
-
-    Args:
-        bytes_size: Size in bytes
-
-    Returns:
-        Formatted string (e.g., "1.5 MB")
-    """
+    """Format bytes into human-readable string."""
     for unit in ['B', 'KB', 'MB', 'GB']:
         if bytes_size < 1024.0:
             return f"{bytes_size:.1f} {unit}"
@@ -205,17 +183,7 @@ def format_bytes(bytes_size: int) -> str:
 
 
 def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:
-    """
-    Truncate text to maximum length.
-
-    Args:
-        text: Text to truncate
-        max_length: Maximum length
-        suffix: Suffix to add if truncated
-
-    Returns:
-        Truncated text
-    """
+    """Truncate text to maximum length."""
     if len(text) <= max_length:
         return text
     return text[:max_length - len(suffix)] + suffix
