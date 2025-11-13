@@ -13,9 +13,12 @@ from app.logger import get_logger
 logger = get_logger(__name__)
 
 # Security constants
-MAX_QUERY_LENGTH = 2000
+# MAX_QUERY_LENGTH aligned with bge-small-en-v1.5 model limit (512 tokens ≈ 1500 chars)
+MAX_QUERY_LENGTH = 1500
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+MAX_REQUEST_BODY_SIZE_MB = 1  # Maximum request body size in MB
+MAX_REQUEST_BODY_SIZE_BYTES = MAX_REQUEST_BODY_SIZE_MB * 1024 * 1024
 VALID_COMMIT_SHA_PATTERN = re.compile(r'^[a-f0-9]{40}$')
 ALLOWED_FILE_EXTENSIONS = {'.js'}
 

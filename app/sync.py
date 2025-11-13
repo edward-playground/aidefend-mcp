@@ -7,10 +7,12 @@ import asyncio
 import httpx
 import lancedb
 import time
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 from fastembed import TextEmbedding
+from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.logger import get_logger
@@ -31,86 +33,270 @@ from app.utils import (
 
 logger = get_logger(__name__)
 
-# Sync lock configuration
-LOCK_FILE = settings.DATA_PATH / ".sync.lock"
-LOCK_TIMEOUT_SECONDS = 1800  # 30 minutes
+# Sync lock using asyncio.Lock (non-blocking, in-memory)
+# Since API_WORKERS=1, we run in single process, so asyncio.Lock is sufficient
+_sync_lock = asyncio.Lock()
 
 # Global state for last sync error
 _last_sync_error: Optional[str] = None
 
 
-def _acquire_sync_lock() -> bool:
+async def _acquire_sync_lock() -> bool:
     """
-    Acquire sync lock using atomic file creation.
+    Acquire sync lock using asyncio.Lock (non-blocking).
 
     Returns:
-        True if lock acquired, False if another process holds the lock
+        True if lock acquired, False if another coroutine holds the lock
     """
-    try:
-        # Check if stale lock exists (older than timeout)
-        if LOCK_FILE.exists():
-            lock_age = time.time() - LOCK_FILE.stat().st_mtime
-            if lock_age > LOCK_TIMEOUT_SECONDS:
-                logger.warning(
-                    f"Removing stale lock file (age: {lock_age:.0f}s)",
-                    extra={"lock_age_seconds": lock_age, "timeout": LOCK_TIMEOUT_SECONDS}
-                )
-                LOCK_FILE.unlink(missing_ok=True)
-            else:
-                logger.info("Sync already in progress (lock file exists)")
-                return False
-
-        # Try to create lock file atomically
-        # Using 'x' mode fails if file exists, making this atomic
-        with open(LOCK_FILE, 'x') as f:
-            f.write(f"{datetime.now(timezone.utc).isoformat()}\n")
-
-        logger.info("Acquired sync lock")
-        return True
-
-    except FileExistsError:
-        # Another process created the lock between our check and creation
-        logger.info("Sync already in progress (lock acquired by another process)")
+    if _sync_lock.locked():
+        logger.info("Sync already in progress (asyncio.Lock is held)")
         return False
-    except Exception as e:
-        logger.error(f"Error acquiring sync lock: {e}")
-        return False
+
+    await _sync_lock.acquire()
+    logger.info("Acquired async sync lock")
+    return True
 
 
 def _release_sync_lock() -> None:
-    """Release sync lock by removing lock file."""
+    """Release async sync lock."""
     try:
-        LOCK_FILE.unlink(missing_ok=True)
-        logger.info("Released sync lock")
-    except Exception as e:
-        logger.warning(f"Error releasing sync lock: {e}")
+        _sync_lock.release()
+        logger.info("Released async sync lock")
+    except RuntimeError:
+        logger.warning("Attempted to release a lock that was not held.")
 
 
 def is_sync_in_progress() -> bool:
     """
-    Check if sync is currently running by checking lock file existence.
+    Check if sync is currently running (non-blocking).
 
     Returns:
-        True if lock file exists and is not stale
+        True if asyncio.Lock is currently held
     """
-    if not LOCK_FILE.exists():
-        return False
-
-    # Check if lock is stale
-    try:
-        lock_age = time.time() - LOCK_FILE.stat().st_mtime
-        if lock_age > LOCK_TIMEOUT_SECONDS:
-            logger.warning(f"Stale lock detected (age: {lock_age:.0f}s)")
-            return False
-        return True
-    except Exception as e:
-        logger.error(f"Error checking lock file: {e}")
-        return False
+    return _sync_lock.locked()
 
 
 def get_last_sync_error() -> Optional[str]:
     """Get last sync error message."""
     return _last_sync_error
+
+
+def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Pre-compute statistics from LanceDB records (optimization).
+
+    This avoids expensive full table scans when get_statistics is called.
+    Called during sync after records are prepared but before writing to DB.
+
+    Args:
+        records: List of LanceDB records
+
+    Returns:
+        Dict with pre-computed statistics matching get_statistics format
+    """
+    import json
+    from collections import defaultdict
+
+    total_documents = len(records)
+    type_counts = defaultdict(int)
+    tactic_counts = defaultdict(int)
+    pillar_counts = defaultdict(int)
+    phase_counts = defaultdict(int)
+
+    # Enhanced features
+    techniques_with_defenses = 0
+    techniques_with_opensource_tools = 0
+    techniques_with_commercial_tools = 0
+    documents_with_code = 0
+
+    # Framework coverage
+    owasp_items = set()
+    atlas_items = set()
+    maestro_items = set()
+
+    for record in records:
+        doc_type = record.get('type', 'unknown')
+        tactic = record.get('tactic', 'Unknown')
+        pillar = record.get('pillar', '')
+        phase = record.get('phase', '')
+
+        # Count by type
+        type_counts[doc_type] += 1
+
+        # Count by tactic
+        tactic_counts[tactic] += 1
+
+        # Count by pillar (only if not empty)
+        if pillar:
+            pillar_counts[pillar] += 1
+
+        # Count by phase (only if not empty)
+        if phase:
+            phase_counts[phase] += 1
+
+        # Enhanced features (only for techniques)
+        if doc_type == 'technique':
+            # Parse defends_against field
+            defends_against_str = record.get('defends_against', '[]')
+            try:
+                defends_against = json.loads(defends_against_str) if isinstance(defends_against_str, str) else defends_against_str
+
+                if defends_against:
+                    techniques_with_defenses += 1
+
+                    # Extract threat items by framework
+                    for framework_data in defends_against:
+                        framework_name = framework_data.get('framework', '')
+                        items = framework_data.get('items', [])
+
+                        if 'OWASP' in framework_name:
+                            owasp_items.update(items)
+                        elif 'ATLAS' in framework_name or 'MITRE' in framework_name:
+                            atlas_items.update(items)
+                        elif 'MAESTRO' in framework_name:
+                            maestro_items.update(items)
+
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Failed to parse defends_against for {record.get('source_id')}")
+
+            # Parse tools
+            tools_opensource_str = record.get('tools_opensource', '[]')
+            tools_commercial_str = record.get('tools_commercial', '[]')
+
+            try:
+                tools_opensource = json.loads(tools_opensource_str) if isinstance(tools_opensource_str, str) else tools_opensource_str
+                tools_commercial = json.loads(tools_commercial_str) if isinstance(tools_commercial_str, str) else tools_commercial_str
+
+                if tools_opensource:
+                    techniques_with_opensource_tools += 1
+                if tools_commercial:
+                    techniques_with_commercial_tools += 1
+
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Failed to parse tools for {record.get('source_id')}")
+
+        # Check for code snippets
+        has_code = record.get('has_code_snippets', False)
+        if has_code:
+            documents_with_code += 1
+
+    # Build statistics object (matching get_statistics format)
+    statistics = {
+        "overview": {
+            "total_documents": total_documents,
+            "total_techniques": type_counts.get('technique', 0),
+            "total_subtechniques": type_counts.get('subtechnique', 0),
+            "total_strategies": type_counts.get('strategy', 0),
+            "last_synced": datetime.now(timezone.utc).isoformat(),
+            "embedding_model": settings.EMBEDDING_MODEL,
+            "database_path": str(settings.DB_PATH)
+        },
+        "by_tactic": dict(sorted(tactic_counts.items())),
+        "by_pillar": dict(sorted(pillar_counts.items())),
+        "by_phase": dict(sorted(phase_counts.items())),
+        "threat_framework_coverage": {
+            "owasp_llm_items_covered": len(owasp_items),
+            "mitre_atlas_items_covered": len(atlas_items),
+            "maestro_items_covered": len(maestro_items),
+            "techniques_with_threat_mappings": techniques_with_defenses,
+            "coverage_percentage": round(
+                (techniques_with_defenses / type_counts.get('technique', 1)) * 100, 1
+            ) if type_counts.get('technique', 0) > 0 else 0
+        },
+        "tools_availability": {
+            "techniques_with_opensource_tools": techniques_with_opensource_tools,
+            "techniques_with_commercial_tools": techniques_with_commercial_tools,
+            "opensource_coverage_percentage": round(
+                (techniques_with_opensource_tools / type_counts.get('technique', 1)) * 100, 1
+            ) if type_counts.get('technique', 0) > 0 else 0
+        },
+        "implementation_resources": {
+            "documents_with_code_snippets": documents_with_code,
+            "strategies_total": type_counts.get('strategy', 0),
+            "code_coverage_percentage": round(
+                (documents_with_code / type_counts.get('strategy', 1)) * 100, 1
+            ) if type_counts.get('strategy', 0) > 0 else 0
+        }
+    }
+
+    return statistics
+
+
+def _build_threat_mappings(records: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """
+    Build reverse index: threat_id -> [technique_ids] (optimization).
+
+    This allows O(1) lookup in defenses_for_threat tool instead of O(n) scan.
+
+    Args:
+        records: List of LanceDB records
+
+    Returns:
+        Dict mapping threat IDs to lists of technique IDs
+    """
+    import json
+
+    threat_mappings = {}
+
+    for record in records:
+        # Only process techniques (not subtechniques or strategies)
+        if record.get('type') != 'technique':
+            continue
+
+        technique_id = record.get('source_id')
+        defends_against_str = record.get('defends_against', '[]')
+
+        try:
+            defends_against = json.loads(defends_against_str) if isinstance(defends_against_str, str) else defends_against_str
+
+            if not defends_against:
+                continue
+
+            # Extract all threat items
+            for framework_data in defends_against:
+                items = framework_data.get('items', [])
+
+                for item in items:
+                    # Extract normalized threat IDs from item text
+                    # Example: "LLM01:2025 Prompt Injection" -> "LLM01"
+                    # Example: "AML.T0015" -> "AML.T0015"
+
+                    item_upper = item.upper()
+
+                    # Extract LLM IDs
+                    llm_match = re.search(r'LLM\d{2}', item_upper)
+                    if llm_match:
+                        threat_id = llm_match.group(0)
+                        if threat_id not in threat_mappings:
+                            threat_mappings[threat_id] = []
+                        if technique_id not in threat_mappings[threat_id]:
+                            threat_mappings[threat_id].append(technique_id)
+
+                    # Extract ATLAS IDs (T####)
+                    atlas_match = re.search(r'T\d{4}', item_upper)
+                    if atlas_match:
+                        t_id = atlas_match.group(0)
+                        # Store both with and without AML. prefix
+                        for threat_id in [t_id, f"AML.{t_id}"]:
+                            if threat_id not in threat_mappings:
+                                threat_mappings[threat_id] = []
+                            if technique_id not in threat_mappings[threat_id]:
+                                threat_mappings[threat_id].append(technique_id)
+
+                    # Store full item text as well (for exact matches)
+                    # Normalized: strip whitespace, uppercase
+                    normalized_item = item.strip().upper()
+                    if normalized_item:
+                        if normalized_item not in threat_mappings:
+                            threat_mappings[normalized_item] = []
+                        if technique_id not in threat_mappings[normalized_item]:
+                            threat_mappings[normalized_item].append(technique_id)
+
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"Failed to parse defends_against for {technique_id}: {e}")
+
+    logger.info(f"Built threat mappings index: {len(threat_mappings)} unique threat IDs")
+    return threat_mappings
 
 
 async def fetch_latest_commit_sha() -> Optional[str]:
@@ -279,8 +465,27 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
         tech_name = technique.get("name", "Unknown")
         tech_desc = technique.get("description", "")
 
+        # Extract threat framework mappings
+        defends_against = technique.get("defendsAgainst", [])
+
+        # Extract tool lists
+        tools_opensource = technique.get("toolsOpenSource", [])
+        tools_commercial = technique.get("toolsCommercial", [])
+
         # Document for technique
         tech_text = f"Technique: {tech_name}\nID: {tech_id}\nDescription: {tech_desc}"
+
+        # Add defends-against info to text for better semantic search
+        if defends_against:
+            frameworks_text = []
+            for fw in defends_against:
+                fw_name = fw.get("framework", "")
+                items = fw.get("items", [])
+                if items:
+                    frameworks_text.append(f"{fw_name}: {', '.join(items)}")
+            if frameworks_text:
+                tech_text += "\nDefends Against: " + "; ".join(frameworks_text)
+
         documents.append({
             "text": tech_text,
             "source_id": tech_id,
@@ -288,7 +493,13 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
             "type": "technique",
             "name": tech_name,
             "pillar": technique.get("pillar", ""),
-            "phase": technique.get("phase", "")
+            "phase": technique.get("phase", ""),
+            "defends_against": defends_against,
+            "tools_opensource": tools_opensource,
+            "tools_commercial": tools_commercial,
+            "parent_technique_id": "",  # Techniques have no parent
+            "implementation_strategies": [],  # Techniques don't have strategies directly
+            "has_code_snippets": False
         })
 
         # Documents for sub-techniques
@@ -298,6 +509,20 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
             sub_desc = sub_tech.get("description", "")
             sub_pillar = sub_tech.get("pillar", "")
             sub_phase = sub_tech.get("phase", "")
+
+            # Extract implementation strategies (preserve full HTML for code extraction)
+            implementation_strategies = sub_tech.get("implementationStrategies", [])
+
+            # Check if any strategy has code snippets (using BeautifulSoup for robustness)
+            # This ensures consistency with code_snippets.py extraction logic
+            has_code = False
+            for strat in implementation_strategies:
+                how_to = strat.get("howTo", "")
+                if how_to:
+                    soup_check = BeautifulSoup(how_to, 'html.parser')
+                    if soup_check.find_all(['pre', 'code']):
+                        has_code = True
+                        break
 
             sub_text = (
                 f"Sub-Technique: {sub_name}\n"
@@ -315,23 +540,37 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                 "type": "subtechnique",
                 "name": sub_name,
                 "pillar": sub_pillar,
-                "phase": sub_phase
+                "phase": sub_phase,
+                "defends_against": [],  # Sub-techniques inherit from parent
+                "tools_opensource": [],
+                "tools_commercial": [],
+                "parent_technique_id": tech_id,
+                "implementation_strategies": implementation_strategies,
+                "has_code_snippets": has_code
             })
 
             # Documents for implementation strategies
             for i, strategy in enumerate(sub_tech.get("implementationStrategies", []), 1):
                 strategy_name = strategy.get("strategy", "Strategy")
-                how_to = strategy.get("howTo", "")
+                how_to_html = strategy.get("howTo", "")
 
-                # Remove HTML tags from howTo for better embedding
-                import re
-                clean_how_to = re.sub(r'<[^>]+>', ' ', how_to)
-                clean_how_to = ' '.join(clean_how_to.split())  # Normalize whitespace
+                # For embedding text: Use BeautifulSoup to safely remove HTML
+                soup = BeautifulSoup(how_to_html, 'html.parser')
+
+                # Check if this strategy has code (before removing tags)
+                has_code = bool(soup.find_all(['pre', 'code']))
+
+                # Remove code tags - we don't want code in the embedding text
+                for code_tag in soup.find_all(['pre', 'code']):
+                    code_tag.decompose()
+
+                # Get clean text
+                clean_how_to = soup.get_text(separator=' ', strip=True)
 
                 strategy_id = f"{sub_id}.S{i}"
                 strategy_text = (
-                    f"Implementation Strategy for {sub_name}\n"
-                    f"Strategy: {strategy_name}\n"
+                    f"Tactic: {tactic_name}. Technique: {tech_name}. Sub-Technique: {sub_name}\n"
+                    f"Implementation Strategy: {strategy_name}\n"
                     f"ID: {strategy_id}\n"
                     f"How-To: {clean_how_to}"
                 )
@@ -343,7 +582,16 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                     "type": "strategy",
                     "name": f"{sub_name} - {strategy_name}",
                     "pillar": sub_pillar,
-                    "phase": sub_phase
+                    "phase": sub_phase,
+                    "defends_against": [],
+                    "tools_opensource": [],
+                    "tools_commercial": [],
+                    "parent_technique_id": sub_id,
+                    "implementation_strategies": [{
+                        "strategy": strategy_name,
+                        "howTo": how_to_html  # Preserve full HTML
+                    }],
+                    "has_code_snippets": has_code
                 })
 
     logger.info(
@@ -354,7 +602,7 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
     return documents
 
 
-async def embed_and_index(documents: List[Dict[str, Any]]) -> bool:
+async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     Embed documents and store in LanceDB.
 
@@ -362,7 +610,9 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> bool:
         documents: List of document dicts
 
     Returns:
-        True if successful, False otherwise
+        Tuple of (success: bool, statistics: Optional[Dict])
+        - success: True if successful, False otherwise
+        - statistics: Pre-computed statistics dict, or None if failed
     """
     try:
         logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
@@ -390,9 +640,12 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> bool:
 
         logger.info("Creating LanceDB records...")
 
-        # Prepare LanceDB records
+        # Prepare LanceDB records with extended schema
         records = []
         for i, doc in enumerate(documents):
+            # Convert complex types to JSON strings for LanceDB storage
+            import json
+
             records.append({
                 "vector": embeddings[i].tolist(),
                 "text": doc["text"],
@@ -401,30 +654,102 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> bool:
                 "type": doc["type"],
                 "name": doc["name"],
                 "pillar": doc.get("pillar", ""),
-                "phase": doc.get("phase", "")
+                "phase": doc.get("phase", ""),
+                # New fields for enhanced functionality
+                "defends_against": json.dumps(doc.get("defends_against", [])),
+                "tools_opensource": json.dumps(doc.get("tools_opensource", [])),
+                "tools_commercial": json.dumps(doc.get("tools_commercial", [])),
+                "parent_technique_id": doc.get("parent_technique_id", ""),
+                "implementation_strategies": json.dumps(doc.get("implementation_strategies", [])),
+                "has_code_snippets": doc.get("has_code_snippets", False)
             })
+
+        # Pre-compute statistics from records (optimization for get_statistics tool)
+        logger.info("Pre-computing statistics from records...")
+        statistics = _calculate_statistics_from_records(records)
+        logger.info(f"Statistics pre-computed: {statistics['overview']['total_documents']} documents")
+
+        # Build threat mappings reverse index (optimization for defenses_for_threat tool)
+        logger.info("Building threat mappings reverse index...")
+        threat_mappings = _build_threat_mappings(records)
+        statistics['threat_mappings'] = threat_mappings
+        logger.info(f"Threat mappings built: {len(threat_mappings)} unique threat IDs")
 
         # Connect to LanceDB
         logger.info(f"Connecting to LanceDB: {settings.DB_PATH}")
         db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
 
-        # Drop existing table if exists
+        # Blue-Green Deployment: Write to temporary table first
+        temp_table_name = "aidefend_new_sync"
+
+        # Drop temporary table if exists (from previous failed sync)
         try:
-            await asyncio.to_thread(db.drop_table, "aidefend")
-            logger.info("Dropped existing 'aidefend' table")
+            await asyncio.to_thread(db.drop_table, temp_table_name)
+            logger.info(f"Dropped existing '{temp_table_name}' table")
         except Exception:
-            logger.info("No existing 'aidefend' table to drop")
+            pass  # Table doesn't exist, that's fine
 
         # Create new table with explicit schema
-        logger.info(f"Creating 'aidefend' table with {len(records)} records...")
+        logger.info(f"Creating '{temp_table_name}' table with {len(records)} records...")
 
         await asyncio.to_thread(
             db.create_table,
-            "aidefend",
+            temp_table_name,
             data=records
         )
 
-        logger.info("Successfully indexed all documents in LanceDB")
+        # Verify new table was created successfully
+        table_names = await asyncio.to_thread(db.table_names)
+        if temp_table_name not in table_names:
+            raise Exception(f"Failed to create {temp_table_name} table")
+
+        logger.info(f"Successfully created {temp_table_name} table. Performing atomic swap...")
+
+        # Atomic swap: Rename tables for zero-downtime deployment
+        # 1. Delete old backup if exists
+        try:
+            await asyncio.to_thread(db.drop_table, "aidefend_backup")
+            logger.info("Deleted old backup table")
+        except Exception:
+            pass  # No backup exists
+
+        # 2. Rename current aidefend to aidefend_backup (if exists)
+        try:
+            table_names = await asyncio.to_thread(db.table_names)
+            if "aidefend" in table_names:
+                # LanceDB doesn't have native rename, so we need to use underlying filesystem
+                aidefend_path = settings.DB_PATH / "aidefend.lance"
+                backup_path = settings.DB_PATH / "aidefend_backup.lance"
+
+                if aidefend_path.exists():
+                    await asyncio.to_thread(
+                        aidefend_path.rename,
+                        backup_path
+                    )
+                    logger.info("Renamed aidefend -> aidefend_backup")
+        except Exception as e:
+            logger.warning(f"Could not backup old table: {e}")
+
+        # 3. Rename new_sync to aidefend (atomic operation)
+        new_sync_path = settings.DB_PATH / f"{temp_table_name}.lance"
+        aidefend_path = settings.DB_PATH / "aidefend.lance"
+
+        await asyncio.to_thread(
+            new_sync_path.rename,
+            aidefend_path
+        )
+
+        logger.info("Atomic swap complete: aidefend_new_sync -> aidefend")
+
+        # 4. Reload query engine to use new table
+        from app.core import query_engine
+        reload_success = await query_engine.reload()
+        if reload_success:
+            logger.info("Query engine reloaded successfully")
+        else:
+            logger.warning("Query engine reload reported failure (may still work)")
+
+        logger.info("Zero-downtime sync complete!")
 
         # Set secure permissions on database directory
         db_dir = settings.DB_PATH
@@ -433,11 +758,12 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> bool:
                 if file.is_file():
                     set_secure_file_permissions(file)
 
-        return True
+        # Return success with pre-computed statistics
+        return (True, statistics)
 
     except Exception as e:
         logger.error(f"Failed to embed and index documents: {e}", exc_info=True)
-        return False
+        return (False, None)
 
 
 async def run_sync() -> bool:
@@ -450,7 +776,7 @@ async def run_sync() -> bool:
     global _last_sync_error
 
     # Try to acquire lock
-    if not _acquire_sync_lock():
+    if not await _acquire_sync_lock():
         logger.warning("Sync already in progress, skipping")
         return False
 
@@ -497,42 +823,67 @@ async def run_sync() -> bool:
 
         logger.info(f"Downloaded {len(downloaded_files)} files")
 
-        # Parse all files
+        # Parse all files with resilient error handling
+        # Single file failure should not fail entire sync
         all_documents = []
+        failed_files = []
+
         for file_path in downloaded_files:
-            # Use asyncio.to_thread to avoid blocking the event loop
-            # (parse_tactic_file involves file I/O and CPU-intensive regex operations)
-            tactic_data = await asyncio.to_thread(parse_tactic_file, file_path)
-            if tactic_data:
-                # Use asyncio.to_thread for extract_documents_from_tactic as well
-                # (involves CPU-intensive data transformation)
-                documents = await asyncio.to_thread(extract_documents_from_tactic, tactic_data)
-                all_documents.extend(documents)
-            else:
-                error_msg = f"Failed to parse {file_path.name}"
-                logger.error(error_msg)
-                _last_sync_error = error_msg
-                return False
+            try:
+                # Use asyncio.to_thread to avoid blocking the event loop
+                # (parse_tactic_file involves file I/O and CPU-intensive regex operations)
+                tactic_data = await asyncio.to_thread(parse_tactic_file, file_path)
+
+                if tactic_data:
+                    # Use asyncio.to_thread for extract_documents_from_tactic as well
+                    # (involves CPU-intensive data transformation)
+                    documents = await asyncio.to_thread(extract_documents_from_tactic, tactic_data)
+                    all_documents.extend(documents)
+                    logger.info(f"✓ Successfully parsed {file_path.name}: {len(documents)} documents")
+                else:
+                    # parse_tactic_file returned None
+                    raise Exception("parse_tactic_file returned None")
+
+            except Exception as e:
+                error_msg = f"Failed to parse or extract from {file_path.name}: {e}"
+                logger.error(error_msg, exc_info=True)
+                _last_sync_error = error_msg  # Record last error
+                failed_files.append(file_path.name)
+                # Continue processing other files instead of returning False
 
         logger.info(f"Total documents extracted: {len(all_documents)}")
 
+        # Only fail if ALL files failed to parse
         if not all_documents:
-            error_msg = "No documents extracted from files"
+            error_msg = f"No documents extracted. All {len(failed_files)} file(s) failed to parse."
             logger.error(error_msg)
             _last_sync_error = error_msg
             return False
 
+        # Warn if partial failure occurred
+        if failed_files:
+            warning_msg = (
+                f"Sync proceeding with partial data. "
+                f"{len(failed_files)} file(s) failed to parse: {', '.join(failed_files)}"
+            )
+            logger.warning(warning_msg)
+            # Update _last_sync_error to show partial failure
+            _last_sync_error = f"Partial sync: {len(failed_files)} file(s) failed ({failed_files[0]})"
+
         # Embed and index
-        success = await embed_and_index(all_documents)
+        success, statistics = await embed_and_index(all_documents)
         if not success:
             error_msg = "Failed to embed and index documents"
             _last_sync_error = error_msg
             return False
 
-        # Save version info
+        # Save version info with pre-computed statistics
         save_version_info(
             latest_sha,
-            {"total_documents": len(all_documents)}
+            {
+                "total_documents": len(all_documents),
+                "statistics": statistics  # Pre-computed statistics for get_statistics tool
+            }
         )
 
         # Reload query engine to use new database

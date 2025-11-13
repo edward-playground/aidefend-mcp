@@ -78,6 +78,44 @@ class Settings(BaseSettings):
         description="Embedding vector dimension (384 for bge-small-en-v1.5)"
     )
 
+    # LLM Configuration (for compliance mapping and other AI features)
+    ANTHROPIC_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Anthropic API key for Claude (required for LLM-based compliance mapping)"
+    )
+    CLAUDE_MODEL: str = Field(
+        default="claude-3-5-sonnet-20241022",
+        description="Claude model to use for LLM features"
+    )
+    CLAUDE_MAX_TOKENS: int = Field(
+        default=2048,
+        ge=256,
+        le=4096,
+        description="Maximum tokens for Claude responses"
+    )
+
+    # LLM Fallback Configuration (for classify_threat tool)
+    ENABLE_LLM_FALLBACK: bool = Field(
+        default=False,
+        description="Enable LLM semantic inference fallback for threat classification (requires ANTHROPIC_API_KEY)"
+    )
+    LLM_FALLBACK_THRESHOLD: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence threshold before triggering LLM fallback (0.0-1.0)"
+    )
+    ENABLE_FUZZY_MATCHING: bool = Field(
+        default=True,
+        description="Enable fuzzy string matching for typo tolerance in threat classification (free, zero cost)"
+    )
+    FUZZY_MATCH_CUTOFF: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score for fuzzy matches (0.0-1.0)"
+    )
+
     # Sync Configuration
     SYNC_INTERVAL_SECONDS: int = Field(
         default=3600,
@@ -110,8 +148,8 @@ class Settings(BaseSettings):
     API_WORKERS: int = Field(
         default=1,
         ge=1,
-        le=4,
-        description="Number of API workers"
+        le=1,
+        description="Number of API workers (MUST be 1 for sync safety - asyncio.Lock + LanceDB write conflicts)"
     )
 
     # Security Configuration
@@ -176,6 +214,18 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore"  # Ignore extra environment variables
     )
+
+    @field_validator("API_WORKERS")
+    @classmethod
+    def validate_workers(cls, v: int) -> int:
+        """Validate API workers count - MUST be 1 for sync safety."""
+        if v > 1:
+            raise ValueError(
+                "API_WORKERS must be 1. Multi-worker mode is NOT supported due to "
+                "asyncio.Lock limitations and LanceDB write conflicts. "
+                "Using multiple workers will cause data corruption."
+            )
+        return v
 
     @field_validator("LOG_LEVEL")
     @classmethod
