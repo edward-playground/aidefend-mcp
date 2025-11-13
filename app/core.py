@@ -8,6 +8,7 @@ import lancedb
 from typing import List, Optional
 from pathlib import Path
 from fastembed import TextEmbedding
+from aiorwlock import RWLock
 
 from app.config import settings
 from app.logger import get_logger
@@ -40,9 +41,82 @@ class QueryEngine:
         self._table: Optional[lancedb.Table] = None
         self._model: Optional[TextEmbedding] = None
         self._initialized = False
-        self._init_lock = asyncio.Lock()
+        self._rw_lock = RWLock()  # Read-write lock for concurrent access
+        self._id_cache: Optional[List] = None  # ID cache for validation tool
 
         logger.info("QueryEngine instance created (lazy initialization)")
+
+    async def _do_initialize(self) -> bool:
+        """
+        Initialize database connection and embedding model.
+        Must be called with writer lock held.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if self._initialized:
+            return True
+
+        try:
+            logger.info("Initializing QueryEngine...")
+
+            # Check if database exists
+            if not settings.DB_PATH.exists():
+                logger.warning(
+                    "LanceDB not found. Initial sync required.",
+                    extra={"db_path": str(settings.DB_PATH)}
+                )
+                return False
+
+            # Load embedding model (fastembed uses ONNX Runtime)
+            logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
+            self._model = await asyncio.to_thread(
+                TextEmbedding,
+                model_name=settings.EMBEDDING_MODEL
+            )
+            logger.info("Embedding model loaded")
+
+            # Connect to database
+            logger.info(f"Connecting to LanceDB: {settings.DB_PATH}")
+            self._db = await asyncio.to_thread(
+                lancedb.connect,
+                str(settings.DB_PATH)
+            )
+
+            # Open table
+            try:
+                self._table = await asyncio.to_thread(
+                    self._db.open_table,
+                    "aidefend"
+                )
+                logger.info("Opened 'aidefend' table")
+
+                # Get table stats
+                count = await asyncio.to_thread(self._table.count_rows)
+
+                # Load ID cache for validation tool (optimization)
+                logger.info("Loading ID cache for validation tool...")
+                self._id_cache = await asyncio.to_thread(
+                    lambda: self._table.to_pandas()[['source_id', 'name', 'type', 'tactic']].to_dict('records')
+                )
+                logger.info(f"ID cache loaded: {len(self._id_cache)} entries")
+
+                logger.info(
+                    f"QueryEngine initialized successfully",
+                    extra={"document_count": count}
+                )
+
+                self._initialized = True
+                return True
+
+            except Exception as e:
+                logger.error(f"Failed to open 'aidefend' table: {e}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to initialize QueryEngine: {e}", exc_info=True)
+            self._initialized = False
+            return False
 
     async def initialize(self) -> bool:
         """
@@ -51,62 +125,8 @@ class QueryEngine:
         Returns:
             True if successful, False otherwise
         """
-        async with self._init_lock:
-            if self._initialized:
-                return True
-
-            try:
-                logger.info("Initializing QueryEngine...")
-
-                # Check if database exists
-                if not settings.DB_PATH.exists():
-                    logger.warning(
-                        "LanceDB not found. Initial sync required.",
-                        extra={"db_path": str(settings.DB_PATH)}
-                    )
-                    return False
-
-                # Load embedding model (fastembed uses ONNX Runtime)
-                logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
-                self._model = await asyncio.to_thread(
-                    TextEmbedding,
-                    model_name=settings.EMBEDDING_MODEL
-                )
-                logger.info("Embedding model loaded")
-
-                # Connect to database
-                logger.info(f"Connecting to LanceDB: {settings.DB_PATH}")
-                self._db = await asyncio.to_thread(
-                    lancedb.connect,
-                    str(settings.DB_PATH)
-                )
-
-                # Open table
-                try:
-                    self._table = await asyncio.to_thread(
-                        self._db.open_table,
-                        "aidefend"
-                    )
-                    logger.info("Opened 'aidefend' table")
-
-                    # Get table stats
-                    count = await asyncio.to_thread(self._table.count_rows)
-                    logger.info(
-                        f"QueryEngine initialized successfully",
-                        extra={"document_count": count}
-                    )
-
-                    self._initialized = True
-                    return True
-
-                except Exception as e:
-                    logger.error(f"Failed to open 'aidefend' table: {e}")
-                    return False
-
-            except Exception as e:
-                logger.error(f"Failed to initialize QueryEngine: {e}", exc_info=True)
-                self._initialized = False
-                return False
+        async with self._rw_lock.writer:
+            return await self._do_initialize()
 
     async def search(self, request: QueryRequest) -> List[ContextChunk]:
         """
@@ -131,7 +151,7 @@ class QueryEngine:
                 "Database sync in progress. Please try again in a few moments."
             )
 
-        # Ensure initialized
+        # Ensure initialized (acquire writer lock if needed)
         if not self._initialized:
             initialized = await self.initialize()
             if not initialized:
@@ -140,63 +160,66 @@ class QueryEngine:
                     "Run initial sync first."
                 )
 
-        if self._model is None or self._table is None:
-            raise QueryEngineNotInitializedError(
-                "Query engine components not available"
-            )
-
-        try:
-            logger.info(
-                f"Processing query",
-                extra={
-                    "query_length": len(request.query_text),
-                    "top_k": request.top_k
-                }
-            )
-
-            # Embed query (fastembed returns generator, get first result)
-            query_embeddings = await asyncio.to_thread(
-                lambda: list(self._model.embed([request.query_text]))
-            )
-            query_vector = query_embeddings[0]
-
-            # Perform vector search
-            results = await asyncio.to_thread(
-                self._perform_search,
-                query_vector,
-                request.top_k
-            )
-
-            # Convert to ContextChunk objects
-            chunks = []
-            for result in results:
-                chunk = ContextChunk(
-                    source_id=result.get("source_id", "N/A"),
-                    tactic=result.get("tactic", "N/A"),
-                    text=result.get("text", ""),
-                    metadata={
-                        "type": result.get("type", "N/A"),
-                        "name": result.get("name", "N/A"),
-                        "pillar": result.get("pillar", ""),
-                        "phase": result.get("phase", "")
-                    },
-                    score=result.get("_distance", 0.0)
+        # Acquire reader lock for search operation (allows concurrent reads)
+        async with self._rw_lock.reader:
+            # Double-check state after acquiring lock
+            if not self._initialized or self._model is None or self._table is None:
+                raise QueryEngineNotInitializedError(
+                    "Query engine components not available"
                 )
-                chunks.append(chunk)
 
-            logger.info(
-                f"Query completed",
-                extra={
-                    "results_returned": len(chunks),
-                    "top_score": chunks[0].score if chunks else None
-                }
-            )
+            try:
+                logger.info(
+                    f"Processing query",
+                    extra={
+                        "query_length": len(request.query_text),
+                        "top_k": request.top_k
+                    }
+                )
 
-            return chunks
+                # Embed query (fastembed returns generator, get first result)
+                query_embeddings = await asyncio.to_thread(
+                    lambda: list(self._model.embed([request.query_text]))
+                )
+                query_vector = query_embeddings[0]
 
-        except Exception as e:
-            logger.error(f"Query failed: {e}", exc_info=True)
-            raise QueryEngineError(f"Search failed: {e}")
+                # Perform vector search
+                results = await asyncio.to_thread(
+                    self._perform_search,
+                    query_vector,
+                    request.top_k
+                )
+
+                # Convert to ContextChunk objects
+                chunks = []
+                for result in results:
+                    chunk = ContextChunk(
+                        source_id=result.get("source_id", "N/A"),
+                        tactic=result.get("tactic", "N/A"),
+                        text=result.get("text", ""),
+                        metadata={
+                            "type": result.get("type", "N/A"),
+                            "name": result.get("name", "N/A"),
+                            "pillar": result.get("pillar", ""),
+                            "phase": result.get("phase", "")
+                        },
+                        score=result.get("_distance", 0.0)
+                    )
+                    chunks.append(chunk)
+
+                logger.info(
+                    f"Query completed",
+                    extra={
+                        "results_returned": len(chunks),
+                        "top_score": chunks[0].score if chunks else None
+                    }
+                )
+
+                return chunks
+
+            except Exception as e:
+                logger.error(f"Query failed: {e}", exc_info=True)
+                raise QueryEngineError(f"Search failed: {e}")
 
     def _perform_search(self, query_vector, top_k: int):
         """
@@ -234,26 +257,28 @@ class QueryEngine:
                 "model_loaded": False
             }
 
-        try:
-            doc_count = 0
-            if self._table:
-                doc_count = await asyncio.to_thread(self._table.count_rows)
+        # Acquire reader lock for stats operation
+        async with self._rw_lock.reader:
+            try:
+                doc_count = 0
+                if self._table:
+                    doc_count = await asyncio.to_thread(self._table.count_rows)
 
-            return {
-                "initialized": self._initialized,
-                "document_count": doc_count,
-                "model_loaded": self._model is not None,
-                "embedding_model": settings.EMBEDDING_MODEL,
-                "embedding_dimension": settings.EMBEDDING_DIMENSION
-            }
-        except Exception as e:
-            logger.error(f"Failed to get stats: {e}")
-            return {
-                "initialized": self._initialized,
-                "document_count": 0,
-                "model_loaded": self._model is not None,
-                "error": str(e)
-            }
+                return {
+                    "initialized": self._initialized,
+                    "document_count": doc_count,
+                    "model_loaded": self._model is not None,
+                    "embedding_model": settings.EMBEDDING_MODEL,
+                    "embedding_dimension": settings.EMBEDDING_DIMENSION
+                }
+            except Exception as e:
+                logger.error(f"Failed to get stats: {e}")
+                return {
+                    "initialized": self._initialized,
+                    "document_count": 0,
+                    "model_loaded": self._model is not None,
+                    "error": str(e)
+                }
 
     async def health_check(self) -> bool:
         """
@@ -263,18 +288,21 @@ class QueryEngine:
             True if healthy, False otherwise
         """
         try:
+            # Ensure initialized (acquire writer lock if needed)
             if not self._initialized:
                 await self.initialize()
 
             if not self._initialized:
                 return False
 
-            # Try a simple count operation
-            if self._table:
-                await asyncio.to_thread(self._table.count_rows)
-                return True
+            # Acquire reader lock for health check operation
+            async with self._rw_lock.reader:
+                # Try a simple count operation
+                if self._table:
+                    await asyncio.to_thread(self._table.count_rows)
+                    return True
 
-            return False
+                return False
 
         except Exception as e:
             logger.error(f"Health check failed: {e}")
@@ -287,16 +315,32 @@ class QueryEngine:
         Returns:
             True if successful, False otherwise
         """
-        logger.info("Reloading QueryEngine...")
+        # Acquire writer lock for reload operation (exclusive access)
+        async with self._rw_lock.writer:
+            logger.info("Reloading QueryEngine...")
 
-        # Reset state
-        self._initialized = False
-        self._db = None
-        self._table = None
-        # Keep model loaded for performance
+            # Reset state
+            self._initialized = False
+            self._db = None
+            self._table = None
+            self._id_cache = None
+            # Keep model loaded for performance
 
-        # Re-initialize
-        return await self.initialize()
+            # Re-initialize (we already have writer lock, so call _do_initialize directly)
+            return await self._do_initialize()
+
+    def get_id_cache(self) -> Optional[List]:
+        """
+        Get the cached ID list for validation (optimization).
+
+        This cache is loaded during initialization and avoids full table scans
+        in the validation tool for fuzzy matching.
+
+        Returns:
+            List of dicts with 'source_id', 'name', 'type', 'tactic' fields,
+            or None if not initialized
+        """
+        return self._id_cache
 
 
 # Create singleton instance

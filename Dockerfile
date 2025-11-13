@@ -36,6 +36,10 @@ WORKDIR /app
 # Copy Python dependencies from builder
 COPY --from=builder /root/.local /home/aidefend/.local
 
+# Install Node.js dependencies (for secure AST parser)
+COPY package.json ./
+RUN npm install --omit=dev --no-cache
+
 # Copy application code
 COPY app/ ./app/
 COPY __main__.py ./

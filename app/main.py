@@ -25,12 +25,36 @@ from app.schemas import (
     StatusResponse,
     HealthResponse,
     ErrorResponse,
-    SyncStatus
+    SyncStatus,
+    ThreatCoverageRequest,
+    ThreatCoverageResponse,
+    ImplementationPlanRequest,
+    ImplementationPlanResponse,
+    ClassifyThreatRequest,
+    ClassifyThreatResponse
 )
 from app.core import query_engine, QueryEngineNotInitializedError
 from app.sync import run_sync, sync_loop, is_sync_in_progress, get_last_sync_error
 from app.utils import load_version_info
 from app.security import InputValidationError, SecurityError
+from app.audit import audit_tool_call, audit_tool_completion
+
+# Import P0 tools
+from app.tools import (
+    get_statistics,
+    validate_technique_id,
+    get_technique_detail,
+    get_defenses_for_threat,
+    get_secure_code_snippet,
+    analyze_coverage,
+    map_to_compliance_framework,
+    get_quick_reference
+)
+
+# Import new tools
+from app.tools.threat_coverage import get_threat_coverage
+from app.tools.implementation_plan import get_implementation_plan
+from app.tools.classify_threat import classify_threat
 
 # Setup logger
 logger = setup_logger(
@@ -415,6 +439,543 @@ async def trigger_sync(request: Request):
         "message": "Sync operation started in background",
         "timestamp": datetime.utcnow()
     }
+
+
+# ==================== P0 Tool Endpoints ====================
+
+@app.get("/api/v1/statistics", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_get_statistics(request: Request):
+    """
+    Get comprehensive statistics about the AIDEFEND knowledge base.
+
+    Returns statistics including total documents, breakdown by tactic/pillar/phase,
+    threat framework coverage, and tools availability.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call("get_statistics", {}, start_time)
+
+    try:
+        result = await get_statistics()
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{result['overview']['total_documents']} documents"
+        )
+
+        return result
+
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Statistics failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get statistics: {str(e)}"
+        )
+
+
+@app.post("/api/v1/validate-technique-id", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_validate_technique_id(request: Request, technique_id: str):
+    """
+    Validate if a technique ID exists and is correctly formatted.
+
+    Provides fuzzy matching suggestions if ID is not found.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call("validate_technique_id", {"technique_id": technique_id}, start_time)
+
+    try:
+        result = await validate_technique_id(technique_id)
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"Valid: {result['valid']}"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Validation failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Validation failed: {str(e)}"
+        )
+
+
+@app.get("/api/v1/technique/{technique_id}", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_get_technique_detail(
+    request: Request,
+    technique_id: str,
+    include_code: bool = True,
+    include_tools: bool = True
+):
+    """
+    Get complete details for a specific AIDEFEND technique.
+
+    Includes all sub-techniques, implementation strategies with code examples,
+    tool recommendations, and threat mappings.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "get_technique_detail",
+        {"technique_id": technique_id, "include_code": include_code, "include_tools": include_tools},
+        start_time
+    )
+
+    try:
+        result = await get_technique_detail(technique_id, include_code, include_tools)
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{result['metadata']['total_subtechniques']} subtechniques"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Get technique detail failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get technique detail: {str(e)}"
+        )
+
+
+@app.post("/api/v1/defenses-for-threat", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_get_defenses_for_threat(
+    request: Request,
+    threat_id: str = None,
+    threat_keyword: str = None,
+    top_k: int = 10
+):
+    """
+    Find AIDEFEND defense techniques for a specific threat.
+
+    Supports threat IDs from OWASP LLM Top 10, MITRE ATLAS, MAESTRO,
+    or natural language threat keywords.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "get_defenses_for_threat",
+        {"threat_id": threat_id, "threat_keyword": threat_keyword, "top_k": top_k},
+        start_time
+    )
+
+    try:
+        result = await get_defenses_for_threat(
+            threat_id=threat_id,
+            threat_keyword=threat_keyword,
+            top_k=top_k
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{result['total_results']} defenses"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Get defenses for threat failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get defenses: {str(e)}"
+        )
+
+
+@app.post("/api/v1/code-snippets", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_get_secure_code_snippet(
+    request: Request,
+    technique_id: str = None,
+    topic: str = None,
+    language: str = None,
+    max_snippets: int = 5
+):
+    """
+    Extract executable secure code snippets from AIDEFEND implementation strategies.
+
+    Search by technique ID or topic keyword to get copy-paste ready code examples.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "get_secure_code_snippet",
+        {"technique_id": technique_id, "topic": topic, "language": language, "max_snippets": max_snippets},
+        start_time
+    )
+
+    try:
+        result = await get_secure_code_snippet(
+            technique_id=technique_id,
+            topic=topic,
+            language=language,
+            max_snippets=max_snippets
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{result['total_snippets']} snippets"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Get code snippets failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get code snippets: {str(e)}"
+        )
+
+
+@app.post("/api/v1/analyze-coverage", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_analyze_coverage(
+    request: Request,
+    implemented_techniques: list[str],
+    system_type: str = None
+):
+    """
+    Analyze defense coverage based on implemented techniques and identify gaps.
+
+    Provides coverage percentage by tactic/pillar/phase, threat framework coverage,
+    and prioritized recommendations.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "analyze_coverage",
+        {"implemented_techniques": implemented_techniques, "system_type": system_type},
+        start_time
+    )
+
+    try:
+        result = await analyze_coverage(
+            implemented_techniques=implemented_techniques,
+            system_type=system_type
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{result['analysis_summary']['coverage_percentage']}% coverage"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Analyze coverage failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze coverage: {str(e)}"
+        )
+
+
+@app.post("/api/v1/compliance-mapping", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_map_to_compliance_framework(
+    request: Request,
+    technique_ids: list[str],
+    framework: str = "nist_ai_rmf",
+    use_llm: bool = True
+):
+    """
+    Map AIDEFEND techniques to compliance framework requirements.
+
+    Supports NIST AI RMF, EU AI Act, ISO 42001, CSA AI Controls, OWASP ASVS.
+    Uses LLM-based analysis for dynamic mapping.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "map_to_compliance_framework",
+        {"technique_ids": technique_ids, "framework": framework, "use_llm": use_llm},
+        start_time
+    )
+
+    try:
+        result = await map_to_compliance_framework(
+            technique_ids=technique_ids,
+            framework=framework,
+            use_llm=use_llm
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{result['total_mapped']} techniques mapped"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Compliance mapping failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to map to compliance framework: {str(e)}"
+        )
+
+
+@app.post("/api/v1/quick-reference", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_get_quick_reference(
+    request: Request,
+    topic: str,
+    format: str = "checklist",
+    max_items: int = 10
+):
+    """
+    Generate a quick reference guide for a specific security topic.
+
+    Provides actionable checklist organized by priority (quick wins, must-haves, nice-to-haves).
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "get_quick_reference",
+        {"topic": topic, "format": format, "max_items": max_items},
+        start_time
+    )
+
+    try:
+        result = await get_quick_reference(
+            topic=topic,
+            format=format,
+            max_items=max_items
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{result['total_items']} items"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Quick reference failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate quick reference: {str(e)}"
+        )
+
+
+# ==================== New Tool Endpoints ====================
+
+@app.post("/api/v1/threat-coverage", response_model=ThreatCoverageResponse, tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_get_threat_coverage(request: Request, coverage_request: ThreatCoverageRequest):
+    """
+    Analyze threat coverage for implemented defense techniques.
+
+    Given a list of implemented AIDEFEND technique IDs, this endpoint:
+    - Validates each technique ID against the database
+    - Retrieves threat mappings from defends_against field
+    - Calculates coverage rates for OWASP LLM Top 10, MITRE ATLAS, and MAESTRO
+    - Returns detailed per-technique threat mapping
+
+    **Use Case**: Track which threats are covered by your implemented defenses
+    and identify coverage gaps.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "get_threat_coverage",
+        {"implemented_techniques": coverage_request.implemented_techniques},
+        start_time
+    )
+
+    try:
+        result = await get_threat_coverage(coverage_request.implemented_techniques)
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{result['valid_count']}/{result['input_count']} valid, OWASP: {len(result['covered']['owasp'])}, ATLAS: {len(result['covered']['atlas'])}"
+        )
+
+        return ThreatCoverageResponse(**result)
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Threat coverage analysis failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze threat coverage: {str(e)}"
+        )
+
+
+@app.post("/api/v1/implementation-plan", response_model=ImplementationPlanResponse, tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_get_implementation_plan(request: Request, plan_request: ImplementationPlanRequest):
+    """
+    Get ranked recommendations for next defense techniques to implement.
+
+    Uses heuristic scoring based on:
+    - Threat importance (covers high-risk threats like LLM01, LLM03, T0020)
+    - Ease of implementation (open-source tools available)
+    - Phase weight (Design > Development > Deployment > Runtime)
+    - Pillar weight (Prevent > Detect > Respond)
+    - Tool ecosystem maturity (commercial tools available)
+
+    **Note**: This tool provides ONLY heuristic scores. LLM should use these
+    scores to make final recommendations via RAG.
+
+    **Use Case**: Prioritize which defense techniques to implement next based
+    on risk coverage and implementation effort.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "get_implementation_plan",
+        {
+            "implemented_techniques": plan_request.implemented_techniques or [],
+            "exclude_tactics": plan_request.exclude_tactics or [],
+            "top_k": plan_request.top_k
+        },
+        start_time
+    )
+
+    try:
+        result = await get_implementation_plan(
+            implemented_techniques=plan_request.implemented_techniques,
+            exclude_tactics=plan_request.exclude_tactics,
+            top_k=plan_request.top_k
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{len(result['recommendations'])} recommendations, {len(result['categories']['quick_wins'])} quick wins"
+        )
+
+        return ImplementationPlanResponse(**result)
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Implementation plan generation failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate implementation plan: {str(e)}"
+        )
+
+
+@app.post("/api/v1/classify-threat", response_model=ClassifyThreatResponse, tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_classify_threat(request: Request, classify_request: ClassifyThreatRequest):
+    """
+    Classify threats in text using static keyword dictionary matching.
+
+    Maps common threat terms to standard framework IDs (OWASP LLM Top 10,
+    MITRE ATLAS, MAESTRO) using simple keyword matching.
+
+    **Method**: Static keyword dictionary with ~40 threat terms
+    - Primary keyword matching (e.g., "prompt injection" -> LLM01)
+    - Alias matching (e.g., "jailbreak" -> LLM01)
+    - Confidence scoring based on match quality
+
+    **Note**: This tool uses ONLY static keyword matching. NO NLP, NO embedding,
+    NO auto-chain. LLM handles text understanding and orchestration.
+
+    **Use Case**: Quickly normalize threat keywords from incident reports,
+    security alerts, or vulnerability descriptions to standard framework IDs.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "classify_threat",
+        {"text_preview": classify_request.text[:100], "top_k": classify_request.top_k},
+        start_time
+    )
+
+    try:
+        result = await classify_threat(
+            text=classify_request.text,
+            top_k=classify_request.top_k
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"{len(result['keywords_found'])} keywords matched, OWASP: {len(result['normalized_threats']['owasp'])}, ATLAS: {len(result['normalized_threats']['atlas'])}"
+        )
+
+        return ClassifyThreatResponse(**result)
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Threat classification failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to classify threat: {str(e)}"
+        )
 
 
 # Run application

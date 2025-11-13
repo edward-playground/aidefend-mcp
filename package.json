@@ -1,0 +1,12 @@
+{
+  "name": "aidefend-mcp-parser",
+  "version": "1.0.0",
+  "description": "Secure AST-based JavaScript parser for AIDEFEND MCP Service",
+  "type": "module",
+  "dependencies": {
+    "acorn": "^8.11.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
