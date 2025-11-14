@@ -21,8 +21,8 @@ echo ""
 
 # Test with example file
 echo "2. Testing parser with example file..."
-if [ -f "test_example.js" ]; then
-    output=$(node parse_js_module.mjs test_example.js 2>&1)
+if [ -f "../tests/fixtures/test_example.js" ]; then
+    output=$(node ../parse_js_module.mjs ../tests/fixtures/test_example.js 2>&1)
     exit_code=$?
 
     if [ $exit_code -eq 0 ]; then
@@ -34,19 +34,19 @@ if [ -f "test_example.js" ]; then
         exit 1
     fi
 else
-    echo "   ⚠️  test_example.js not found, skipping"
+    echo "   ⚠️  tests/fixtures/test_example.js not found, skipping"
 fi
 echo ""
 
 # Test with real AIDEFEND files (if available)
 echo "3. Testing with AIDEFEND files (if available)..."
-if [ -d "data/raw_content" ] && [ -n "$(ls -A data/raw_content/*.js 2>/dev/null)" ]; then
+if [ -d "../data/raw_content" ] && [ -n "$(ls -A ../data/raw_content/*.js 2>/dev/null)" ]; then
     success_count=0
     fail_count=0
 
-    for file in data/raw_content/*.js; do
+    for file in ../data/raw_content/*.js; do
         filename=$(basename "$file")
-        output=$(node parse_js_module.mjs "$file" 2>&1)
+        output=$(node ../parse_js_module.mjs "$file" 2>&1)
         exit_code=$?
 
         if [ $exit_code -eq 0 ]; then
