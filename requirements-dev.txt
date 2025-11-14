@@ -14,7 +14,7 @@ httpx==0.28.1  # For testing async endpoints
 black==24.10.0
 flake8==7.1.1
 mypy==1.14.1
-isort==5.13.2
+isort==6.1.0
 
 # Security scanning
 safety==3.2.11
