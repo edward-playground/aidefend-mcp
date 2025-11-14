@@ -65,12 +65,23 @@ if not exist venv (
     call venv\Scripts\activate.bat
 
     echo.
-    echo Installing dependencies (this may take a few minutes)...
+    echo Installing Python dependencies (this may take a few minutes)...
     pip install -r requirements.txt
-    echo + Dependencies installed
+    echo + Python dependencies installed
 ) else (
     echo + Virtual environment exists
     call venv\Scripts\activate.bat
+)
+
+REM Install Node.js dependencies (required for JavaScript parsing)
+echo.
+echo Checking Node.js dependencies...
+if not exist node_modules (
+    echo Installing Node.js dependencies ^(required for parsing AIDEFEND framework^)...
+    npm install
+    echo + Node.js dependencies installed
+) else (
+    echo + Node.js dependencies already installed
 )
 
 echo.

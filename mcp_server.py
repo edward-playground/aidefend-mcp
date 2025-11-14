@@ -285,7 +285,7 @@ async def serve():
                 description=(
                     "Map AIDEFEND techniques to compliance framework requirements "
                     "(NIST AI RMF, EU AI Act, ISO 42001, CSA AI Controls, OWASP ASVS). "
-                    "Uses LLM-based analysis for dynamic mapping. Critical for governance and audit."
+                    "Uses heuristic-based analysis for mapping (100% local, no external API calls). Critical for governance and audit."
                 ),
                 inputSchema={
                     "type": "object",
@@ -300,11 +300,6 @@ async def serve():
                             "description": "Compliance framework (default: nist_ai_rmf)",
                             "enum": ["nist_ai_rmf", "eu_ai_act", "iso_42001", "csa_ai_controls", "owasp_asvs"],
                             "default": "nist_ai_rmf"
-                        },
-                        "use_llm": {
-                            "type": "boolean",
-                            "description": "Use LLM for mapping (default: true)",
-                            "default": True
                         }
                     },
                     "required": ["technique_ids"]

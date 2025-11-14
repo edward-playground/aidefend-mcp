@@ -939,7 +939,9 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
 
 ### Tool 7: Map to Compliance Framework
 
-**Purpose**: Map AIDEFEND techniques to compliance framework requirements (NIST AI RMF, EU AI Act, ISO 42001, CSA AI Controls, OWASP ASVS).
+**Purpose**: Map AIDEFEND techniques to compliance framework requirements (NIST AI RMF, EU AI Act, ISO 42001, CSA AI Controls, OWASP ASVS) using heuristic-based analysis.
+
+**100% LOCAL** - Uses local heuristic matching based on tactic alignment, no external API calls.
 
 **When to use**: Compliance reporting, audit preparation, governance documentation, or demonstrating regulatory alignment.
 
@@ -971,8 +973,7 @@ curl -X POST "http://localhost:8000/api/v1/compliance-mapping" \
   -H "Content-Type: application/json" \
   -d '{
     "technique_ids": ["AID-H-001", "AID-D-001"],
-    "framework": "nist_ai_rmf",
-    "use_llm": true
+    "framework": "nist_ai_rmf"
   }'
 ```
 
@@ -1001,8 +1002,8 @@ curl -X POST "http://localhost:8000/api/v1/compliance-mapping" \
     }
   ],
   "total_mapped": 2,
-  "mapping_method": "llm",
-  "disclaimer": "Compliance mappings are generated automatically and should be reviewed by compliance experts. Mappings may not cover all requirements and should be used as guidance only."
+  "mapping_method": "heuristic",
+  "disclaimer": "Compliance mappings are generated automatically using heuristic analysis and should be reviewed by compliance experts. Mappings may not cover all requirements and should be used as guidance only."
 }
 ```
 
@@ -1304,26 +1305,27 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 
 ---
 
-### Tool 11: Classify Threat (3-Tier Matching)
+### Tool 11: Classify Threat (2-Tier Local Matching)
 
-**Purpose**: Classify threats in text using an intelligent 3-tier matching system:
-1. **Tier 1 (Static Keyword)**: Direct keyword matching (free, instant)
-2. **Tier 2 (Fuzzy Matching)**: Typo-tolerant matching (free, instant)
-3. **Tier 3 (LLM Semantic)**: AI-powered semantic understanding (optional, user-paid)
+**Purpose**: Classify threats in text using a fast, local 2-tier matching system:
+1. **Tier 1 (Static Keyword)**: Direct keyword matching (instant)
+2. **Tier 2 (RapidFuzz Fuzzy Matching)**: Typo-tolerant matching (10-100x faster than difflib)
 
 Maps common threat terms (prompt injection, model poisoning, etc.) to standard framework IDs (OWASP LLM, MITRE ATLAS, MAESTRO).
 
 **When to use**: Normalize threat keywords from incident reports, security alerts, vulnerability descriptions, or threat intelligence to standard framework IDs. Quick triage of security events.
 
 **How it works**:
-- By default, uses Tier 1 (static) + Tier 2 (fuzzy) matching - **100% free, zero cost**
-- Optionally enable Tier 3 (LLM fallback) for semantic understanding of complex/novel threats
-- Gracefully degrades: tries static → fuzzy → LLM (if enabled)
-- Always indicates which tier produced the result
+- 100% LOCAL - No external API calls, all processing happens locally
+- Tier 1: Tries static keyword matching first (instant exact matches)
+- Tier 2: If no static match, uses RapidFuzz for typo-tolerant fuzzy matching
+- Always indicates which tier produced the result (static_keyword, fuzzy_match, or no_match)
 
-**Cost Transparency**:
-- **Tiers 1-2 (Default)**: FREE - No API calls, no costs
-- **Tier 3 (Optional)**: ~$0.0001-0.0003 per classification - Requires YOUR Anthropic API key (you pay directly to Anthropic)
+**Key Features**:
+- **100% Local & Private**: Zero external API calls, all processing on your machine
+- **FREE**: No API costs, no tokens consumed
+- **Fast**: Millisecond response times with RapidFuzz (10-100x faster than difflib)
+- **Offline-Ready**: Works completely offline after initial setup
 
 #### MCP Mode Example (Claude Desktop):
 
@@ -1445,12 +1447,9 @@ All configuration is done via environment variables. See [.env.example](./.env.e
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `ENABLE_RATE_LIMITING` | `true` | Enable rate limiting on API endpoints |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Max requests per minute per IP |
-| `MAX_QUERY_LENGTH` | `2000` | Maximum query text length |
+| `MAX_QUERY_LENGTH` | `1500` | Maximum query text length (aligned with embedding model limit) |
 | `API_WORKERS` | `1` | ⚠️ **Must be 1** - Multi-worker mode not supported |
-| `ANTHROPIC_API_KEY` | `None` | Anthropic API key for LLM fallback (optional, user-paid) |
-| `ENABLE_LLM_FALLBACK` | `false` | Enable Tier 3 LLM semantic inference (requires API key) |
-| `LLM_FALLBACK_THRESHOLD` | `0.75` | Confidence threshold before triggering LLM fallback (0.0-1.0) |
-| `ENABLE_FUZZY_MATCHING` | `true` | Enable Tier 2 fuzzy matching for typo tolerance (free) |
+| `ENABLE_FUZZY_MATCHING` | `true` | Enable Tier 2 fuzzy matching for typo tolerance (100% local) |
 | `FUZZY_MATCH_CUTOFF` | `0.70` | Minimum similarity score for fuzzy matches (0.0-1.0) |
 
 ### Important: Single Worker Limitation
@@ -1468,48 +1467,44 @@ The sync architecture uses file-based locking and in-memory state management tha
 - Use a separate sync service/cron job to update a shared database
 - Each API instance runs with `API_WORKERS=1`
 
-### LLM Fallback Configuration (Optional)
+### 100% Local Processing - Privacy Guaranteed
 
-The `classify_threat` tool supports an optional **Tier 3 LLM semantic inference** feature that uses Anthropic Claude to understand complex or novel threat descriptions.
+**This service is COMPLETELY LOCAL and PRIVATE:**
 
-**Default Behavior (FREE)**:
-- Tier 1 (Static keyword matching) + Tier 2 (Fuzzy matching)
-- No API calls, zero cost, works 100% offline
+✅ **Zero External API Calls**
+- All threat classification happens locally using 2-tier matching (static + RapidFuzz)
+- All knowledge base queries processed on your machine
+- Embedding generation uses local ONNX models (FastEmbed)
+- No data ever leaves your infrastructure
 
-**Enabling LLM Fallback (User-Paid)**:
+✅ **FREE - No API Costs**
+- No API keys required for any functionality
+- No token consumption
+- Zero ongoing costs
 
-1. **Get Your Anthropic API Key**:
-   - Visit [https://console.anthropic.com/](https://console.anthropic.com/)
-   - Create account and get API key
-   - **You pay Anthropic directly** (~$0.0001-0.0003 per classification)
+✅ **Works 100% Offline**
+- After initial sync from GitHub, works completely offline
+- No internet connection needed for queries
+- Perfect for air-gapped/restricted environments
 
-2. **Configure Environment Variables**:
-   ```bash
-   # In your .env file or environment
-   ANTHROPIC_API_KEY=sk-ant-api03-...your-key-here...
-   ENABLE_LLM_FALLBACK=true
-   LLM_FALLBACK_THRESHOLD=0.75
-   ```
+✅ **Privacy First**
+- Your queries, data, and threat intelligence stay on your machine
+- No telemetry, no tracking, no external logging
+- Compliance-friendly for regulated industries (healthcare, finance, government)
 
-3. **How It Works**:
-   ```
-   User Query → Tier 1 (Static) → Found? → Return result ✅
-                    ↓ No match
-                Tier 2 (Fuzzy) → Found? → Return result ✅
-                    ↓ No match (confidence < 0.75)
-                Tier 3 (LLM) → Semantic understanding → Return result 🤖
-   ```
+**Architecture Flow:**
+```
+Your Query → Local Matching Engine (Tier 1: Static, Tier 2: RapidFuzz)
+           ↓
+Local Vector DB (LanceDB) → Local Embedding Model (FastEmbed/ONNX)
+           ↓
+Results (100% processed on your machine) ✅
+```
 
-**Cost Control**:
-- LLM fallback only triggers if Tier 1+2 fail or have low confidence (< 0.75 by default)
-- Adjust `LLM_FALLBACK_THRESHOLD` to control when LLM is called
-- Higher threshold (e.g., 0.90) = more LLM calls, better accuracy, higher cost
-- Lower threshold (e.g., 0.60) = fewer LLM calls, lower cost, may miss edge cases
-
-**Privacy Note**:
-- When LLM fallback is enabled, threat classification queries are sent to Anthropic's API
-- Your AIDEFEND defense queries remain 100% local (not affected)
-- Consider disabling LLM fallback if you require air-gapped/offline operation
+**Future Enhancement (Optional):**
+- Tier 3 local embedding semantic matching (using existing FastEmbed)
+- Still 100% local, zero cost, no external API calls
+- See GitHub issues for implementation timeline
 
 ## Security
 

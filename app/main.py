@@ -716,27 +716,25 @@ async def api_analyze_coverage(
 async def api_map_to_compliance_framework(
     request: Request,
     technique_ids: list[str],
-    framework: str = "nist_ai_rmf",
-    use_llm: bool = True
+    framework: str = "nist_ai_rmf"
 ):
     """
     Map AIDEFEND techniques to compliance framework requirements.
 
     Supports NIST AI RMF, EU AI Act, ISO 42001, CSA AI Controls, OWASP ASVS.
-    Uses LLM-based analysis for dynamic mapping.
+    Uses heuristic-based analysis for mapping (100% local, no external API calls).
     """
     start_time = datetime.now()
     audit_ctx = audit_tool_call(
         "map_to_compliance_framework",
-        {"technique_ids": technique_ids, "framework": framework, "use_llm": use_llm},
+        {"technique_ids": technique_ids, "framework": framework},
         start_time
     )
 
     try:
         result = await map_to_compliance_framework(
             technique_ids=technique_ids,
-            framework=framework,
-            use_llm=use_llm
+            framework=framework
         )
 
         audit_tool_completion(

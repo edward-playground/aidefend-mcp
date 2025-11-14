@@ -23,9 +23,6 @@ mcp==1.21.0
 # HTTP client
 httpx==0.28.1
 
-# AI/LLM (for compliance mapping and other AI features)
-anthropic==0.43.0
-
 # Rate limiting
 slowapi==0.1.9
 
@@ -34,6 +31,9 @@ typing-extensions==4.15.0
 
 # HTML parsing
 beautifulsoup4==4.12.3
+
+# Fuzzy string matching (10-100x faster than difflib)
+rapidfuzz==3.10.1
 
 # Read-Write Lock for QueryEngine
 aiorwlock==1.4.0

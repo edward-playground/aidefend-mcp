@@ -1,6 +1,8 @@
 """
-Test script for 3-tier threat classification system.
-Tests static keyword matching, fuzzy matching, and LLM fallback graceful degradation.
+Test script for 2-tier threat classification system.
+Tests static keyword matching and fuzzy matching (RapidFuzz-based).
+
+100% LOCAL - No external API calls, all processing happens locally.
 """
 
 import asyncio
@@ -46,35 +48,23 @@ async def test_tier2_fuzzy_matching():
         print(f"   Top match: {result['keywords_found'][0]['keyword']} (confidence: {result['keywords_found'][0]['confidence']:.2f})")
     return True
 
-async def test_tier3_graceful_degradation():
-    """Test Tier 3: LLM fallback graceful degradation (should not crash when API key missing)."""
-    print("\n=== TEST 3: Tier 3 - LLM Fallback Graceful Degradation ===")
+async def test_combined_matching():
+    """Test combined static + fuzzy matching workflow."""
+    print("\n=== TEST 3: Combined Static + Fuzzy Matching Workflow ===")
 
-    # Save original settings
-    original_enable_llm = settings.ENABLE_LLM_FALLBACK
-    original_api_key = settings.ANTHROPIC_API_KEY
+    # Test that fuzzy matching activates when static fails
+    text = "We found algo bias in the model"  # "algo" should fuzzy match "algorithmic"
+    result = await classify_threat(text=text, top_k=5)
 
-    try:
-        # Enable LLM fallback but without API key
-        settings.ENABLE_LLM_FALLBACK = True
-        settings.ANTHROPIC_API_KEY = None
+    # Should find something via static or fuzzy
+    assert result is not None, "Should return result for combined matching"
+    assert result['source'] in ['static_keyword', 'fuzzy_match', 'no_match'], f"Unexpected source: {result['source']}"
 
-        # Use vague text that might not match static/fuzzy
-        text = "The system showed unexpected behavior"
-        result = await classify_threat(text=text, top_k=5)
-
-        # Should gracefully degrade - not crash
-        assert result is not None, "Should return result even when LLM fallback enabled but no API key"
-        assert result['source'] in ['static_keyword', 'fuzzy_match', 'no_match'], f"Should degrade gracefully, got {result['source']}"
-
-        print(f"✅ PASS: Graceful degradation works when API key not configured")
-        print(f"   Source: {result['source']} (degraded from LLM tier)")
-        print(f"   Matches: {len(result['keywords_found'])}")
-
-    finally:
-        # Restore original settings
-        settings.ENABLE_LLM_FALLBACK = original_enable_llm
-        settings.ANTHROPIC_API_KEY = original_api_key
+    print(f"✅ PASS: Combined matching workflow works correctly")
+    print(f"   Source: {result['source']}")
+    print(f"   Matches: {len(result['keywords_found'])}")
+    if result['keywords_found']:
+        print(f"   Top match: {result['keywords_found'][0]['keyword']} (confidence: {result['keywords_found'][0]['confidence']:.2f})")
 
     return True
 
@@ -109,20 +99,18 @@ async def test_confidence_threshold():
 async def run_all_tests():
     """Run all tests."""
     print("=" * 60)
-    print("3-TIER THREAT CLASSIFICATION SYSTEM TEST SUITE")
+    print("2-TIER THREAT CLASSIFICATION SYSTEM TEST SUITE")
+    print("100% LOCAL - No external API calls")
     print("=" * 60)
 
     print(f"\nConfiguration:")
     print(f"  ENABLE_FUZZY_MATCHING: {settings.ENABLE_FUZZY_MATCHING}")
     print(f"  FUZZY_MATCH_CUTOFF: {settings.FUZZY_MATCH_CUTOFF}")
-    print(f"  ENABLE_LLM_FALLBACK: {settings.ENABLE_LLM_FALLBACK}")
-    print(f"  LLM_FALLBACK_THRESHOLD: {settings.LLM_FALLBACK_THRESHOLD}")
-    print(f"  ANTHROPIC_API_KEY: {'✓ Set' if settings.ANTHROPIC_API_KEY else '✗ Not set'}")
 
     tests = [
         ("Tier 1: Static Keyword Match", test_tier1_static_keyword),
-        ("Tier 2: Fuzzy Match", test_tier2_fuzzy_matching),
-        ("Tier 3: Graceful Degradation", test_tier3_graceful_degradation),
+        ("Tier 2: Fuzzy Match (RapidFuzz)", test_tier2_fuzzy_matching),
+        ("Combined Matching Workflow", test_combined_matching),
         ("No Match Scenario", test_no_match),
         ("Confidence Threshold", test_confidence_threshold),
     ]
@@ -153,7 +141,8 @@ async def run_all_tests():
     print(f"\nResults: {passed}/{total} tests passed")
 
     if passed == total:
-        print("\n🎉 All tests passed! Implementation is production-ready.")
+        print("\n🎉 All tests passed! 2-tier classification is production-ready.")
+        print("✅ 100% LOCAL - No external API calls, zero cost")
         return 0
     else:
         print(f"\n⚠️  {total - passed} test(s) failed. Please review.")

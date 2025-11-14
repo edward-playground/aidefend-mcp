@@ -59,12 +59,23 @@ if [ ! -d "venv" ]; then
     source venv/bin/activate || . venv/Scripts/activate
 
     echo ""
-    echo "Installing dependencies (this may take a few minutes)..."
+    echo "Installing Python dependencies (this may take a few minutes)..."
     pip install -r requirements.txt
-    echo "✓ Dependencies installed"
+    echo "✓ Python dependencies installed"
 else
     echo "✓ Virtual environment exists"
     source venv/bin/activate || . venv/Scripts/activate
+fi
+
+# Install Node.js dependencies (required for JavaScript parsing)
+echo ""
+echo "Checking Node.js dependencies..."
+if [ ! -d "node_modules" ]; then
+    echo "Installing Node.js dependencies (required for parsing AIDEFEND framework)..."
+    npm install
+    echo "✓ Node.js dependencies installed"
+else
+    echo "✓ Node.js dependencies already installed"
 fi
 
 echo ""
