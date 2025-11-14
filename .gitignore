@@ -88,8 +88,8 @@ UPGRADE*.md
 UPDATE*.md
 
 # Test and verification scripts (keep these for documentation)
-# test_example.js - Example file for parser testing
-# verify_fix.sh - Security fix verification script
+# tests/fixtures/test_example.js - Example file for parser testing
+# scripts/verify_fix.sh - Security fix verification script
 
 # Security: Sensitive files that must NEVER be committed
 # These patterns are critical for security
