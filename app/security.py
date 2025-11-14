@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 from app.logger import get_logger
+from app.config import settings
 
 logger = get_logger(__name__)
 
 # Security constants
-# MAX_QUERY_LENGTH aligned with bge-small-en-v1.5 model limit (512 tokens ≈ 1500 chars)
-MAX_QUERY_LENGTH = 1500
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 MAX_REQUEST_BODY_SIZE_MB = 1  # Maximum request body size in MB
@@ -60,13 +59,13 @@ def validate_query_text(query: str) -> str:
         raise InputValidationError("Query cannot be empty")
 
     # Length check
-    if len(query) > MAX_QUERY_LENGTH:
+    if len(query) > settings.MAX_QUERY_LENGTH:
         logger.warning(
             f"Query exceeds maximum length",
-            extra={"query_length": len(query), "max_length": MAX_QUERY_LENGTH}
+            extra={"query_length": len(query), "max_length": settings.MAX_QUERY_LENGTH}
         )
         raise InputValidationError(
-            f"Query exceeds maximum length of {MAX_QUERY_LENGTH} characters"
+            f"Query exceeds maximum length of {settings.MAX_QUERY_LENGTH} characters"
         )
 
     # Strip and normalize whitespace

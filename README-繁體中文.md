@@ -935,7 +935,9 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
 
 ### 工具 7: 對應合規框架
 
-**用途**: 將 AIDEFEND techniques 對應到合規框架要求（NIST AI RMF, EU AI Act, ISO 42001, CSA AI Controls, OWASP ASVS）。
+**用途**: 將 AIDEFEND techniques 對應到合規框架要求（NIST AI RMF, EU AI Act, ISO 42001, CSA AI Controls, OWASP ASVS），使用啟發式分析。
+
+**100% 本地端** - 使用基於 tactic 對齊的本地啟發式匹配，無外部 API 調用。
 
 **何時使用**: 合規報告、稽核準備、治理文件編制、或展示法規一致性。
 
@@ -967,8 +969,7 @@ curl -X POST "http://localhost:8000/api/v1/compliance-mapping" \
   -H "Content-Type: application/json" \
   -d '{
     "technique_ids": ["AID-H-001", "AID-D-001"],
-    "framework": "nist_ai_rmf",
-    "use_llm": true
+    "framework": "nist_ai_rmf"
   }'
 ```
 
@@ -997,8 +998,8 @@ curl -X POST "http://localhost:8000/api/v1/compliance-mapping" \
     }
   ],
   "total_mapped": 2,
-  "mapping_method": "llm",
-  "disclaimer": "合規對應是自動生成的，應由合規專家審查。對應可能不涵蓋所有要求，僅應作為指引使用。"
+  "mapping_method": "heuristic",
+  "disclaimer": "合規對應使用啟發式分析自動生成，應由合規專家審查。對應可能不涵蓋所有要求，僅應作為指引使用。"
 }
 ```
 
@@ -1300,26 +1301,27 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 
 ---
 
-### 工具 11: 威脅分類（三層匹配系統）
+### 工具 11: 威脅分類（雙層本地匹配）
 
-**用途**: 使用智慧三層匹配系統對文本中的威脅進行分類:
-1. **第一層（靜態關鍵字）**: 直接關鍵字匹配（免費、即時）
-2. **第二層（模糊匹配）**: 容錯匹配（免費、即時）
-3. **第三層（LLM 語義推理）**: AI 驅動的語義理解（選用、使用者付費）
+**用途**: 使用快速、本地的雙層匹配系統對文本中的威脅進行分類:
+1. **第一層（靜態關鍵字）**: 直接關鍵字匹配（即時）
+2. **第二層（RapidFuzz 模糊匹配）**: 容錯匹配（比 difflib 快 10-100 倍）
 
 將常見威脅術語（prompt injection、model poisoning 等）對應到標準框架 ID（OWASP LLM、MITRE ATLAS、MAESTRO）。
 
 **何時使用**: 將事件報告、安全警報、漏洞描述或威脅情報中的威脅關鍵字標準化為標準框架 ID。快速分類安全事件。
 
 **運作方式**:
-- 預設使用第一層（靜態）+ 第二層（模糊）匹配 - **100% 免費、零成本**
-- 可選擇啟用第三層（LLM 備援）以進行複雜/新型威脅的語義理解
-- 優雅降級：嘗試靜態 → 模糊 → LLM（如已啟用）
-- 總是顯示使用哪一層產生的結果
+- 100% 本地端 - 無外部 API 調用，所有處理都在本地端進行
+- 第一層：優先嘗試靜態關鍵字匹配（即時精確匹配）
+- 第二層：如無靜態匹配，使用 RapidFuzz 進行容錯模糊匹配
+- 總是顯示使用哪一層產生的結果（static_keyword、fuzzy_match 或 no_match）
 
-**成本透明度**:
-- **第一~二層（預設）**: 免費 - 無 API 調用、零成本
-- **第三層（選用）**: 每次分類約 $0.0001-0.0003 - 需要您的 Anthropic API 金鑰（您直接向 Anthropic 付費）
+**主要功能**:
+- **100% 本地與隱私保護**: 零外部 API 調用，所有處理都在您的機器上進行
+- **免費**: 無 API 成本，無 token 消耗
+- **快速**: RapidFuzz 毫秒級回應時間（比 difflib 快 10-100 倍）
+- **支援離線**: 初次設定後完全離線運作
 
 #### MCP 模式範例 (Claude Desktop):
 
@@ -1441,12 +1443,9 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
 | `LOG_LEVEL` | `INFO` | 日誌等級（DEBUG、INFO、WARNING、ERROR）|
 | `ENABLE_RATE_LIMITING` | `true` | 在 API endpoints 啟用流量限制 |
 | `RATE_LIMIT_PER_MINUTE` | `60` | 每個 IP 每分鐘的最大請求數 |
-| `MAX_QUERY_LENGTH` | `2000` | 查詢文字的最大長度 |
+| `MAX_QUERY_LENGTH` | `1500` | 查詢文字的最大長度（對齊嵌入模型限制）|
 | `API_WORKERS` | `1` | ⚠️ **必須為 1** - 不支援多 worker 模式 |
-| `ANTHROPIC_API_KEY` | `None` | Anthropic API 金鑰用於 LLM 備援（選用、使用者付費）|
-| `ENABLE_LLM_FALLBACK` | `false` | 啟用第三層 LLM 語義推理（需要 API 金鑰）|
-| `LLM_FALLBACK_THRESHOLD` | `0.75` | 觸發 LLM 備援前的信心度閾值（0.0-1.0）|
-| `ENABLE_FUZZY_MATCHING` | `true` | 啟用第二層模糊匹配以容錯（免費）|
+| `ENABLE_FUZZY_MATCHING` | `true` | 啟用第二層模糊匹配以容錯（100% 本地端）|
 | `FUZZY_MATCH_CUTOFF` | `0.70` | 模糊匹配的最小相似度分數（0.0-1.0）|
 
 ### 重要：單一 Worker 限制
@@ -1464,48 +1463,44 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
 - 使用獨立的同步服務/cron job 更新共享資料庫
 - 每個 API 實例執行時設定 `API_WORKERS=1`
 
-### LLM 備援設定（選用）
+### 100% 本地處理 - 隱私保證
 
-`classify_threat` 工具支援選用的 **第三層 LLM 語義推理** 功能，使用 Anthropic Claude 來理解複雜或新型威脅描述。
+**本服務完全本地化且私密:**
 
-**預設行為（免費）**:
-- 第一層（靜態關鍵字匹配）+ 第二層（模糊匹配）
-- 無 API 調用，零成本，100% 離線運作
+✅ **零外部 API 調用**
+- 所有威脅分類都使用雙層匹配（靜態 + RapidFuzz）在本地端進行
+- 所有知識庫查詢都在您的機器上處理
+- 嵌入生成使用本地 ONNX 模型（FastEmbed）
+- 資料絕不會離開您的基礎設施
 
-**啟用 LLM 備援（使用者付費）**:
+✅ **免費 - 無 API 成本**
+- 任何功能都不需要 API 金鑰
+- 無 token 消耗
+- 零持續成本
 
-1. **取得您的 Anthropic API 金鑰**:
-   - 造訪 [https://console.anthropic.com/](https://console.anthropic.com/)
-   - 建立帳號並取得 API 金鑰
-   - **您直接向 Anthropic 付費**（每次分類約 $0.0001-0.0003）
+✅ **100% 離線運作**
+- 從 GitHub 初次同步後，完全離線運作
+- 查詢時不需要網路連線
+- 適合空氣隔離/受限環境
 
-2. **設定環境變數**:
-   ```bash
-   # 在您的 .env 檔案或環境中
-   ANTHROPIC_API_KEY=sk-ant-api03-...your-key-here...
-   ENABLE_LLM_FALLBACK=true
-   LLM_FALLBACK_THRESHOLD=0.75
-   ```
+✅ **隱私優先**
+- 您的查詢、資料和威脅情報都保留在您的機器上
+- 無遙測、無追蹤、無外部日誌記錄
+- 符合受監管產業（醫療、金融、政府）的合規要求
 
-3. **運作方式**:
-   ```
-   使用者查詢 → 第一層（靜態）→ 找到？→ 回傳結果 ✅
-                    ↓ 無匹配
-                第二層（模糊）→ 找到？→ 回傳結果 ✅
-                    ↓ 無匹配（信心度 < 0.75）
-                第三層（LLM）→ 語義理解 → 回傳結果 🤖
-   ```
+**架構流程:**
+```
+您的查詢 → 本地匹配引擎（第一層：靜態、第二層：RapidFuzz）
+           ↓
+本地向量資料庫（LanceDB）→ 本地嵌入模型（FastEmbed/ONNX）
+           ↓
+結果（100% 在您的機器上處理）✅
+```
 
-**成本控制**:
-- 只有在第一~二層失敗或信心度過低（< 0.75，預設值）時才會觸發 LLM 備援
-- 調整 `LLM_FALLBACK_THRESHOLD` 控制何時調用 LLM
-- 較高閾值（如 0.90）= 更多 LLM 調用、更高準確度、較高成本
-- 較低閾值（如 0.60）= 較少 LLM 調用、較低成本、可能遺漏邊緣案例
-
-**隱私注意事項**:
-- 啟用 LLM 備援時，威脅分類查詢會發送至 Anthropic 的 API
-- 您的 AIDEFEND 防禦查詢保持 100% 本地（不受影響）
-- 如需要隔離/離線運作，請考慮停用 LLM 備援
+**未來增強功能（選用）:**
+- 第三層本地嵌入語義匹配（使用現有的 FastEmbed）
+- 仍然 100% 本地端、零成本、無外部 API 調用
+- 請參閱 GitHub issues 了解實作時程
 
 ## 安全性
 

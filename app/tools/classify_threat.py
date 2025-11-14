@@ -2,15 +2,19 @@
 Classify Threat Tool for AIDEFEND MCP Service
 
 Maps threat keywords from unstructured text to standard framework IDs
-(OWASP LLM Top 10, MITRE ATLAS, MAESTRO) using simple keyword matching.
+(OWASP LLM Top 10, MITRE ATLAS, MAESTRO) using 2-tier matching strategy:
 
-NOTE: This tool uses ONLY static keyword dictionary matching.
-NO NLP, NO embedding, NO auto-chain.
-LLM handles text understanding; this tool provides standardized mappings.
+Tier 1: Static keyword matching (exact matches)
+Tier 2: Enhanced fuzzy matching with RapidFuzz (typo-tolerant, 10-100x faster)
+
+100% LOCAL - No external API calls, all processing happens locally.
+FREE - Zero cost, no tokens consumed.
+
+LLM handles text understanding; this tool provides standardized threat ID mappings.
 """
 
 from typing import Dict, Any, List, Optional
-import difflib
+from rapidfuzz import fuzz, process
 from app.logger import get_logger
 from app.security import InputValidationError
 from app.threat_keywords import THREAT_KEYWORDS, normalize_threat_keyword
@@ -21,15 +25,19 @@ logger = get_logger(__name__)
 
 async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
     """
-    Classify threats in text using keyword matching with static dictionary.
+    Classify threats in text using 2-tier local matching strategy.
+
+    Tier 1: Static keyword matching (exact string matches)
+    Tier 2: Enhanced fuzzy matching with RapidFuzz (typo-tolerant, 10-100x faster than difflib)
+
+    100% LOCAL - No external API calls, all processing happens locally.
+    FREE - Zero cost, no tokens consumed.
 
     This function:
     1. Normalizes input text (lowercase)
-    2. Matches against predefined keyword dictionary
-    3. Returns normalized threat IDs + recommended tool calls
-
-    NO text understanding (let LLM do that).
-    NO auto-chain (let LLM orchestrate).
+    2. Tier 1: Matches against predefined keyword dictionary
+    3. Tier 2 (if no static match): Advanced fuzzy matching with multiple strategies
+    4. Returns normalized threat IDs + recommended tool calls
 
     Args:
         text: Input text containing threat-related content
@@ -37,6 +45,7 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
 
     Returns:
         Dict containing:
+        - source: 'static_keyword', 'fuzzy_match', or 'no_match'
         - input_text_preview: First 100 chars of input
         - keywords_found: List of matched keywords with confidence
         - normalized_threats: Dict of {framework -> [threat_ids]}
@@ -50,6 +59,8 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
         >>> result = await classify_threat(
         ...     text="Recent prompt injection attack detected"
         ... )
+        >>> print(result['source'])
+        'static_keyword'
         >>> print(result['normalized_threats']['owasp'])
         ['LLM01']
     """
@@ -72,30 +83,17 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
     matches = _match_threats(text)
     match_source = "static_keyword"
 
-    # If static match has high confidence, use it
-    if matches and matches[0]["confidence"] >= settings.LLM_FALLBACK_THRESHOLD:
+    if matches:
         logger.info(f"Static keyword match found (confidence: {matches[0]['confidence']:.2f})")
 
-    # === TIER 2: Fuzzy Matching (if enabled and no high-confidence static match) ===
-    elif settings.ENABLE_FUZZY_MATCHING and (not matches or matches[0]["confidence"] < settings.LLM_FALLBACK_THRESHOLD):
-        logger.info("Attempting fuzzy matching for typo tolerance...")
+    # === TIER 2: Fuzzy Matching (if enabled and no static match found) ===
+    if settings.ENABLE_FUZZY_MATCHING and not matches:
+        logger.info("No static match found. Attempting fuzzy matching for typo tolerance...")
         fuzzy_matches = _fuzzy_match_threats(text)
         if fuzzy_matches and fuzzy_matches[0]["confidence"] >= settings.FUZZY_MATCH_CUTOFF:
             matches = fuzzy_matches
             match_source = "fuzzy_match"
             logger.info(f"Fuzzy match found (confidence: {matches[0]['confidence']:.2f})")
-
-    # === TIER 3: LLM Semantic Inference (if enabled and no high-confidence match) ===
-    if settings.ENABLE_LLM_FALLBACK and (not matches or matches[0]["confidence"] < settings.LLM_FALLBACK_THRESHOLD):
-        if settings.ANTHROPIC_API_KEY:
-            logger.info("Attempting LLM semantic inference...")
-            llm_matches = await _llm_semantic_inference(text)
-            if llm_matches:
-                matches = llm_matches
-                match_source = "llm_inferred"
-                logger.info(f"LLM semantic inference completed ({len(llm_matches)} threats found)")
-        else:
-            logger.warning("LLM fallback enabled but ANTHROPIC_API_KEY not configured")
 
     # If still no matches, set source to no_match
     if not matches:
@@ -261,10 +259,14 @@ def _generate_recommended_actions(
 
 def _fuzzy_match_threats(text: str) -> List[Dict]:
     """
-    Phase 1: Fuzzy string matching for typo tolerance.
+    Enhanced Tier 2: Fuzzy string matching with RapidFuzz (10-100x faster than difflib).
 
-    Uses difflib.get_close_matches() to find similar keywords.
-    FREE - Zero cost, no API calls.
+    Uses multiple fuzzy matching strategies:
+    - Token set ratio: Word order doesn't matter
+    - Partial ratio: Handles partial matches
+    - Full text ratio: Complete text similarity
+
+    FREE - Zero cost, no API calls, 100% local.
 
     Args:
         text: Input text
@@ -273,54 +275,55 @@ def _fuzzy_match_threats(text: str) -> List[Dict]:
         List of matched keywords with fuzzy confidence scores
 
     Examples:
-        "federrated learning attack" → matches "federated learning"
-        "algo bias" → matches "algorithmic bias"
+        "federrated learning attack" → matches "federated learning" (typo)
+        "algo bias detected" → matches "algorithmic bias" (abbreviation)
+        "jailbreak attempt" → matches "prompt injection" (via alias)
     """
     text_lower = text.lower()
     matches = []
-
-    # Extract potential keywords from text (split by spaces and common separators)
-    text_tokens = text_lower.replace(",", " ").replace(".", " ").split()
+    cutoff_score = settings.FUZZY_MATCH_CUTOFF * 100  # RapidFuzz uses 0-100 scale
 
     # Get all keywords from dictionary
     all_keywords = list(THREAT_KEYWORDS.keys())
 
-    # Try to match multi-word keywords first (more specific)
-    for keyword in all_keywords:
-        keyword_tokens = keyword.split()
-        if len(keyword_tokens) > 1:
-            # For multi-word keywords, use get_close_matches on the full phrase
-            close_matches = difflib.get_close_matches(
-                keyword,
-                [text_lower],
-                n=1,
-                cutoff=settings.FUZZY_MATCH_CUTOFF
-            )
-            if close_matches:
-                similarity = difflib.SequenceMatcher(None, keyword, text_lower).ratio()
-                matches.append({
-                    "keyword": keyword,
-                    "frameworks": THREAT_KEYWORDS[keyword]["frameworks"],
-                    "confidence": THREAT_KEYWORDS[keyword]["confidence"] * similarity,
-                    "match_type": "fuzzy",
-                    "similarity": similarity
-                })
+    # Strategy 1: Full text matching against all keywords (good for multi-word)
+    # Uses token_set_ratio which ignores word order
+    full_text_matches = process.extract(
+        text_lower,
+        all_keywords,
+        scorer=fuzz.token_set_ratio,
+        limit=5,
+        score_cutoff=cutoff_score
+    )
 
-    # Try single-word keyword matching
+    for matched_keyword, score, _ in full_text_matches:
+        similarity = score / 100.0  # Convert back to 0-1 scale
+        matches.append({
+            "keyword": matched_keyword,
+            "frameworks": THREAT_KEYWORDS[matched_keyword]["frameworks"],
+            "confidence": THREAT_KEYWORDS[matched_keyword]["confidence"] * similarity,
+            "match_type": "fuzzy_full",
+            "similarity": similarity
+        })
+
+    # Strategy 2: Token-level matching (good for single words and abbreviations)
+    text_tokens = text_lower.replace(",", " ").replace(".", " ").split()
+
     for token in text_tokens:
         if len(token) < 3:  # Skip very short tokens
             continue
 
-        close_matches = difflib.get_close_matches(
+        # Use process.extract for efficient batch matching
+        token_matches = process.extract(
             token,
             all_keywords,
-            n=3,
-            cutoff=settings.FUZZY_MATCH_CUTOFF
+            scorer=fuzz.ratio,
+            limit=3,
+            score_cutoff=cutoff_score
         )
 
-        for matched_keyword in close_matches:
-            # Calculate similarity score
-            similarity = difflib.SequenceMatcher(None, token, matched_keyword).ratio()
+        for matched_keyword, score, _ in token_matches:
+            similarity = score / 100.0
 
             # Avoid duplicates
             if not any(m["keyword"] == matched_keyword for m in matches):
@@ -328,107 +331,34 @@ def _fuzzy_match_threats(text: str) -> List[Dict]:
                     "keyword": matched_keyword,
                     "frameworks": THREAT_KEYWORDS[matched_keyword]["frameworks"],
                     "confidence": THREAT_KEYWORDS[matched_keyword]["confidence"] * similarity,
-                    "match_type": "fuzzy",
+                    "match_type": "fuzzy_token",
                     "similarity": similarity
                 })
+
+    # Strategy 3: Partial matching for phrases (good for "X in Y" patterns)
+    partial_matches = process.extract(
+        text_lower,
+        all_keywords,
+        scorer=fuzz.partial_ratio,
+        limit=3,
+        score_cutoff=cutoff_score
+    )
+
+    for matched_keyword, score, _ in partial_matches:
+        similarity = score / 100.0
+
+        # Avoid duplicates
+        if not any(m["keyword"] == matched_keyword for m in matches):
+            matches.append({
+                "keyword": matched_keyword,
+                "frameworks": THREAT_KEYWORDS[matched_keyword]["frameworks"],
+                "confidence": THREAT_KEYWORDS[matched_keyword]["confidence"] * similarity,
+                "match_type": "fuzzy_partial",
+                "similarity": similarity
+            })
 
     # Sort by confidence (descending)
     matches.sort(key=lambda x: x["confidence"], reverse=True)
 
-    logger.debug(f"Fuzzy matching found {len(matches)} potential matches")
+    logger.debug(f"Enhanced fuzzy matching found {len(matches)} potential matches (RapidFuzz)")
     return matches
-
-
-async def _llm_semantic_inference(text: str) -> List[Dict]:
-    """
-    Phase 2: LLM semantic inference fallback using Anthropic Claude.
-
-    When static + fuzzy matching fails, use Claude to understand
-    the semantic meaning and map to threat frameworks.
-
-    USER-PAYS: Requires user's ANTHROPIC_API_KEY.
-    Cost: ~$0.0001-0.0003 per classification.
-
-    Args:
-        text: Input text describing potential threat
-
-    Returns:
-        List of inferred threat keywords with confidence scores
-
-    Example:
-        Input: "Users are tricking the AI into ignoring safety rules"
-        Output: [{"keyword": "prompt injection", "confidence": 0.85, ...}]
-    """
-    try:
-        # Import here to make it optional (only needed if LLM fallback enabled)
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-        # Build prompt for Claude
-        prompt = f"""You are an AI security expert. Analyze the following text and identify which AI/ML security threats it describes.
-
-Text to analyze:
-"{text}"
-
-Available threat keywords (choose from these):
-{', '.join(list(THREAT_KEYWORDS.keys())[:30])}...
-
-Instructions:
-1. Identify 1-3 most relevant threat keywords from the list above
-2. Provide confidence score (0.0-1.0) for each
-3. Return ONLY valid JSON array format:
-
-[
-  {{"keyword": "threat_keyword", "confidence": 0.85}},
-  ...
-]
-
-If no threats detected, return empty array: []"""
-
-        # Call Claude API
-        response = client.messages.create(
-            model=settings.CLAUDE_MODEL,
-            max_tokens=settings.CLAUDE_MAX_TOKENS,
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-        # Parse response
-        response_text = response.content[0].text.strip()
-
-        # Extract JSON (handle potential markdown formatting)
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
-
-        # Parse JSON
-        import json
-        inferred_threats = json.loads(response_text)
-
-        # Validate and build matches
-        matches = []
-        for threat in inferred_threats:
-            keyword = threat.get("keyword", "").lower()
-            confidence = threat.get("confidence", 0.5)
-
-            # Validate keyword exists in our dictionary
-            if keyword in THREAT_KEYWORDS:
-                matches.append({
-                    "keyword": keyword,
-                    "frameworks": THREAT_KEYWORDS[keyword]["frameworks"],
-                    "confidence": min(confidence, 0.90),  # Cap LLM confidence at 0.90
-                    "match_type": "llm_inferred"
-                })
-            else:
-                logger.warning(f"LLM suggested unknown keyword: {keyword}")
-
-        logger.info(f"LLM semantic inference returned {len(matches)} threats")
-        return matches
-
-    except ImportError:
-        logger.error("anthropic package not installed. Install with: pip install anthropic")
-        return []
-    except Exception as e:
-        logger.error(f"LLM semantic inference failed: {str(e)}")
-        return []

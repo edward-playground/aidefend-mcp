@@ -1,11 +1,13 @@
 """
 Compliance Mapping Tool for AIDEFEND MCP Service
 
-Maps AIDEFEND techniques to compliance frameworks using LLM-based analysis.
+Maps AIDEFEND techniques to compliance frameworks using heuristic-based analysis.
+
+100% LOCAL - No external API calls, all processing happens locally.
 """
 
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from app.logger import get_logger
 from app.config import settings
@@ -25,19 +27,19 @@ SUPPORTED_FRAMEWORKS = {
 
 async def map_to_compliance_framework(
     technique_ids: List[str],
-    framework: str = "nist_ai_rmf",
-    use_llm: bool = True
+    framework: str = "nist_ai_rmf"
 ) -> Dict[str, Any]:
     """
     Map AIDEFEND techniques to compliance framework requirements.
 
-    Uses LLM (Claude API) to dynamically generate mappings based on
-    technique descriptions and framework requirements.
+    Uses heuristic-based analysis to map techniques to framework controls
+    based on tactic alignment.
+
+    100% LOCAL - No external API calls, all processing happens locally.
 
     Args:
         technique_ids: List of AIDEFEND technique IDs to map
         framework: Compliance framework to map to (default: nist_ai_rmf)
-        use_llm: Whether to use LLM for mapping (default: True)
 
     Returns:
         Dict containing compliance mappings for each technique
@@ -100,12 +102,8 @@ async def map_to_compliance_framework(
 
             doc = docs[0]
 
-            if use_llm:
-                # Use LLM to generate mapping
-                mapping = await _generate_llm_mapping(doc, framework)
-            else:
-                # Use heuristic-based mapping (fallback)
-                mapping = _generate_heuristic_mapping(doc, framework)
+            # Use heuristic-based mapping (100% local)
+            mapping = _generate_heuristic_mapping(doc, framework)
 
             mappings.append(mapping)
 
@@ -116,11 +114,11 @@ async def map_to_compliance_framework(
             },
             "mappings": mappings,
             "total_mapped": len(mappings),
-            "mapping_method": "llm" if use_llm else "heuristic",
+            "mapping_method": "heuristic",
             "disclaimer": (
-                "Compliance mappings are generated automatically and should be "
-                "reviewed by compliance experts. Mappings may not cover all "
-                "requirements and should be used as guidance only."
+                "Compliance mappings are generated automatically using heuristic "
+                "analysis and should be reviewed by compliance experts. Mappings "
+                "may not cover all requirements and should be used as guidance only."
             )
         }
 
@@ -135,122 +133,6 @@ async def map_to_compliance_framework(
     except Exception as e:
         logger.error(f"Failed to map to compliance framework: {e}", exc_info=True)
         raise
-
-
-async def _generate_llm_mapping(
-    technique: Dict[str, Any],
-    framework: str
-) -> Dict[str, Any]:
-    """
-    Generate compliance mapping using Claude LLM.
-
-    Uses Claude API to analyze the technique and map it to compliance framework
-    controls. Falls back to heuristic mapping if API is unavailable or fails.
-    """
-    tech_id = technique.get('source_id')
-    tech_name = technique.get('name')
-    tactic = technique.get('tactic', '')
-    description = technique.get('text', '')[:1000]  # First 1000 chars for context
-
-    logger.info(f"Generating LLM mapping for {tech_id} to {framework}")
-
-    # Check if API key is available
-    if not settings.ANTHROPIC_API_KEY:
-        logger.warning("ANTHROPIC_API_KEY not configured. Falling back to heuristic mapping.")
-        return _generate_heuristic_mapping(technique, framework)
-
-    try:
-        # Import Anthropic SDK
-        try:
-            from anthropic import Anthropic
-        except ImportError:
-            logger.warning("anthropic package not installed. Falling back to heuristic mapping.")
-            return _generate_heuristic_mapping(technique, framework)
-
-        # Initialize Claude client
-        client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-        # Build prompt for compliance mapping
-        framework_name = SUPPORTED_FRAMEWORKS[framework]
-
-        prompt = f"""You are a compliance expert specializing in AI security frameworks.
-
-I need you to map an AI security defense technique to specific controls in the {framework_name} framework.
-
-**Technique Information:**
-- ID: {tech_id}
-- Name: {tech_name}
-- Tactic: {tactic}
-- Description: {description}
-
-**Task:**
-Map this technique to specific {framework_name} controls or requirements. Consider:
-1. Which controls/requirements does this technique help satisfy?
-2. How confident is this mapping? (high/medium/low)
-3. What is the rationale for this mapping?
-4. Are there any additional considerations for implementation?
-
-**Output Format (JSON):**
-{{
-    "framework_controls": ["control-id-1", "control-id-2", ...],
-    "mapping_confidence": "high|medium|low",
-    "mapping_rationale": "Brief explanation of why these controls apply",
-    "additional_considerations": ["consideration-1", "consideration-2", ...]
-}}
-
-Provide only the JSON object, no additional text."""
-
-        # Call Claude API
-        response = await asyncio.to_thread(
-            lambda: client.messages.create(
-                model=settings.CLAUDE_MODEL,
-                max_tokens=settings.CLAUDE_MAX_TOKENS,
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }]
-            )
-        )
-
-        # Parse response
-        import json
-        response_text = response.content[0].text.strip()
-
-        # Extract JSON from response (in case there's extra text)
-        start_idx = response_text.find('{')
-        end_idx = response_text.rfind('}') + 1
-        if start_idx >= 0 and end_idx > start_idx:
-            json_text = response_text[start_idx:end_idx]
-            llm_result = json.loads(json_text)
-        else:
-            raise ValueError("No JSON found in response")
-
-        # Build result
-        result = {
-            "technique_id": tech_id,
-            "technique_name": tech_name,
-            "technique_tactic": tactic,
-            "framework": framework,
-            "framework_name": framework_name,
-            "framework_controls": llm_result.get("framework_controls", []),
-            "mapping_confidence": llm_result.get("mapping_confidence", "medium"),
-            "mapping_rationale": llm_result.get("mapping_rationale", ""),
-            "additional_considerations": llm_result.get("additional_considerations", [])
-        }
-
-        logger.info(
-            f"LLM mapping completed for {tech_id}: {len(result['framework_controls'])} controls",
-            extra={"confidence": result["mapping_confidence"]}
-        )
-
-        return result
-
-    except Exception as e:
-        logger.warning(
-            f"LLM mapping failed for {tech_id}: {e}. Falling back to heuristic mapping.",
-            exc_info=True
-        )
-        return _generate_heuristic_mapping(technique, framework)
 
 
 def _generate_heuristic_mapping(

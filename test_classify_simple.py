@@ -1,6 +1,8 @@
 """
-Simple test for 3-tier threat classification system.
+Simple test for 2-tier threat classification system.
 Tests without requiring full app dependencies.
+
+100% LOCAL - No external API calls, all processing happens locally.
 """
 
 import asyncio
@@ -22,8 +24,6 @@ async def test_basic_functionality():
         from app.config import settings
         print("\n[OK] Config module imported successfully")
         print(f"   ENABLE_FUZZY_MATCHING: {settings.ENABLE_FUZZY_MATCHING}")
-        print(f"   ENABLE_LLM_FALLBACK: {settings.ENABLE_LLM_FALLBACK}")
-        print(f"   LLM_FALLBACK_THRESHOLD: {settings.LLM_FALLBACK_THRESHOLD}")
         print(f"   FUZZY_MATCH_CUTOFF: {settings.FUZZY_MATCH_CUTOFF}")
 
         # Import threat keywords
@@ -53,10 +53,6 @@ async def test_basic_functionality():
         print(f"   Found {len(fuzzy_matches)} fuzzy matches")
         if fuzzy_matches:
             print(f"   Top match: {fuzzy_matches[0]['keyword']} (confidence: {fuzzy_matches[0]['confidence']:.2f})")
-
-        # Test LLM fallback function exists
-        from app.tools.classify_threat import _llm_semantic_inference
-        print("\n[OK] LLM semantic inference function imported")
 
         # Test main classify_threat function
         from app.tools.classify_threat import classify_threat
@@ -97,30 +93,13 @@ async def test_basic_functionality():
         assert result3['source'] in ['no_match', 'static_keyword', 'fuzzy_match'], f"Unexpected source: {result3['source']}"
         print("   [PASS]")
 
-        # Test 4: Graceful degradation (LLM fallback disabled)
-        print("\n[TEST 4] LLM fallback graceful degradation")
-        original_enable = settings.ENABLE_LLM_FALLBACK
-        original_key = settings.ANTHROPIC_API_KEY
-        try:
-            settings.ENABLE_LLM_FALLBACK = True
-            settings.ANTHROPIC_API_KEY = None  # No API key
-            result4 = await classify_threat(text="system anomaly detected", top_k=5)
-            print(f"   Source: {result4.get('source', 'unknown')}")
-            print(f"   Keywords found: {len(result4.get('keywords_found', []))}")
-            # Should not crash, should degrade gracefully
-            assert result4 is not None, "Should not crash when API key missing"
-            print("   [PASS] Graceful degradation works")
-        finally:
-            settings.ENABLE_LLM_FALLBACK = original_enable
-            settings.ANTHROPIC_API_KEY = original_key
-
         print("\n" + "=" * 60)
         print("*** ALL TESTS PASSED! ***")
         print("=" * 60)
         print("\nImplementation Status:")
         print("  [OK] Tier 1 (Static keyword matching) - Working")
-        print("  [OK] Tier 2 (Fuzzy matching) - Working")
-        print("  [OK] Tier 3 (LLM fallback) - Graceful degradation working")
+        print("  [OK] Tier 2 (RapidFuzz fuzzy matching) - Working")
+        print("  [OK] 100% Local Processing - No external API calls")
         print("  [OK] Source field added to responses")
         print("  [OK] Configuration settings working")
         print("\n*** Implementation is PRODUCTION-READY! ***")

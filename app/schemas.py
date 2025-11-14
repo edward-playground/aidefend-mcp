@@ -534,7 +534,7 @@ class ClassifyThreatResponse(BaseModel):
     """Response model for threat classification endpoint."""
 
     source: str = Field(
-        description="Match source: 'static_keyword' (direct match), 'fuzzy_match' (typo-tolerant), 'llm_inferred' (AI semantic understanding), or 'no_match' (no threats found)"
+        description="Match source: 'static_keyword' (direct match), 'fuzzy_match' (typo-tolerant), or 'no_match' (no threats found)"
     )
     input_text_preview: str = Field(
         description="First 100 characters of input text"
