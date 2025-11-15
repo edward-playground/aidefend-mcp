@@ -52,6 +52,14 @@ async def get_defenses_for_threat(
         >>> result = await get_defenses_for_threat(threat_keyword="prompt injection")
     """
     import lancedb
+    from app.core import query_engine
+    from app.exceptions import QueryEngineNotInitializedError
+
+    # Pre-flight check: ensure query engine is ready
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
 
     # Input validation
     if not threat_id and not threat_keyword:

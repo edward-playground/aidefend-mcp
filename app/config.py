@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # AIDEFEND framework files to sync
     AIDEFEND_FILES: List[str] = Field(
         default=[
+            "aidefend-intro.js",  # For extracting framework version
             "model.js",
             "harden.js",
             "detect.js",
@@ -245,7 +246,11 @@ class Settings(BaseSettings):
         Returns:
             Full URL to raw file
         """
-        return f"{self.github_raw_base_url}/{commit_sha}/{self.GITHUB_TACTICS_PATH}/{filename}"
+        # aidefend-intro.js is at root level, other files are in tactics/ subfolder
+        if filename == "aidefend-intro.js":
+            return f"{self.github_raw_base_url}/{commit_sha}/{filename}"
+        else:
+            return f"{self.github_raw_base_url}/{commit_sha}/{self.GITHUB_TACTICS_PATH}/{filename}"
 
     def ensure_directories(self) -> None:
         """Create necessary directories if they don't exist."""

@@ -590,7 +590,7 @@ Claude Desktop 將 MCP server 設定儲存在 JSON 檔案中：
 ```
 %APPDATA%\Claude\claude_desktop_config.json
 ```
-在大部分的 Windows 機器上，這個位置可能在: C:\Users\\[您的使用者名稱]\AppData\Roaming\Claude\
+在大部分的 Windows 11 機器上，這個位置可能在: C:\Users\\[您的使用者名稱]\AppData\Roaming\Claude\
 
 **如何開啟它：**
 

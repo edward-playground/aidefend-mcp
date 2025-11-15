@@ -390,7 +390,7 @@ async def download_file(filename: str, commit_sha: str) -> Optional[Path]:
             file_size = validated_path.stat().st_size
             logger.info(
                 f"Downloaded {safe_filename} ({format_bytes(file_size)})",
-                extra={"filename": safe_filename, "size": file_size}
+                extra={"file_name": safe_filename, "size": file_size}
             )
 
             return validated_path
@@ -398,7 +398,7 @@ async def download_file(filename: str, commit_sha: str) -> Optional[Path]:
     except httpx.HTTPStatusError as e:
         logger.error(
             f"Failed to download {filename}: HTTP {e.response.status_code}",
-            extra={"filename": filename, "status_code": e.response.status_code}
+            extra={"file_name": filename, "status_code": e.response.status_code}
         )
         return None
     except Exception as e:
@@ -444,6 +444,63 @@ def parse_tactic_file(file_path: Path) -> Optional[Dict[str, Any]]:
 
     except Exception as e:
         logger.error(f"Failed to parse {file_path.name}: {e}")
+        return None
+
+
+def extract_framework_version(intro_file_path: Path) -> Optional[str]:
+    """
+    Extract AIDEFEND framework version from aidefend-intro.js.
+
+    Args:
+        intro_file_path: Path to aidefend-intro.js file
+
+    Returns:
+        Version string (e.g., "1.20251107") or None if not found
+
+    Example:
+        >>> version = extract_framework_version(Path("data/raw_content/aidefend-intro.js"))
+        >>> print(version)  # "1.20251107"
+    """
+    try:
+        # Parse the intro file using Node.js parser
+        parsed = parse_js_file_with_node(intro_file_path)
+
+        if not isinstance(parsed, dict):
+            logger.warning(f"aidefend-intro.js parsed data is not a dict")
+            return None
+
+        # Navigate the structure: sections -> find "Version & Date" -> extract version
+        sections = parsed.get('sections', [])
+        if not isinstance(sections, list):
+            logger.warning(f"aidefend-intro.js 'sections' is not a list")
+            return None
+
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+
+            title = section.get('title', '')
+            if title == 'Version & Date':
+                paragraphs = section.get('paragraphs', [])
+
+                if not isinstance(paragraphs, list):
+                    continue
+
+                for para in paragraphs:
+                    if isinstance(para, str) and para.strip().startswith('Version:'):
+                        # Extract version number after "Version:"
+                        version = para.split(':', 1)[1].strip()
+                        logger.info(f"Extracted framework version: {version}")
+                        return version
+
+        logger.warning("Version field not found in aidefend-intro.js")
+        return None
+
+    except FileNotFoundError:
+        logger.warning(f"aidefend-intro.js not found at {intro_file_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to extract framework version: {e}")
         return None
 
 
@@ -497,9 +554,9 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
             "defends_against": defends_against,
             "tools_opensource": tools_opensource,
             "tools_commercial": tools_commercial,
-            "parent_technique_id": "",  # Techniques have no parent
+            "parent_technique_id": None,  # Techniques have no parent (use None instead of empty string)
             "implementation_strategies": [],  # Techniques don't have strategies directly
-            "has_code_snippets": False
+            "has_code_snippets": False  # Techniques don't have code (code is in subtechnique strategies)
         })
 
         # Documents for sub-techniques
@@ -617,11 +674,20 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
     try:
         logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
 
-        # Load embedding model in thread pool (fastembed uses ONNX Runtime)
-        model = await asyncio.to_thread(
-            TextEmbedding,
-            model_name=settings.EMBEDDING_MODEL
-        )
+        # Load embedding model with timeout (prevents hanging on network issues)
+        try:
+            model = await asyncio.wait_for(
+                asyncio.to_thread(
+                    TextEmbedding,
+                    model_name=settings.EMBEDDING_MODEL
+                ),
+                timeout=300  # 5 minute timeout for model download
+            )
+        except asyncio.TimeoutError:
+            raise Exception(
+                f"Embedding model download timed out after 300 seconds. "
+                f"Check HuggingFace availability or network connection."
+            )
 
         logger.info(f"Embedding {len(documents)} documents...")
 
@@ -806,22 +872,57 @@ async def run_sync() -> bool:
         # Download all files
         downloaded_files: List[Path] = []
         for filename in settings.AIDEFEND_FILES:
-            file_path = await download_file(filename, latest_sha)
-            if file_path:
-                downloaded_files.append(file_path)
+            # Special handling for aidefend-intro.js (in root, not tactics/)
+            if filename == "aidefend-intro.js":
+                # Manually construct root URL
+                url = f"{settings.github_raw_base_url}/{latest_sha}/{filename}"
+                try:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        headers = {"User-Agent": "AIDEFEND-MCP-Service/1.0"}
+                        response = await client.get(url, headers=headers)
+                        response.raise_for_status()
+                        file_path = settings.RAW_PATH / filename
+                        file_path.write_text(response.text, encoding='utf-8')
+                        downloaded_files.append(file_path)
+                        logger.info(f"Downloaded {filename} from root directory")
+                except Exception as e:
+                    logger.warning(f"Failed to download {filename}: {e}")
+                    # Non-critical - intro file is optional for versioning
+                    continue
             else:
-                error_msg = f"Failed to download {filename}"
-                logger.error(error_msg)
-                _last_sync_error = error_msg
-                return False
+                file_path = await download_file(filename, latest_sha)
+                if file_path:
+                    downloaded_files.append(file_path)
+                else:
+                    error_msg = f"Failed to download {filename}"
+                    logger.error(error_msg)
+                    _last_sync_error = error_msg
+                    return False
 
-        if len(downloaded_files) != len(settings.AIDEFEND_FILES):
-            error_msg = "Not all files downloaded successfully"
+        # Check if enough files downloaded (intro.js is optional)
+        required_count = len(settings.AIDEFEND_FILES) - 1  # Exclude optional intro.js
+        if len(downloaded_files) < required_count:
+            error_msg = f"Too few files downloaded: {len(downloaded_files)}/{len(settings.AIDEFEND_FILES)}"
             logger.error(error_msg)
             _last_sync_error = error_msg
             return False
 
-        logger.info(f"Downloaded {len(downloaded_files)} files")
+        logger.info(f"Downloaded {len(downloaded_files)}/{len(settings.AIDEFEND_FILES)} files")
+
+        # Extract framework version from aidefend-intro.js (if present)
+        framework_version = None
+        intro_file_path = settings.RAW_PATH / "aidefend-intro.js"
+        if intro_file_path.exists():
+            try:
+                framework_version = await asyncio.to_thread(
+                    extract_framework_version,
+                    intro_file_path
+                )
+                if framework_version:
+                    logger.info(f"Framework version: {framework_version}")
+            except Exception as e:
+                logger.warning(f"Failed to extract framework version: {e}")
+                # Non-critical failure, continue sync
 
         # Parse all files with resilient error handling
         # Single file failure should not fail entire sync
@@ -829,6 +930,10 @@ async def run_sync() -> bool:
         failed_files = []
 
         for file_path in downloaded_files:
+            # Skip aidefend-intro.js - it's for metadata only, not for embedding
+            if file_path.name == "aidefend-intro.js":
+                logger.info(f"Skipping {file_path.name} (metadata only)")
+                continue
             try:
                 # Use asyncio.to_thread to avoid blocking the event loop
                 # (parse_tactic_file involves file I/O and CPU-intensive regex operations)
@@ -839,7 +944,8 @@ async def run_sync() -> bool:
                     # (involves CPU-intensive data transformation)
                     documents = await asyncio.to_thread(extract_documents_from_tactic, tactic_data)
                     all_documents.extend(documents)
-                    logger.info(f"✓ Successfully parsed {file_path.name}: {len(documents)} documents")
+                    # Fixed: Remove Unicode symbol for Windows cp950 compatibility
+                    logger.info(f"Successfully parsed {file_path.name}: {len(documents)} documents")
                 else:
                     # parse_tactic_file returned None
                     raise Exception("parse_tactic_file returned None")
@@ -877,33 +983,62 @@ async def run_sync() -> bool:
             _last_sync_error = error_msg
             return False
 
-        # Save version info with pre-computed statistics
-        save_version_info(
-            latest_sha,
-            {
-                "total_documents": len(all_documents),
-                "statistics": statistics  # Pre-computed statistics for get_statistics tool
-            }
-        )
+        # Verify we actually got documents (catch edge cases)
+        # Fixed: total_documents is nested in overview dict
+        total_docs = statistics.get("overview", {}).get("total_documents", 0) if statistics else 0
+        if total_docs == 0:
+            error_msg = "Sync completed but resulted in 0 documents (all files failed to parse)"
+            logger.error(error_msg)
+            _last_sync_error = error_msg
+            return False
+
+        logger.info(f"Successfully indexed {statistics['overview']['total_documents']} documents")
 
         # Reload query engine to use new database
-        # (Use try-except to prevent reload failures from failing the entire sync)
+        # THIS IS CRITICAL - sync is NOT successful if reload fails
         try:
             # Import here to avoid circular import issues
             from app.core import query_engine
             logger.info("Reloading query engine to use updated database...")
             reload_success = await query_engine.reload()
-            if reload_success:
-                logger.info("Query engine reloaded successfully")
-            else:
-                logger.warning("Query engine reload returned False - may not be initialized yet")
+
+            if not reload_success:
+                error_msg = "Query engine failed to reload after sync"
+                logger.error(error_msg)
+                _last_sync_error = error_msg
+                return False
+
+            # Verify reload actually made service ready
+            if not query_engine.is_ready:
+                error_msg = "Query engine reload completed but service not ready"
+                logger.error(error_msg)
+                _last_sync_error = error_msg
+                return False
+
+            logger.info("Query engine reloaded successfully")
+
         except Exception as e:
-            logger.warning(f"Failed to reload query engine after sync: {e}")
-            logger.warning("Query engine will reload on next request or service restart")
+            error_msg = f"Failed to reload query engine after sync: {e}"
+            logger.error(error_msg, exc_info=True)
+            _last_sync_error = error_msg
+            return False
+
+        # Save version info ONLY after reload succeeds and is_ready = True
+        # This prevents the "false success" bug where sync fails but version is saved
+        logger.info("Saving version info after successful reload...")
+        save_version_info(
+            latest_sha,
+            {
+                "framework_version": framework_version,  # AIDEFEND semantic version (e.g., "1.20251107")
+                "total_documents": len(all_documents),
+                "statistics": statistics  # Pre-computed statistics for get_statistics tool
+            }
+        )
 
         logger.info("=" * 60)
         logger.info(f"Sync complete! Updated to commit {latest_sha[:8]}")
         logger.info(f"Indexed {len(all_documents)} documents")
+        logger.info(f"Query engine ready state: {query_engine.is_ready}")
         logger.info("=" * 60)
 
         return True

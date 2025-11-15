@@ -53,6 +53,15 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
         >>> print(f"OWASP coverage: {result['covered']['owasp']}")
         ['LLM01', 'LLM02']
     """
+    from app.core import query_engine
+    from app.exceptions import QueryEngineNotInitializedError
+
+    # Pre-flight check: ensure query engine is ready
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
+
     # Input validation
     if not implemented_techniques:
         raise InputValidationError("implemented_techniques cannot be empty")

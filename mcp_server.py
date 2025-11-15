@@ -126,6 +126,20 @@ async def serve():
                     "required": []
                 }
             ),
+            Tool(
+                name="get_framework_version",
+                description=(
+                    "Get the AIDEFEND framework version number and last update information. "
+                    "Returns semantic version (e.g., '1.20251107') indicating the framework's "
+                    "release date. Higher numbers = newer versions. Use this to check if your "
+                    "knowledge base is up-to-date with the latest AIDEFEND release."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            ),
             # P0 Tool 1: Statistics
             Tool(
                 name="get_statistics",
@@ -456,6 +470,9 @@ async def serve():
             elif name == "sync_aidefend":
                 return await handle_sync()
 
+            elif name == "get_framework_version":
+                return await handle_get_framework_version()
+
             # P0 Tools
             elif name == "get_statistics":
                 return await handle_get_statistics(arguments)
@@ -506,8 +523,29 @@ async def serve():
         logger.info("Initializing query engine for MCP...")
         await query_engine.initialize()
 
-        logger.info("Triggering initial sync check for MCP...")
-        asyncio.create_task(run_sync())
+        # Check if this is a cold start (no database exists)
+        if not query_engine.is_ready:
+            logger.warning("=" * 60)
+            logger.warning("⚠️  COLD START DETECTED - No database found")
+            logger.warning("⚠️  Performing blocking sync (may take 30-60 seconds)")
+            logger.warning("⚠️  Server will be ready after initial sync completes")
+            logger.warning("=" * 60)
+
+            # Blocking sync for cold start to prevent race condition
+            logger.info("Running initial sync (blocking)...")
+            sync_success = await run_sync()
+
+            if sync_success:
+                logger.info("✅ Initial sync completed successfully")
+                logger.info("✅ MCP server ready for queries")
+            else:
+                logger.error("❌ Initial sync failed - queries will fail")
+                logger.error("   User must manually run sync_aidefend tool")
+        else:
+            # Warm start - database exists, trigger background sync to check for updates
+            logger.info("Warm start detected (database exists)")
+            logger.info("Triggering background sync check for updates...")
+            asyncio.create_task(run_sync())
 
         logger.info("MCP services initialized. Ready for connections.")
 
@@ -617,9 +655,17 @@ async def handle_status() -> List[TextContent]:
     try:
         stats = await query_engine.get_stats()
 
+        # Build status text with framework version
         status_text = (
             "# AIDEFEND Knowledge Base Status\n\n"
             f"**Initialization Status:** {'✅ Ready' if stats['initialized'] else '❌ Not Ready'}\n"
+        )
+
+        # Add framework version if available
+        if stats.get('framework_version'):
+            status_text += f"**Framework Version:** {stats['framework_version']}\n"
+
+        status_text += (
             f"**Indexed Documents:** {stats['document_count']:,}\n"
             f"**Embedding Model:** {stats.get('embedding_model', 'N/A')}\n"
             f"**Model Loaded:** {'✅ Yes' if stats['model_loaded'] else '❌ No'}\n"
@@ -679,18 +725,27 @@ async def handle_sync() -> List[TextContent]:
         if success:
             sync_text += (
                 "**✅ Sync Completed Successfully!**\n\n"
-                "The knowledge base has been updated with the latest defense tactics.\n"
-                "You can now query for AI security strategies using `query_aidefend`."
+                "The knowledge base has been updated with the latest defense tactics.\n\n"
+                "⏳ **Query engine is reloading...** (takes ~2-3 seconds)\n"
+                "Please wait briefly before using `query_aidefend`.\n\n"
+                "💡 Tip: Use `get_aidefend_status` to verify the service is ready."
             )
         else:
             error = get_last_sync_error() or "Unknown error"
             sync_text += (
                 f"**❌ Sync Failed**\n\n"
-                f"Error: {error}\n\n"
-                "Please check:\n"
-                "- Internet connection\n"
-                "- GitHub repository access\n"
-                "- Service logs for details"
+                f"**Error:** {error}\n\n"
+                f"**Common Causes:**\n"
+                f"- **Missing Node.js dependencies:** Run `npm install` in project directory\n"
+                f"- **Network issues:** Check internet connection and GitHub access\n"
+                f"- **HuggingFace unavailable:** Embedding model download failed (usually temporary)\n"
+                f"- **Database locked:** Another process may be running\n\n"
+                f"**Troubleshooting Steps:**\n"
+                f"1. Ensure Node.js installed: `node --version`\n"
+                f"2. Install dependencies: `npm install && pip install -r requirements.txt`\n"
+                f"3. Stop all other instances of the server\n"
+                f"4. Check logs for detailed error: Look for ERROR messages\n"
+                f"5. If HuggingFace down, retry in a few minutes\n"
             )
 
         return [TextContent(type="text", text=sync_text)]
@@ -700,6 +755,76 @@ async def handle_sync() -> List[TextContent]:
         return [TextContent(
             type="text",
             text=f"**❌ Sync Failed**\n\nError: {str(e)}"
+        )]
+
+
+async def handle_get_framework_version() -> List[TextContent]:
+    """
+    Handle get_framework_version tool call.
+
+    Returns:
+        List of TextContent with framework version information
+    """
+    logger.info("MCP get_framework_version request")
+
+    try:
+        # Get version info from file
+        version_info = load_version_info()
+
+        if not version_info:
+            return [TextContent(
+                type="text",
+                text=(
+                    "# AIDEFEND Framework Version\n\n"
+                    "**Status:** ❌ No version information available\n\n"
+                    "The knowledge base has not been synchronized yet.\n"
+                    "Use `sync_aidefend` to download the latest framework."
+                )
+            )]
+
+        framework_version = version_info.get("framework_version")
+        commit_sha = version_info.get("commit_sha", "N/A")
+        last_synced = version_info.get("last_synced_at", "N/A")
+
+        if framework_version:
+            # Parse version to extract date (format: 1.YYYYMMDD)
+            try:
+                date_str = framework_version.split('.')[1]  # Extract "20251107"
+                year = date_str[0:4]
+                month = date_str[4:6]
+                day = date_str[6:8]
+                readable_date = f"{year}-{month}-{day}"
+            except (IndexError, ValueError):
+                readable_date = "Unknown"
+
+            version_text = (
+                "# AIDEFEND Framework Version\n\n"
+                f"**Version:** {framework_version}\n"
+                f"**Release Date:** {readable_date}\n"
+                f"**Git Commit:** {commit_sha[:8] if len(commit_sha) >= 8 else commit_sha}\n"
+                f"**Last Synced:** {last_synced}\n\n"
+                "---\n\n"
+                "**Version Format:** `1.YYYYMMDD` (Major.Date)\n"
+                "Higher version numbers indicate newer releases.\n\n"
+                "To update to the latest version, use `sync_aidefend`."
+            )
+        else:
+            version_text = (
+                "# AIDEFEND Framework Version\n\n"
+                "**Status:** ⚠️ Version number not available\n\n"
+                f"**Git Commit:** {commit_sha[:8] if len(commit_sha) >= 8 else commit_sha}\n"
+                f"**Last Synced:** {last_synced}\n\n"
+                "The framework version could not be extracted from the current sync.\n"
+                "This may indicate an older sync format. Use `sync_aidefend` to update."
+            )
+
+        return [TextContent(type="text", text=version_text)]
+
+    except Exception as e:
+        logger.error(f"Get framework version failed: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"**❌ Failed to Get Version**\n\nError: {str(e)}"
         )]
 
 

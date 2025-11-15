@@ -51,6 +51,15 @@ async def get_statistics() -> Dict[str, Any]:
     # Fallback: Calculate statistics from database (slow path)
     logger.warning("Pre-computed statistics not found, performing full table scan (slow)")
     import lancedb
+    from app.core import query_engine
+    from app.exceptions import QueryEngineNotInitializedError
+
+    # Pre-flight check: ensure query engine is ready
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
+
 
     try:
         # Connect to LanceDB

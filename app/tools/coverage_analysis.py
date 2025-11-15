@@ -65,6 +65,15 @@ async def analyze_coverage(
         >>> print(f"Overall coverage: {result['overall_coverage']['percentage']}%")
     """
     import lancedb
+    from app.core import query_engine
+    from app.exceptions import QueryEngineNotInitializedError
+
+    # Pre-flight check: ensure query engine is ready
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
+
 
     # Input validation
     if not implemented_techniques:

@@ -92,14 +92,32 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing query engine...")
         await query_engine.initialize()
 
-        # Trigger initial sync (non-blocking)
-        logger.info("Triggering initial sync...")
-        asyncio.create_task(run_sync())
+        # Check if this is a cold start (no database exists)
+        # Use SAME logic as mcp_server.py to prevent race conditions
+        if not query_engine.is_ready:
+            logger.warning("=" * 60)
+            logger.warning("⚠️  COLD START DETECTED - No database found")
+            logger.warning("⚠️  Performing blocking sync (may take 30-60 seconds)")
+            logger.warning("=" * 60)
+
+            # Blocking sync for cold start to prevent race condition
+            sync_success = await run_sync()
+
+            if sync_success:
+                logger.info("✅ Initial sync completed successfully")
+            else:
+                logger.error("❌ Initial sync failed - queries will fail")
+                logger.error("   User must manually run sync_aidefend tool or restart service")
+        else:
+            # Warm start - database exists, trigger background sync to check for updates
+            logger.info("Warm start detected (database exists)")
+            logger.info("Triggering background sync check for updates...")
+            asyncio.create_task(run_sync())
 
         # Start background sync loop if enabled
         if settings.ENABLE_AUTO_SYNC:
             logger.info(
-                f"Starting background sync (interval: {settings.SYNC_INTERVAL_SECONDS}s)"
+                f"Starting background sync loop (interval: {settings.SYNC_INTERVAL_SECONDS}s)"
             )
             asyncio.create_task(sync_loop())
         else:
@@ -340,6 +358,7 @@ async def get_status(request: Request):
             sync_status = SyncStatus(
                 last_synced_at=datetime.fromisoformat(version_info["last_synced_at"]) if "last_synced_at" in version_info else None,
                 current_commit_sha=version_info.get("commit_sha"),
+                framework_version=version_info.get("framework_version"),
                 total_documents=version_info.get("total_documents"),
                 is_syncing=is_sync_in_progress()
             )
