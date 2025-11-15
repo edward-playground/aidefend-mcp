@@ -141,6 +141,10 @@ class SyncStatus(BaseModel):
         description="Current GitHub commit SHA",
         pattern=r"^[a-f0-9]{40}$"
     )
+    framework_version: Optional[str] = Field(
+        default=None,
+        description="AIDEFEND framework semantic version (e.g., '1.20251107')"
+    )
     total_documents: Optional[int] = Field(
         default=None,
         description="Total number of indexed documents",

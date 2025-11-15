@@ -96,7 +96,8 @@ def setup_logger(
     # File handler with JSON formatting
     if log_file:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_file)
+        # Fixed: Set encoding='utf-8' for Windows cp950 compatibility
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(SecureJSONFormatter())
         logger.addHandler(file_handler)

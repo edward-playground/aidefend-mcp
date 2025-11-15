@@ -64,6 +64,14 @@ async def validate_technique_id(technique_id: str) -> Dict[str, Any]:
         ...     print(f"Found: {result['technique']['name']}")
     """
     import lancedb
+    from app.core import query_engine
+    from app.exceptions import QueryEngineNotInitializedError
+
+    # Pre-flight check: ensure query engine is ready
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
 
     # Input sanitization
     if not technique_id or not isinstance(technique_id, str):

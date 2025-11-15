@@ -52,6 +52,14 @@ async def get_secure_code_snippet(
         >>> result = await get_secure_code_snippet(topic="prompt injection defense")
     """
     import lancedb
+    from app.core import query_engine
+    from app.exceptions import QueryEngineNotInitializedError
+
+    # Pre-flight check: ensure query engine is ready
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
 
     # Input validation
     if not technique_id and not topic:

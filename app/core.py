@@ -264,12 +264,17 @@ class QueryEngine:
                 if self._table:
                     doc_count = await asyncio.to_thread(self._table.count_rows)
 
+                # Load framework version from version file
+                version_info = load_version_info()
+                framework_version = version_info.get("framework_version") if version_info else None
+
                 return {
                     "initialized": self._initialized,
                     "document_count": doc_count,
                     "model_loaded": self._model is not None,
                     "embedding_model": settings.EMBEDDING_MODEL,
-                    "embedding_dimension": settings.EMBEDDING_DIMENSION
+                    "embedding_dimension": settings.EMBEDDING_DIMENSION,
+                    "framework_version": framework_version
                 }
             except Exception as e:
                 logger.error(f"Failed to get stats: {e}")
@@ -341,6 +346,16 @@ class QueryEngine:
             or None if not initialized
         """
         return self._id_cache
+
+    @property
+    def is_ready(self) -> bool:
+        """
+        Check if query engine is initialized and ready to serve queries.
+
+        Returns:
+            True if initialized with valid database connection, False otherwise
+        """
+        return self._initialized and self._table is not None
 
 
 # Create singleton instance
