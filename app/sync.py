@@ -1084,6 +1084,8 @@ async def run_sync() -> bool:
             {
                 "framework_version": framework_version,  # AIDEFEND semantic version (e.g., "1.20251107")
                 "total_documents": len(all_documents),
+                "embedding_model": settings.EMBEDDING_MODEL,  # Store model used for this sync
+                "embedding_dimension": settings.EMBEDDING_DIMENSION,  # Store dimension for this sync
                 "statistics": statistics  # Pre-computed statistics for get_statistics tool
             }
         )

@@ -40,18 +40,21 @@ async def get_statistics() -> Dict[str, Any]:
     """
     logger.info("Fetching AIDEFEND knowledge base statistics")
 
+    from app.core import query_engine
+
     # Try to load pre-computed statistics from version file (optimization)
     from app.utils import load_version_info
     version_info = load_version_info()
 
     if version_info and "statistics" in version_info:
         logger.info("Using pre-computed statistics from version file (fast path)")
-        return version_info["statistics"]
+        statistics = version_info["statistics"]
+        statistics.setdefault("overview", {})["embedding_model"] = query_engine.active_embedding_model
+        return statistics
 
     # Fallback: Calculate statistics from database (slow path)
     logger.warning("Pre-computed statistics not found, performing full table scan (slow)")
     import lancedb
-    from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
     # Pre-flight check: ensure query engine is ready
@@ -175,7 +178,7 @@ async def get_statistics() -> Dict[str, Any]:
                 "total_subtechniques": type_counts.get('subtechnique', 0),
                 "total_strategies": type_counts.get('strategy', 0),
                 "last_synced": last_synced,
-                "embedding_model": settings.EMBEDDING_MODEL,
+                "embedding_model": query_engine.active_embedding_model,
                 "database_path": str(settings.DB_PATH)
             },
             "by_tactic": dict(sorted(tactic_counts.items())),

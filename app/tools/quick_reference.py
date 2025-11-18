@@ -84,7 +84,8 @@ async def get_quick_reference(
 
         # Semantic search for relevant techniques
         logger.info("Performing semantic search...")
-        model = await asyncio.to_thread(TextEmbedding, model_name=settings.EMBEDDING_MODEL)
+        model_name = query_engine.active_embedding_model
+        model = await asyncio.to_thread(TextEmbedding, model_name=model_name)
         query_embedding = list(await asyncio.to_thread(model.embed, [topic]))[0]
 
         # Search for relevant techniques

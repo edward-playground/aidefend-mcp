@@ -5,7 +5,7 @@ Handles vector search and context retrieval.
 
 import asyncio
 import lancedb
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pathlib import Path
 from fastembed import TextEmbedding
 from aiorwlock import RWLock
@@ -73,6 +73,15 @@ def _register_custom_embedding_models():
 _register_custom_embedding_models()
 
 
+# Mapping of known embedding models to their vector dimensions.
+# This allows us to automatically match the correct embedding model to the
+# stored LanceDB vectors even if the configured model has changed.
+KNOWN_EMBEDDING_MODELS: Dict[str, int] = {
+    "intfloat/multilingual-e5-base": 768,
+    "intfloat/multilingual-e5-small": 384,
+}
+
+
 class QueryEngineError(Exception):
     """Base exception for query engine errors."""
     pass
@@ -97,8 +106,124 @@ class QueryEngine:
         self._initialized = False
         self._rw_lock = RWLock()  # Read-write lock for concurrent access
         self._id_cache: Optional[List] = None  # ID cache for validation tool
+        self._active_embedding_model: str = settings.EMBEDDING_MODEL
+        self._active_embedding_dimension: int = settings.EMBEDDING_DIMENSION
 
         logger.info("QueryEngine instance created (lazy initialization)")
+
+    def _detect_table_vector_dimension(self, table: lancedb.Table) -> Optional[int]:
+        """
+        Attempt to detect the vector dimension stored in LanceDB.
+
+        Args:
+            table: LanceDB table to inspect
+
+        Returns:
+            Detected dimension, or None if unable to detect
+        """
+        try:
+            schema = table.schema
+            if schema:
+                for field in schema:
+                    if field.name == "vector":
+                        list_size = getattr(field.type, "list_size", None)
+                        if isinstance(list_size, int):
+                            return list_size
+        except Exception as e:
+            logger.debug(f"Failed to inspect LanceDB schema for vector dimension: {e}")
+
+        try:
+            batch = table.take([0])
+            if batch and batch.num_rows > 0:
+                vector_column = batch.column("vector")
+                if vector_column:
+                    vector_list = vector_column.to_pylist()[0]
+                    if hasattr(vector_list, "__len__"):
+                        return len(vector_list)
+        except Exception as e:
+            logger.debug(f"Failed to sample LanceDB vector dimension: {e}")
+
+        return None
+
+    def _resolve_embedding_model(self, detected_dimension: Optional[int]) -> str:
+        """
+        Determine which embedding model should be used based on LanceDB vectors.
+        Includes upgrade detection to prevent silent model switches.
+
+        Args:
+            detected_dimension: Detected vector dimension from database
+
+        Returns:
+            Resolved model name
+
+        Raises:
+            QueryEngineError: If intentional model upgrade detected without rebuild
+        """
+        configured_model = settings.EMBEDDING_MODEL
+        configured_dimension = settings.EMBEDDING_DIMENSION
+
+        resolved_model = configured_model
+        resolved_dimension = configured_dimension
+
+        if detected_dimension is not None:
+            resolved_dimension = detected_dimension
+
+            configured_model_dim = KNOWN_EMBEDDING_MODELS.get(configured_model, configured_dimension)
+
+            if detected_dimension not in (configured_dimension, configured_model_dim):
+                # Check if this is an intentional upgrade
+                version_info = load_version_info()
+                stored_model = version_info.get("embedding_model") if version_info else None
+
+                if stored_model and stored_model != configured_model:
+                    # This is an INTENTIONAL model upgrade/change
+                    logger.error(
+                        "❌ Embedding model upgrade detected!\n"
+                        f"   Database model: {stored_model} ({detected_dimension}d)\n"
+                        f"   Configured model: {configured_model} ({configured_model_dim}d)\n"
+                        "\n"
+                        "To upgrade the embedding model, you must rebuild the database:\n"
+                        "  1. Delete: data/aidefend_kb.lancedb and data/local_version.json\n"
+                        "  2. Restart the service to trigger fresh sync\n"
+                        "\n"
+                        "Or run: python __main__.py --force-resync"
+                    )
+                    raise QueryEngineError(
+                        f"Database model mismatch. Database uses {stored_model} ({detected_dimension}d) "
+                        f"but config specifies {configured_model} ({configured_model_dim}d). "
+                        "Rebuild required for model upgrade."
+                    )
+
+                # Not an intentional upgrade - auto-correct dimension mismatch
+                override_model = next(
+                    (name for name, dim in KNOWN_EMBEDDING_MODELS.items() if dim == detected_dimension),
+                    None
+                )
+
+                if override_model:
+                    logger.warning(
+                        "LanceDB vectors are %sd but configured model '%s' is %sd. "
+                        "Automatically switching to '%s' to prevent dimension mismatch.",
+                        detected_dimension,
+                        configured_model,
+                        configured_dimension,
+                        override_model
+                    )
+                    resolved_model = override_model
+                else:
+                    logger.warning(
+                        "Detected LanceDB vector dimension %s, but no known embedding model matches. "
+                        "Continuing with configured model '%s' (%sd).",
+                        detected_dimension,
+                        configured_model,
+                        configured_dimension
+                    )
+                    resolved_dimension = configured_dimension
+
+        self._active_embedding_model = resolved_model
+        self._active_embedding_dimension = resolved_dimension
+
+        return resolved_model
 
     async def _do_initialize(self) -> bool:
         """
@@ -122,15 +247,8 @@ class QueryEngine:
                 )
                 return False
 
-            # Load embedding model (fastembed uses ONNX Runtime)
-            logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
-            self._model = await asyncio.to_thread(
-                TextEmbedding,
-                model_name=settings.EMBEDDING_MODEL
-            )
-            logger.info("Embedding model loaded")
-
-            # Connect to database
+            # Connect to database before loading embedding model so we can detect
+            # which vector dimension is stored in LanceDB.
             logger.info(f"Connecting to LanceDB: {settings.DB_PATH}")
             self._db = await asyncio.to_thread(
                 lancedb.connect,
@@ -144,28 +262,55 @@ class QueryEngine:
                     "aidefend"
                 )
                 logger.info("Opened 'aidefend' table")
-
-                # Get table stats
-                count = await asyncio.to_thread(self._table.count_rows)
-
-                # Load ID cache for validation tool (optimization)
-                logger.info("Loading ID cache for validation tool...")
-                self._id_cache = await asyncio.to_thread(
-                    lambda: self._table.to_pandas()[['source_id', 'name', 'type', 'tactic']].to_dict('records')
-                )
-                logger.info(f"ID cache loaded: {len(self._id_cache)} entries")
-
-                logger.info(
-                    f"QueryEngine initialized successfully",
-                    extra={"document_count": count}
-                )
-
-                self._initialized = True
-                return True
-
             except Exception as e:
                 logger.error(f"Failed to open 'aidefend' table: {e}")
                 return False
+
+            # Detect stored vector dimension (if possible) and resolve model.
+            detected_dimension = await asyncio.to_thread(
+                self._detect_table_vector_dimension,
+                self._table
+            )
+
+            if detected_dimension:
+                logger.info(f"Detected LanceDB vector dimension: {detected_dimension}")
+            else:
+                logger.warning(
+                    "Unable to detect LanceDB vector dimension. Using configured dimension: %s",
+                    settings.EMBEDDING_DIMENSION
+                )
+
+            previous_model_name = self._active_embedding_model
+            resolved_model_name = self._resolve_embedding_model(detected_dimension)
+
+            # Load embedding model only if we don't already have the correct one cached
+            if self._model is None or previous_model_name != resolved_model_name:
+                logger.info(f"Loading embedding model: {resolved_model_name}")
+                self._model = await asyncio.to_thread(
+                    TextEmbedding,
+                    model_name=resolved_model_name
+                )
+                logger.info("Embedding model loaded")
+            else:
+                logger.info(f"Reusing loaded embedding model: {resolved_model_name}")
+
+            # Get table stats
+            count = await asyncio.to_thread(self._table.count_rows)
+
+            # Load ID cache for validation tool (optimization)
+            logger.info("Loading ID cache for validation tool...")
+            self._id_cache = await asyncio.to_thread(
+                lambda: self._table.to_pandas()[['source_id', 'name', 'type', 'tactic']].to_dict('records')
+            )
+            logger.info(f"ID cache loaded: {len(self._id_cache)} entries")
+
+            logger.info(
+                f"QueryEngine initialized successfully",
+                extra={"document_count": count, "embedding_model": self._active_embedding_model}
+            )
+
+            self._initialized = True
+            return True
 
         except Exception as e:
             logger.error(f"Failed to initialize QueryEngine: {e}", exc_info=True)
@@ -326,8 +471,8 @@ class QueryEngine:
                     "initialized": self._initialized,
                     "document_count": doc_count,
                     "model_loaded": self._model is not None,
-                    "embedding_model": settings.EMBEDDING_MODEL,
-                    "embedding_dimension": settings.EMBEDDING_DIMENSION,
+                    "embedding_model": self.active_embedding_model,
+                    "embedding_dimension": self.active_embedding_dimension,
                     "framework_version": framework_version
                 }
             except Exception as e:
@@ -400,6 +545,16 @@ class QueryEngine:
             or None if not initialized
         """
         return self._id_cache
+
+    @property
+    def active_embedding_model(self) -> str:
+        """Return the embedding model currently aligned with the database."""
+        return self._active_embedding_model or settings.EMBEDDING_MODEL
+
+    @property
+    def active_embedding_dimension(self) -> int:
+        """Return the vector dimension currently aligned with the database."""
+        return self._active_embedding_dimension or settings.EMBEDDING_DIMENSION
 
     @property
     def is_ready(self) -> bool:
