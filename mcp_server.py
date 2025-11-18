@@ -1453,7 +1453,8 @@ async def handle_comprehensive_search(arguments: Dict[str, Any]) -> List[TextCon
     Returns:
         List containing formatted TextContent response
     """
-    audit_ctx = audit_tool_call("comprehensive_search", arguments)
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call("comprehensive_search", arguments, start_time)
 
     try:
         # Extract arguments with defaults
