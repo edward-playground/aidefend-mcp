@@ -71,12 +71,12 @@ class Settings(BaseSettings):
 
     # Embedding Configuration
     EMBEDDING_MODEL: str = Field(
-        default="BAAI/bge-small-en-v1.5",
-        description="FastEmbed model for embeddings (ONNX-based, lightweight)"
+        default="intfloat/multilingual-e5-base",
+        description="FastEmbed model for embeddings (ONNX-based, multilingual support)"
     )
     EMBEDDING_DIMENSION: int = Field(
-        default=384,
-        description="Embedding vector dimension (384 for bge-small-en-v1.5)"
+        default=768,
+        description="Embedding vector dimension (768 for multilingual-e5-base)"
     )
 
     # Fuzzy Matching Configuration (for classify_threat tool)
@@ -132,7 +132,7 @@ class Settings(BaseSettings):
         default=1500,
         ge=100,
         le=5000,
-        description="Maximum query text length (aligned with bge-small-en-v1.5 model's 512 token limit)"
+        description="Maximum query text length (aligned with multilingual-e5-base model's 512 token limit)"
     )
     MAX_TOP_K: int = Field(
         default=20,

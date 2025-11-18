@@ -19,6 +19,60 @@ from app.sync import is_sync_in_progress
 logger = get_logger(__name__)
 
 
+def _register_custom_embedding_models():
+    """
+    Register custom embedding models that are not natively supported by FastEmbed.
+    This allows using models like intfloat/multilingual-e5-base and intfloat/multilingual-e5-small.
+    """
+    try:
+        from fastembed.common.model_description import PoolingType, ModelSource
+
+        # Check if multilingual-e5-base is already registered
+        supported = [m["model"] for m in TextEmbedding.list_supported_models()]
+        if "intfloat/multilingual-e5-base" in supported:
+            logger.debug("intfloat/multilingual-e5-base already supported natively")
+            return
+
+        # Register intfloat/multilingual-e5-base (768-dim, 512 tokens, 100+ languages)
+        logger.info("Registering custom model: intfloat/multilingual-e5-base")
+        TextEmbedding.add_custom_model(
+            model="intfloat/multilingual-e5-base",
+            pooling=PoolingType.MEAN,
+            normalization=True,
+            sources=ModelSource(hf="intfloat/multilingual-e5-base"),
+            dim=768,
+            model_file="onnx/model.onnx",
+            description="Microsoft multilingual E5 base model - 768 dimensions, 512 tokens, 100+ languages",
+            license="MIT",
+            size_in_gb=0.27,
+            additional_files=["onnx/model_optimized.onnx"]
+        )
+
+        # Register intfloat/multilingual-e5-small (384-dim, 512 tokens, 100+ languages)
+        logger.info("Registering custom model: intfloat/multilingual-e5-small")
+        TextEmbedding.add_custom_model(
+            model="intfloat/multilingual-e5-small",
+            pooling=PoolingType.MEAN,
+            normalization=True,
+            sources=ModelSource(hf="intfloat/multilingual-e5-small"),
+            dim=384,
+            model_file="onnx/model.onnx",
+            description="Microsoft multilingual E5 small model - 384 dimensions, 512 tokens, 100+ languages",
+            license="MIT",
+            size_in_gb=0.11,
+            additional_files=["onnx/model_optimized.onnx"]
+        )
+
+        logger.info("Custom embedding models registered successfully")
+
+    except Exception as e:
+        logger.warning(f"Failed to register custom embedding models: {e}. Will try direct loading.", exc_info=True)
+
+
+# Register custom models on module import
+_register_custom_embedding_models()
+
+
 class QueryEngineError(Exception):
     """Base exception for query engine errors."""
     pass

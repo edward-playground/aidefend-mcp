@@ -111,3 +111,4 @@ UPDATE*.md
 *_private*
 credentials*.json
 secrets*.json
+nul

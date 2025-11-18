@@ -23,6 +23,7 @@
 ## 特色功能
 
 - **100% 隱私保護與本地化**: 所有查詢都在本地端處理 - 你輸入的 prompts 只留在你的環境裡，完全支援離線運作
+- **多語言支援**: 使用任何語言（中文、日文、韓文等）查詢，都能取得相關的英文內容結果，採用 `intfloat/multilingual-e5-base` (Microsoft, 支援 100+ 語言)
 - **成本效益高**: 相較於傳送完整 framework，token 用量減少 25 倍 - 大幅降低 LLM API 成本
 - **自動同步**: 自動從 GitHub 下載最新的 AIDEFEND 內容（預設是每小時檢查一次）
 - **快速向量搜尋**: 採用 LanceDB 實現快速的語意搜尋（毫秒級回應時間）
@@ -204,7 +205,7 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
 
    **或直接用 Python 啟動：**
    ```bash
-   python __main__.py
+   C:/Python313/python.exe __main__.py
    ```
 
 2. **驗證是否正在執行**
@@ -235,7 +236,7 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
    {
      "mcpServers": {
        "aidefend": {
-         "command": "python",
+         "command": "C:/Python313/python.exe",
          "args": [
            "/absolute/path/to/aidefend-mcp/__main__.py",
            "--mcp"
@@ -246,15 +247,30 @@ AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行
    }
    ```
 
-   **重要：** 將路徑替換為**完整絕對路徑**！
-   - 替換 `/absolute/path/to/aidefend-mcp/__main__.py` 在 `args` 中
-   - 替換 `/absolute/path/to/aidefend-mcp` 在 `cwd` 中
+   **⚠️ 重要：** 將所有路徑替換為**您實際的絕對路徑**！
 
-   **注意：** 必須使用完整路徑。`cwd` 欄位是必要的，這樣 Python 才能正確解析專案內的相對匯入。
-   - Windows 範例：
+   1. **Python 執行檔路徑**（在 `command` 欄位中）：
+      - 將 `C:/Python313/python.exe` 替換為您實際的 Python 安裝路徑
+      - 如何找到您的 Python 路徑：
+        - Windows：在命令提示字元執行 `where python`
+        - macOS/Linux：在終端機執行 `which python` 或 `which python3`
+      - 常見位置：
+        - Windows：`C:/Python313/python.exe`、`C:/Python312/python.exe`、`C:/Users/YourName/AppData/Local/Programs/Python/Python313/python.exe`
+        - macOS：`/usr/local/bin/python3`、`/opt/homebrew/bin/python3`
+        - Linux：`/usr/bin/python3`、`/usr/local/bin/python3`
+
+   2. **專案路徑**（在 `args` 和 `cwd` 欄位中）：
+      - 替換 `/absolute/path/to/aidefend-mcp/__main__.py` 在 `args` 欄位中
+      - 替換 `/absolute/path/to/aidefend-mcp` 在 `cwd` 欄位中
+      - `cwd` 欄位是必要的，這樣 Python 才能正確解析專案內的相對匯入
+
+   **完整範例：**
+   - Windows：
+     - `"command": "C:/Python313/python.exe"`
      - `"args": ["C:/Users/YourName/projects/aidefend-mcp/__main__.py", "--mcp"]`
      - `"cwd": "C:/Users/YourName/projects/aidefend-mcp"`
-   - macOS/Linux 範例：
+   - macOS/Linux：
+     - `"command": "/usr/local/bin/python3"`
      - `"args": ["/Users/yourname/projects/aidefend-mcp/__main__.py", "--mcp"]`
      - `"cwd": "/Users/yourname/projects/aidefend-mcp"`
 
@@ -367,7 +383,7 @@ POST /api/v1/sync
 
 ### MCP 模式使用方式
 
-當以 MCP 模式執行時（`python __main__.py --mcp`），本服務會為 AI 助理（如 Claude Desktop）提供工具。
+當以 MCP 模式執行時（`C:/Python313/python.exe __main__.py --mcp`），本服務會為 AI 助理（如 Claude Desktop）提供工具。
 
 #### 可用的 MCP 工具
 
@@ -1688,7 +1704,7 @@ aidefend-mcp/
 
 4. **手動測試 MCP server**
    ```bash
-   python __main__.py --mcp
+   C:/Python313/python.exe __main__.py --mcp
    ```
    - 你應該會在 stderr 看到「Starting AIDEFEND MCP Server (stdio mode)...」
    - 如果當機，請檢查錯誤訊息
@@ -1696,7 +1712,7 @@ aidefend-mcp/
 #### MCP 工具速度慢或逾時
 
 - 首次查詢會觸發初始同步（1-3 分鐘）
-- 檢查同步是否完成：`python __main__.py` 然後造訪 http://localhost:8000/api/v1/status
+- 檢查同步是否完成：`C:/Python313/python.exe __main__.py` 然後造訪 http://localhost:8000/api/v1/status
 - 初始同步後，查詢應該很快（< 1 秒）
 
 #### "Database sync in progress" 錯誤
