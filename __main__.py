@@ -5,9 +5,9 @@ This module provides a unified entry point for running the AIDEFEND service
 in either REST API mode or MCP (Model Context Protocol) mode.
 
 Usage:
-    python __main__.py              # REST API mode (default)
-    python __main__.py --mcp        # MCP mode for Claude Desktop
-    python __main__.py --help       # Show help message
+    C:/Python313/python.exe __main__.py              # REST API mode (default)
+    C:/Python313/python.exe __main__.py --mcp        # MCP mode for Claude Desktop
+    C:/Python313/python.exe __main__.py --help       # Show help message
 """
 
 import sys
@@ -20,7 +20,7 @@ def print_help():
 AIDEFEND MCP Service - AI Security Defense Knowledge Base
 
 USAGE:
-    python __main__.py [OPTIONS]
+    C:/Python313/python.exe __main__.py [OPTIONS]
 
 OPTIONS:
     (no options)    Start REST API server (default mode)
@@ -37,10 +37,10 @@ OPTIONS:
 
 EXAMPLES:
     # Start REST API server (for system integration)
-    python __main__.py
+    C:/Python313/python.exe __main__.py
 
     # Start MCP server (for Claude Desktop)
-    python __main__.py --mcp
+    C:/Python313/python.exe __main__.py --mcp
 
 ENVIRONMENT:
     Configuration is loaded from .env file (see .env.example)

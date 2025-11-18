@@ -659,6 +659,56 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
     return documents
 
 
+def _register_custom_embedding_models_for_sync():
+    """
+    Register custom embedding models for sync operations.
+    This is a duplicate of the registration in app/core.py to avoid circular imports.
+    """
+    try:
+        from fastembed.common.model_description import PoolingType, ModelSource
+
+        # Check if multilingual-e5-base is already registered
+        supported = [m["model"] for m in TextEmbedding.list_supported_models()]
+        if "intfloat/multilingual-e5-base" in supported:
+            logger.debug("intfloat/multilingual-e5-base already supported natively")
+            return
+
+        # Register intfloat/multilingual-e5-base (768-dim, 512 tokens, 100+ languages)
+        logger.info("Registering custom model for sync: intfloat/multilingual-e5-base")
+        TextEmbedding.add_custom_model(
+            model="intfloat/multilingual-e5-base",
+            pooling=PoolingType.MEAN,
+            normalization=True,
+            sources=ModelSource(hf="intfloat/multilingual-e5-base"),
+            dim=768,
+            model_file="onnx/model.onnx",
+            description="Microsoft multilingual E5 base model - 768 dimensions, 512 tokens, 100+ languages",
+            license="MIT",
+            size_in_gb=0.27,
+            additional_files=["onnx/model_optimized.onnx"]
+        )
+
+        # Register intfloat/multilingual-e5-small (384-dim, 512 tokens, 100+ languages)
+        logger.info("Registering custom model for sync: intfloat/multilingual-e5-small")
+        TextEmbedding.add_custom_model(
+            model="intfloat/multilingual-e5-small",
+            pooling=PoolingType.MEAN,
+            normalization=True,
+            sources=ModelSource(hf="intfloat/multilingual-e5-small"),
+            dim=384,
+            model_file="onnx/model.onnx",
+            description="Microsoft multilingual E5 small model - 384 dimensions, 512 tokens, 100+ languages",
+            license="MIT",
+            size_in_gb=0.11,
+            additional_files=["onnx/model_optimized.onnx"]
+        )
+
+        logger.info("Custom embedding models registered successfully for sync")
+
+    except Exception as e:
+        logger.warning(f"Failed to register custom embedding models for sync: {e}")
+
+
 async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     Embed documents and store in LanceDB.
@@ -672,6 +722,9 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
         - statistics: Pre-computed statistics dict, or None if failed
     """
     try:
+        # Register custom models before loading (for multilingual-e5-base support)
+        _register_custom_embedding_models_for_sync()
+
         logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
 
         # Load embedding model with timeout (prevents hanging on network issues)

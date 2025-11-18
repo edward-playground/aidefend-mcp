@@ -425,7 +425,7 @@ cp .env.example .env
 ### 步驟 5: 啟動服務
 
 ```bash
-python __main__.py
+C:/Python313/python.exe __main__.py
 ```
 
 **這個指令的意思：**
@@ -622,7 +622,7 @@ notepad %APPDATA%\Claude\claude_desktop_config.json
 {
   "mcpServers": {
     "aidefend": {
-      "command": "python",
+      "command": "C:/Python313/python.exe",
       "args": [
         "/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp/__main__.py",
         "--mcp"
@@ -633,13 +633,22 @@ notepad %APPDATA%\Claude\claude_desktop_config.json
 }
 ```
 
-**⚠️ 重要：**
-- 將 `args` 中的路徑替換為 `__main__.py` 檔案的**完整絕對路徑**，例如 "C:/Users/你的使用者名稱/資料夾/aidefend-mcp/__main__.py", "--mcp"
-- 將 `cwd` 替換為專案**根目錄**的絕對路徑
+**⚠️ 重要：** 將所有路徑替換為您實際的絕對路徑！
 
-**注意：**
-- ✅ `args` 必須使用 `__main__.py` 的**完整路徑**（使用相對路徑會導致連接失敗）
-- ✅ `cwd` 必須設定為專案根目錄（讓 Python 能正確載入相對模組）
+1. **Python 執行檔路徑**（在 `command` 欄位中）：
+   - 將 `C:/Python313/python.exe` 替換為您實際的 Python 安裝路徑
+   - 如何找到您的 Python 路徑：
+     - **Windows：** 在命令提示字元執行 `where python`
+     - **macOS/Linux：** 在終端機執行 `which python` 或 `which python3`
+   - 常見位置：
+     - Windows：`C:/Python313/python.exe`、`C:/Python312/python.exe`、`C:/Users/YourName/AppData/Local/Programs/Python/Python313/python.exe`
+     - macOS：`/usr/local/bin/python3`、`/opt/homebrew/bin/python3`
+     - Linux：`/usr/bin/python3`、`/usr/local/bin/python3`
+
+2. **專案路徑**（在 `args` 和 `cwd` 欄位中）：
+   - 將 `args` 中的路徑替換為 `__main__.py` 檔案的**完整絕對路徑**
+   - 將 `cwd` 替換為專案**根目錄**的絕對路徑
+   - `cwd` 欄位是必要的，讓 Python 能正確載入專案內的相對模組
 
 **如何找到你的路徑：**
 
@@ -675,7 +684,7 @@ Write-Host "cwd: `"$path`""
 {
   "mcpServers": {
     "aidefend": {
-      "command": "python",
+      "command": "C:/Python313/python.exe",
       "args": ["/Users/alice/projects/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "/Users/alice/projects/aidefend-mcp"
     }
@@ -688,7 +697,7 @@ Write-Host "cwd: `"$path`""
 {
   "mcpServers": {
     "aidefend": {
-      "command": "python",
+      "command": "C:/Python313/python.exe",
       "args": ["C:/Users/Bob/Documents/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "C:/Users/Bob/Documents/aidefend-mcp"
     }
@@ -708,7 +717,7 @@ Write-Host "cwd: `"$path`""
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/alice/Documents"]
     },
     "aidefend": {
-      "command": "python",
+      "command": "C:/Python313/python.exe",
       "args": ["/Users/alice/projects/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "/Users/alice/projects/aidefend-mcp"
     }
@@ -798,7 +807,7 @@ Claude 會根據你的問題自動選擇要使用哪個工具。
 1. **手動測試服務：**
    ```bash
    cd /path/to/aidefend-mcp
-   python __main__.py --mcp
+   C:/Python313/python.exe __main__.py --mcp
    ```
 
    你應該會看到：`Starting AIDEFEND MCP Server (stdio mode)...`
@@ -824,7 +833,7 @@ Claude 會根據你的問題自動選擇要使用哪個工具。
 
 **提示：** 在使用 Claude 之前先執行手動同步：
 ```bash
-python __main__.py  # 以 API 模式啟動
+C:/Python313/python.exe __main__.py  # 以 API 模式啟動
 # 造訪 http://localhost:8000/api/v1/status 檢查同步狀態
 ```
 
@@ -849,7 +858,7 @@ python __main__.py  # 以 API 模式啟動
 
 終端機 1：
 ```bash
-python __main__.py          # REST API 在 http://localhost:8000
+C:/Python313/python.exe __main__.py          # REST API 在 http://localhost:8000
 ```
 
 終端機 2：
@@ -911,7 +920,7 @@ python -m pip install -r requirements.txt
 **解決方案：**
 
 1. **首選方案：** 確保您是從 GitHub **直接 git clone** 下載的，而不是從網頁複製貼上 start.bat 檔案的內容。
-2. **備用方案（最可靠）：** **放棄使用 start.bat**，並**改用「方法 3: 手動安裝」**中的步驟。手動執行 `python -m venv venv`、`venv\Scripts\activate`、`pip install -r requirements.txt` 和 `python __main__.py` 可以 100% 繞過這個批次檔解析錯誤。
+2. **備用方案（最可靠）：** **放棄使用 start.bat**，並**改用「方法 3: 手動安裝」**中的步驟。手動執行 `python -m venv venv`、`venv\Scripts\activate`、`pip install -r requirements.txt` 和 `C:/Python313/python.exe __main__.py` 可以 100% 繞過這個批次檔解析錯誤。
 
 ---
 

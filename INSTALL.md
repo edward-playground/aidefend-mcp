@@ -425,7 +425,7 @@ cp .env.example .env
 ### Step 5: Start the Service
 
 ```bash
-python __main__.py
+C:/Python313/python.exe __main__.py
 ```
 
 **What this command means:**
@@ -622,7 +622,7 @@ Add this configuration to the file. If the file is empty, copy everything below.
 {
   "mcpServers": {
     "aidefend": {
-      "command": "python",
+      "command": "C:/Python313/python.exe",
       "args": [
         "/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp/__main__.py",
         "--mcp"
@@ -633,11 +633,22 @@ Add this configuration to the file. If the file is empty, copy everything below.
 }
 ```
 
-**⚠️ IMPORTANT:**
-- Replace `/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp/__main__.py` with the **complete absolute path** to the `__main__.py` file in the `args` field
-- Replace `/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp` with the **complete absolute path** to the project root directory in the `cwd` field
+**⚠️ IMPORTANT:** Replace ALL paths with your actual absolute paths!
 
-**Note:** You must use **full paths** in both `args` and `cwd` fields. The `cwd` field is necessary for Python to resolve relative imports within the project.
+1. **Python executable path** in the `command` field:
+   - Replace `C:/Python313/python.exe` with your actual Python installation path
+   - To find your Python path:
+     - **Windows:** Run `where python` in Command Prompt
+     - **macOS/Linux:** Run `which python` or `which python3` in Terminal
+   - Common locations:
+     - Windows: `C:/Python313/python.exe`, `C:/Python312/python.exe`, `C:/Users/YourName/AppData/Local/Programs/Python/Python313/python.exe`
+     - macOS: `/usr/local/bin/python3`, `/opt/homebrew/bin/python3`
+     - Linux: `/usr/bin/python3`, `/usr/local/bin/python3`
+
+2. **Project paths** in the `args` and `cwd` fields:
+   - Replace `/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp/__main__.py` with the **complete absolute path** to the `__main__.py` file in the `args` field
+   - Replace `/REPLACE/WITH/ABSOLUTE/PATH/TO/aidefend-mcp` with the **complete absolute path** to the project root directory in the `cwd` field
+   - The `cwd` field is necessary for Python to resolve relative imports within the project
 
 **How to find your path:**
 
@@ -674,7 +685,7 @@ This outputs both the `args` and `cwd` values with forward slashes (e.g., `C:/Us
 {
   "mcpServers": {
     "aidefend": {
-      "command": "python",
+      "command": "C:/Python313/python.exe",
       "args": ["/Users/alice/projects/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "/Users/alice/projects/aidefend-mcp"
     }
@@ -687,7 +698,7 @@ This outputs both the `args` and `cwd` values with forward slashes (e.g., `C:/Us
 {
   "mcpServers": {
     "aidefend": {
-      "command": "python",
+      "command": "C:/Python313/python.exe",
       "args": ["C:/Users/Bob/Documents/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "C:/Users/Bob/Documents/aidefend-mcp"
     }
@@ -707,7 +718,7 @@ If you already have other MCP servers (like filesystem or git), add AIDEFEND alo
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/alice/Documents"]
     },
     "aidefend": {
-      "command": "python",
+      "command": "C:/Python313/python.exe",
       "args": ["/Users/alice/projects/aidefend-mcp/__main__.py", "--mcp"],
       "cwd": "/Users/alice/projects/aidefend-mcp"
     }
@@ -797,7 +808,7 @@ Claude will automatically choose which tool to use based on your question.
 1. **Test the service manually:**
    ```bash
    cd /path/to/aidefend-mcp
-   python __main__.py --mcp
+   C:/Python313/python.exe __main__.py --mcp
    ```
 
    You should see: `Starting AIDEFEND MCP Server (stdio mode)...`
@@ -823,7 +834,7 @@ Claude will automatically choose which tool to use based on your question.
 
 **Tip:** Run a manual sync before using Claude:
 ```bash
-python __main__.py  # Start in API mode
+C:/Python313/python.exe __main__.py  # Start in API mode
 # Visit http://localhost:8000/api/v1/status to check sync status
 ```
 
@@ -848,7 +859,7 @@ python __main__.py  # Start in API mode
 
 Terminal 1:
 ```bash
-python __main__.py          # REST API on http://localhost:8000
+C:/Python313/python.exe __main__.py          # REST API on http://localhost:8000
 ```
 
 Terminal 2:
@@ -910,7 +921,7 @@ python -m pip install -r requirements.txt
 **Solutions:**
 
 1. **Preferred solution:** Ensure you downloaded via **git clone** directly from GitHub, rather than copying/pasting the start.bat file content from a web page.
-2. **Alternative solution (most reliable):** **Abandon using start.bat** and **use "Method 3: Manual Installation"** steps instead. Manually run `python -m venv venv`, `venv\Scripts\activate`, `pip install -r requirements.txt`, and `python __main__.py` to 100% bypass this batch file parsing error.
+2. **Alternative solution (most reliable):** **Abandon using start.bat** and **use "Method 3: Manual Installation"** steps instead. Manually run `python -m venv venv`, `venv\Scripts\activate`, `pip install -r requirements.txt`, and `C:/Python313/python.exe __main__.py` to 100% bypass this batch file parsing error.
 
 ---
 
@@ -939,7 +950,7 @@ Edit `.env`:
 API_PORT=8001
 ```
 
-Then restart the service normally with `python __main__.py` (it will read the new port from `.env`)
+Then restart the service normally with `C:/Python313/python.exe __main__.py` (it will read the new port from `.env`)
 
 ---
 

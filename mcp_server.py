@@ -25,6 +25,7 @@ from app.sync import run_sync, get_last_sync_error
 from app.logger import get_logger
 from app.security import InputValidationError, SecurityError
 from app.audit import audit_tool_call, audit_tool_completion
+from app.utils import load_version_info
 from datetime import datetime
 
 # Import all P0 tools
