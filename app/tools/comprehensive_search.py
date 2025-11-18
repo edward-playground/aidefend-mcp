@@ -248,19 +248,33 @@ async def comprehensive_search(
     try:
         # Step 1: Generate related queries
         related_queries = generate_related_queries(topic, max_queries=5)
-        logger.info(f"Generated {len(related_queries)} related queries: {related_queries}")
+        logger.info(
+            f"Generated {len(related_queries)} related queries: {related_queries}",
+            extra={"topic": topic, "queries": related_queries}
+        )
 
         # Step 2: Perform parallel semantic searches
         search_tasks = []
         for query_text in related_queries:
+            logger.debug(
+                f"Creating search task for query: '{query_text}'",
+                extra={"query": query_text, "top_k": per_query_limit}
+            )
             query_request = QueryRequest(
                 query_text=query_text,
                 top_k=per_query_limit
             )
             search_tasks.append(query_engine.search(query_request))
 
+        logger.info(f"Executing {len(search_tasks)} parallel searches...")
+
         # Execute all searches in parallel
         search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+        logger.info(
+            f"Search execution completed: {len(search_results)} results received",
+            extra={"total_searches": len(search_results)}
+        )
 
         # Step 3: Aggregate results (handling partial failures)
         all_results = []
@@ -268,15 +282,24 @@ async def comprehensive_search(
 
         for i, result in enumerate(search_results):
             if isinstance(result, Exception):
-                logger.warning(
-                    f"Search failed for query '{related_queries[i]}': {result}",
-                    extra={"query": related_queries[i], "error": str(result)}
+                logger.error(
+                    f"Search FAILED for query '{related_queries[i]}': {type(result).__name__}: {result}",
+                    exc_info=True,
+                    extra={"query": related_queries[i], "error": str(result), "error_type": type(result).__name__}
                 )
                 continue
 
-            # Extract results from QueryResponse
-            if hasattr(result, 'context_chunks'):
-                for chunk in result.context_chunks:
+            # query_engine.search() returns List[ContextChunk] directly
+            # (NOT a QueryResponse object with context_chunks attribute)
+            if isinstance(result, list):
+                chunks_count = len(result)
+                logger.debug(
+                    f"Search succeeded for query '{related_queries[i]}': {chunks_count} chunks",
+                    extra={"query": related_queries[i], "chunks": chunks_count}
+                )
+
+                # Process each ContextChunk in the list
+                for chunk in result:
                     # Convert ContextChunk to dict
                     result_dict = {
                         "source_id": chunk.source_id,
@@ -292,6 +315,11 @@ async def comprehensive_search(
                     all_results.append(result_dict)
 
                 successful_queries.append(related_queries[i])
+            else:
+                logger.warning(
+                    f"Search result has unexpected type for query '{related_queries[i]}'",
+                    extra={"query": related_queries[i], "result_type": type(result).__name__}
+                )
 
         total_before_dedup = len(all_results)
         logger.info(f"Collected {total_before_dedup} results from {len(successful_queries)} queries")
