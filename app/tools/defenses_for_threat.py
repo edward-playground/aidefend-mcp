@@ -201,8 +201,9 @@ async def get_defenses_for_threat(
 
             logger.info(f"Performing semantic search for: {keyword}")
 
-            # Load embedding model
-            model = await asyncio.to_thread(TextEmbedding, model_name=settings.EMBEDDING_MODEL)
+            # Load embedding model that matches the active LanceDB vectors
+            model_name = query_engine.active_embedding_model
+            model = await asyncio.to_thread(TextEmbedding, model_name=model_name)
 
             # Embed query
             query_embedding = list(await asyncio.to_thread(model.embed, [keyword]))[0]

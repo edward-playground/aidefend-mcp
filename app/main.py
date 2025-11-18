@@ -77,6 +77,22 @@ async def lifespan(app: FastAPI):
     logger.info(f"Version: {__version__}")
     logger.info("=" * 60)
 
+    # Check for embedding model changes
+    version_info = load_version_info()
+    if version_info:
+        stored_model = version_info.get("embedding_model")
+        current_model = settings.EMBEDDING_MODEL
+
+        if stored_model and stored_model != current_model:
+            logger.warning("=" * 60)
+            logger.warning("⚠️  EMBEDDING MODEL CHANGE DETECTED")
+            logger.warning(f"⚠️  Database model: {stored_model}")
+            logger.warning(f"⚠️  Configured model: {current_model}")
+            logger.warning("⚠️")
+            logger.warning("⚠️  Database rebuild recommended for optimal performance.")
+            logger.warning("⚠️  Run: python __main__.py --force-resync")
+            logger.warning("=" * 60)
+
     # Check for multi-worker configuration issue
     if settings.API_WORKERS > 1:
         logger.warning("=" * 60)

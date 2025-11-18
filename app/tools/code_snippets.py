@@ -102,7 +102,8 @@ async def get_secure_code_snippet(
 
             # Then, supplement with topic-based semantic search
             from fastembed import TextEmbedding
-            model = await asyncio.to_thread(TextEmbedding, model_name=settings.EMBEDDING_MODEL)
+            model_name = query_engine.active_embedding_model
+            model = await asyncio.to_thread(TextEmbedding, model_name=model_name)
             query_embedding = list(await asyncio.to_thread(model.embed, [topic]))[0]
 
             search_results = await asyncio.to_thread(
@@ -146,7 +147,8 @@ async def get_secure_code_snippet(
 
             # Search for strategies with code
             from fastembed import TextEmbedding
-            model = await asyncio.to_thread(TextEmbedding, model_name=settings.EMBEDDING_MODEL)
+            model_name = query_engine.active_embedding_model
+            model = await asyncio.to_thread(TextEmbedding, model_name=model_name)
             query_embedding = list(await asyncio.to_thread(model.embed, [topic]))[0]
 
             # Search strategies with code
