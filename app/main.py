@@ -48,7 +48,8 @@ from app.tools import (
     get_secure_code_snippet,
     analyze_coverage,
     map_to_compliance_framework,
-    get_quick_reference
+    get_quick_reference,
+    comprehensive_search
 )
 
 # Import new tools
@@ -1008,6 +1009,81 @@ async def api_classify_threat(request: Request, classify_request: ClassifyThreat
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to classify threat: {str(e)}"
+        )
+
+
+@app.post("/api/v1/comprehensive-search", tags=["Tools"])
+@limiter.limit("30/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_comprehensive_search(
+    request: Request,
+    topic: str,
+    max_results: int = 20,
+    include_subtechniques: bool = True
+):
+    """
+    Perform comprehensive multi-query semantic search for broad topics.
+
+    Automatically generates related queries, executes parallel searches,
+    deduplicates results, and returns aggregated coverage.
+
+    **Use Case**: Handle broad questions like "deepfakes defenses",
+    "prompt injection overview", "RAG security" in a single call to avoid
+    timeout from sequential tool calls.
+
+    **Features**:
+    - Multi-query generation (4-5 related queries)
+    - Parallel execution for speed
+    - Automatic deduplication by source_id
+    - Coverage summary (tactics, pillars, phases)
+    - Related search suggestions
+
+    **Parameters**:
+    - `topic`: Broad topic to search (e.g., "deepfakes", "prompt injection")
+    - `max_results`: Maximum total results (5-50, default: 20)
+    - `include_subtechniques`: Include sub-techniques (default: true)
+
+    **Returns**: Dict with queries executed, results, and coverage summary
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "comprehensive_search",
+        {"topic": topic, "max_results": max_results},
+        start_time
+    )
+
+    try:
+        result = await comprehensive_search(
+            topic=topic,
+            max_results=max_results,
+            include_subtechniques=include_subtechniques
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"Found {len(result['results'])} results across {len(result['queries_executed'])} queries"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except QueryEngineNotInitializedError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Not initialized", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
+        )
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Comprehensive search failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to perform comprehensive search: {str(e)}"
         )
 
 
