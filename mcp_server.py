@@ -37,7 +37,8 @@ from app.tools import (
     get_secure_code_snippet,
     analyze_coverage,
     map_to_compliance_framework,
-    get_quick_reference
+    get_quick_reference,
+    comprehensive_search
 )
 
 # Import new tools
@@ -442,6 +443,46 @@ async def serve():
                     },
                     "required": ["text"]
                 }
+            ),
+            # New Tool 4: Comprehensive Search (Multi-Query Aggregation)
+            Tool(
+                name="comprehensive_search",
+                description=(
+                    "Perform comprehensive multi-query semantic search for broad topics. "
+                    "Automatically generates related queries, executes parallel searches, "
+                    "deduplicates results, and returns aggregated coverage. "
+                    "USE THIS for broad questions like 'deepfakes defenses', 'prompt injection overview', "
+                    "'RAG security', etc. to avoid timeout from sequential tool calls. "
+                    "Returns comprehensive results with coverage summary in a single call."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "topic": {
+                            "type": "string",
+                            "description": (
+                                "Broad topic to search comprehensively. "
+                                "Examples: 'deepfakes', 'prompt injection', 'model poisoning', "
+                                "'RAG vulnerabilities', 'supply chain security', 'adversarial attacks'"
+                            ),
+                            "minLength": 3,
+                            "maxLength": 200
+                        },
+                        "max_results": {
+                            "type": "number",
+                            "description": "Maximum total results to return (5-50, default: 20)",
+                            "default": 20,
+                            "minimum": 5,
+                            "maximum": 50
+                        },
+                        "include_subtechniques": {
+                            "type": "boolean",
+                            "description": "Include sub-techniques in results (default: true)",
+                            "default": True
+                        }
+                    },
+                    "required": ["topic"]
+                }
             )
         ]
 
@@ -508,6 +549,9 @@ async def serve():
 
             elif name == "classify_threat":
                 return await handle_classify_threat(arguments)
+
+            elif name == "comprehensive_search":
+                return await handle_comprehensive_search(arguments)
 
             else:
                 raise ValueError(f"Unknown tool: {name}")
@@ -1388,6 +1432,107 @@ async def handle_classify_threat(arguments: Dict[str, Any]) -> List[TextContent]
             output += "*Note: LLM semantic inference used. Result based on AI understanding of context.*\n"
         else:
             output += "*Note: No threats matched. Consider rephrasing or check if threat is in keyword dictionary.*\n"
+
+        return [TextContent(type="text", text=output)]
+
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        raise
+
+
+async def handle_comprehensive_search(arguments: Dict[str, Any]) -> List[TextContent]:
+    """
+    Handler for comprehensive_search tool.
+
+    Performs multi-query aggregated search for broad topics, preventing timeout
+    from sequential tool calls.
+
+    Args:
+        arguments: Tool arguments (topic, max_results, include_subtechniques)
+
+    Returns:
+        List containing formatted TextContent response
+    """
+    audit_ctx = audit_tool_call("comprehensive_search", arguments)
+
+    try:
+        # Extract arguments with defaults
+        topic = arguments.get("topic", "").strip()
+        max_results = arguments.get("max_results", 20)
+        include_subtechniques = arguments.get("include_subtechniques", True)
+
+        # Call tool function
+        result = await comprehensive_search(
+            topic=topic,
+            max_results=max_results,
+            include_subtechniques=include_subtechniques
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"Found {len(result['results'])} results across {len(result['queries_executed'])} queries"
+        )
+
+        # Format output for Claude Desktop
+        output = "# Comprehensive Search Results\n\n"
+        output += f"**Topic:** {result['input_topic']}\n"
+        output += f"**Search Strategy:** Multi-query ({len(result['queries_executed'])} queries executed)\n"
+        output += f"**Total Results:** {result['total_results_after_dedup']} (deduplicated from {result['total_results_before_dedup']})\n\n"
+
+        output += "## Queries Executed\n\n"
+        for i, query in enumerate(result['queries_executed'], 1):
+            output += f"{i}. {query}\n"
+        output += "\n"
+
+        # Coverage summary
+        coverage = result['coverage_summary']
+        output += "## Coverage Summary\n\n"
+        output += f"**Total Techniques:** {coverage['techniques']}\n"
+        output += f"**Total Sub-techniques:** {coverage['subtechniques']}\n"
+        output += f"**Tactics Covered:** {', '.join(coverage['tactics_covered'])}\n\n"
+
+        if coverage.get('by_tactic'):
+            output += "**By Tactic:**\n"
+            for tactic, count in sorted(coverage['by_tactic'].items(), key=lambda x: -x[1]):
+                output += f"  - {tactic}: {count}\n"
+            output += "\n"
+
+        if coverage.get('by_pillar'):
+            output += "**By Pillar:**\n"
+            for pillar, count in sorted(coverage['by_pillar'].items(), key=lambda x: -x[1]):
+                output += f"  - {pillar}: {count}\n"
+            output += "\n"
+
+        # Results
+        output += "## Results\n\n"
+        if result['results']:
+            for i, item in enumerate(result['results'], 1):
+                output += f"### {i}. {item['name']} ({item['source_id']})\n\n"
+                output += f"**Tactic:** {item['tactic']}\n"
+                output += f"**Type:** {item['type']}\n"
+                output += f"**Relevance Score:** {item['_distance']:.3f}\n"
+                output += f"**Matched Query:** {item['matched_query']}\n"
+
+                if item.get('pillar'):
+                    output += f"**Pillar:** {item['pillar']}\n"
+                if item.get('phase'):
+                    output += f"**Phase:** {item['phase']}\n"
+
+                output += f"\n**Description:**\n{item['description'][:300]}...\n\n"
+                output += "---\n\n"
+        else:
+            output += "*No results found for this topic.*\n\n"
+
+        # Related searches
+        if result.get('related_searches'):
+            output += "## Related Searches\n\n"
+            for suggestion in result['related_searches']:
+                output += f"- {suggestion}\n"
+            output += "\n"
+
+        output += "---\n\n"
+        output += "*Tip: Use `get_technique_detail` with a specific source_id for more information.*\n"
 
         return [TextContent(type="text", text=output)]
 
