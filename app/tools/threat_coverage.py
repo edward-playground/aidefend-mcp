@@ -56,13 +56,7 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
-    # Pre-flight check: ensure query engine is ready
-    if not query_engine.is_ready:
-        raise QueryEngineNotInitializedError(
-            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
-        )
-
-    # Input validation
+    # Input validation (check parameters BEFORE database check)
     if not implemented_techniques:
         raise InputValidationError("implemented_techniques cannot be empty")
 
@@ -71,6 +65,12 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
 
     if len(implemented_techniques) > 100:
         raise InputValidationError("Too many techniques (max 100)")
+
+    # Pre-flight check: ensure query engine is ready (AFTER parameter validation)
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
 
     # Normalize technique IDs (uppercase, strip)
     normalized_techniques = [tid.strip().upper() for tid in implemented_techniques]

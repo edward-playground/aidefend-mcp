@@ -483,7 +483,7 @@ Claude: [以你的確切查詢呼叫 query_aidefend]
 
 ## P0 工具 - 實用範例
 
-AIDEFEND MCP Service 包含 **8 個專門的 P0 工具**，專為 AI 安全從業人員、資安工程師和開發人員設計。這些工具提供比基本知識庫搜尋更強大的目標化功能。
+AIDEFEND MCP Service 包含 **12 個專門的 P0 工具**，專為 AI 安全從業人員、資安工程師和開發人員設計。這些工具提供比基本知識庫搜尋更強大的目標化功能。
 
 ### 工具 1: 取得統計資訊
 
@@ -1441,6 +1441,576 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
     }
   ],
   "timestamp": "2025-11-12T10:30:00Z"
+}
+```
+
+---
+
+### 工具 12: 綜合搜尋（多查詢聚合）
+
+**用途**: 使用**多個查詢變化**自動執行並聚合結果，提升召回率和涵蓋範圍。將單一問題重新表述為 3-5 個語義變化，對每個變化執行向量搜尋，然後合併和去重結果。
+
+**何時使用**: 對於廣泛、模糊或跨領域的問題（例如「如何保護 LLM 應用程式」），單次查詢可能遺漏相關內容。綜合搜尋可確保涵蓋範圍，即使問題表述不完美也能找到答案。
+
+**工作原理**:
+- 將您的問題自動重新表述為 3-5 個語義變化（本地端）
+- 對每個變化平行執行向量搜尋
+- 合併所有結果，去除重複項目
+- 按相關性分數排序（最相關的優先）
+
+**主要功能**:
+- **100% 本地與隱私保護**: 查詢重新表述使用本地文字變化（無外部 API）
+- **更好的召回率**: 多查詢策略捕捉更多相關文件
+- **容錯**: 即使原始問題表述不佳也能運作
+
+#### MCP 模式範例 (Claude Desktop):
+
+```
+你: "我需要全面了解如何保護提示注入攻擊"
+
+Claude: [使用 comprehensive_search 工具]
+        綜合搜尋結果
+
+        查詢變化 (3):
+        1. "保護提示注入攻擊"
+        2. "防禦 LLM 提示操縱漏洞"
+        3. "提示注入緩解技術和最佳實踐"
+
+        找到的結果:
+        - 總共找到 15 份文件
+        - 來自 3 次搜尋的聚合結果
+        - 已去除 7 個重複項目
+
+        ## 前 5 項結果
+
+        1. AID-H-001: 輸入驗證與清理（分數: 0.234）
+           Pillar: Application Security | Tactic: Harden
+           描述: 對所有使用者輸入實施強大的驗證和清理...
+
+        2. AID-D-002: 提示注入偵測（分數: 0.229）
+           Pillar: Model Security | Tactic: Detect
+           描述: 使用模式匹配和異常偵測來識別惡意提示...
+
+        3. AID-H-003: 輸出過濾與編碼（分數: 0.221）
+           Pillar: Application Security | Tactic: Harden
+           描述: 過濾和編碼 LLM 輸出以防止注入攻擊...
+
+        [顯示更多結果...]
+```
+
+#### REST API 範例:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/comprehensive-search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "如何保護我的 AI 系統免受資料投毒攻擊？",
+    "num_variations": 4,
+    "top_k_per_query": 5
+  }'
+```
+
+**回應:**
+```json
+{
+  "original_query": "如何保護我的 AI 系統免受資料投毒攻擊？",
+  "query_variations": [
+    "如何保護我的 AI 系統免受資料投毒攻擊？",
+    "防禦機器學習訓練資料操縱",
+    "資料投毒緩解技術",
+    "保護 AI 模型訓練管道"
+  ],
+  "aggregated_results": [
+    {
+      "source_id": "AID-H-005",
+      "name": "訓練資料驗證",
+      "text": "對訓練資料實施強大的驗證管道...",
+      "score": 0.245,
+      "tactic": "Harden",
+      "pillar": "Model Security",
+      "matched_in_queries": [0, 1, 2]
+    },
+    {
+      "source_id": "AID-D-006",
+      "name": "異常資料偵測",
+      "text": "監控訓練資料集中的異常模式...",
+      "score": 0.238,
+      "tactic": "Detect",
+      "pillar": "Model Security",
+      "matched_in_queries": [1, 3]
+    }
+  ],
+  "total_results": 12,
+  "unique_results": 12,
+  "duplicates_removed": 8,
+  "search_metadata": {
+    "num_variations": 4,
+    "top_k_per_query": 5,
+    "total_searches": 4
+  }
+}
+```
+
+---
+
+### 工具 13: 分析安全態勢
+
+**用途**: 根據已實施的防禦技術，分析 AI 系統的安全態勢。識別涵蓋的威脅、缺口，並提供涵蓋率統計。將已實施的技術對應到 OWASP LLM、MITRE ATLAS 和 MAESTRO 框架。
+
+**何時使用**: 您已部署某些 AIDEFEND 技術，並想了解：
+- 我涵蓋了哪些威脅？
+- 我遺漏了哪些威脅（缺口）？
+- 我的涵蓋率百分比是多少？
+- 我應該優先處理什麼？
+
+**工作原理**:
+- 輸入已實施技術的 ID 清單（例如 ["AID-H-001", "AID-D-002"]）
+- 系統查詢每個技術的 `defends_against` 元數據
+- 將涵蓋的威脅對應到框架（OWASP/ATLAS/MAESTRO）
+- 計算涵蓋率百分比並識別缺口
+- 提供可執行的建議以填補缺口
+
+**主要功能**:
+- **100% 本地與隱私保護**: 所有分析都使用本地元數據
+- **快速涵蓋率分析**: 數秒內了解您的態勢
+- **可執行的缺口識別**: 準確知道遺漏的內容
+
+#### MCP 模式範例 (Claude Desktop):
+
+```
+你: "分析我的安全態勢。我已實施 AID-H-001、AID-H-002 和 AID-D-001"
+
+Claude: [使用 analyze_security_posture 工具]
+        安全態勢分析
+
+        已實施技術: 3
+        - AID-H-001: 輸入驗證與清理
+        - AID-H-002: 輸出過濾
+        - AID-D-001: 異常偵測
+
+        ## 威脅涵蓋率
+
+        OWASP LLM Top 10: 4/10 涵蓋 (40%)
+        涵蓋: LLM01, LLM02, LLM06, LLM08
+        缺口: LLM03, LLM04, LLM05, LLM07, LLM09, LLM10
+
+        MITRE ATLAS: 6/28 涵蓋 (21%)
+        涵蓋: AML.T0015, AML.T0043, AML.T0051...
+        缺口: AML.T0020, AML.T0025, AML.T0034...
+
+        MAESTRO: 2/15 涵蓋 (13%)
+        涵蓋: MAE-001, MAE-003
+        缺口: MAE-002, MAE-004, MAE-005...
+
+        ## 建議
+
+        優先處理這些缺口:
+        1. LLM03: 訓練資料投毒 (高風險)
+           建議: 實施 AID-H-005 (訓練資料驗證)
+
+        2. LLM05: 供應鏈漏洞 (高風險)
+           建議: 實施 AID-H-010 (依賴掃描)
+
+        3. AML.T0020: 後門攻擊
+           建議: 實施 AID-D-008 (模型行為監控)
+```
+
+#### REST API 範例:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/security-posture" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "implemented_techniques": ["AID-H-001", "AID-H-002", "AID-D-001"],
+    "include_recommendations": true
+  }'
+```
+
+**回應:**
+```json
+{
+  "implemented_techniques": ["AID-H-001", "AID-H-002", "AID-D-001"],
+  "coverage_summary": {
+    "owasp": {
+      "covered": ["LLM01", "LLM02", "LLM06", "LLM08"],
+      "gaps": ["LLM03", "LLM04", "LLM05", "LLM07", "LLM09", "LLM10"],
+      "coverage_percentage": 40.0,
+      "total_threats": 10
+    },
+    "atlas": {
+      "covered": ["AML.T0015", "AML.T0043", "AML.T0051"],
+      "gaps": ["AML.T0020", "AML.T0025"],
+      "coverage_percentage": 21.4,
+      "total_threats": 28
+    },
+    "maestro": {
+      "covered": ["MAE-001", "MAE-003"],
+      "gaps": ["MAE-002", "MAE-004"],
+      "coverage_percentage": 13.3,
+      "total_threats": 15
+    }
+  },
+  "recommendations": [
+    {
+      "threat_id": "LLM03",
+      "threat_name": "Training Data Poisoning",
+      "severity": "HIGH",
+      "recommended_techniques": [
+        {
+          "id": "AID-H-005",
+          "name": "訓練資料驗證",
+          "rationale": "直接防禦訓練資料投毒攻擊"
+        }
+      ]
+    }
+  ],
+  "overall_score": 24.9
+}
+```
+
+---
+
+### 工具 14: 比較技術
+
+**用途**: 使用**啟發式評分**並排比較多個 AIDEFEND 技術的有效性、複雜度和成本。幫助您在競爭防禦選項之間做出明智的決策。
+
+**何時使用**: 您有多個技術選項來解決威脅，需要了解：
+- 哪個最有效？
+- 哪個最容易實施？
+- 哪個成本最低？
+- 最佳效益/複雜度比率是什麼？
+
+**工作原理**:
+- 輸入 2-10 個技術 ID 進行比較（例如 ["AID-H-001", "AID-D-002"]）
+- 系統使用啟發式演算法計算每個技術的分數：
+  - **有效性分數 (0-100)**: 基於威脅涵蓋範圍、實施支援、程式碼片段
+  - **複雜度分數 (0-100)**: 基於子技術、pillar、phase、策略數量
+  - **成本分數 (0-100)**: 基於商用/開源工具、基礎設施需求
+- 提供優先順序建議（快速獲勝、策略投資）
+
+**主要功能**:
+- **100% 本地與隱私保護**: 所有評分都使用本地元數據分析
+- **無 ML 推論成本**: 啟發式評分（無外部 API）
+- **可執行的建議**: 清晰的優先順序指引
+
+#### MCP 模式範例 (Claude Desktop):
+
+```
+你: "比較 AID-H-001、AID-D-002 和 AID-I-003。哪個應該優先？"
+
+Claude: [使用 compare_techniques 工具]
+        技術比較矩陣
+
+        比較 3 個技術:
+
+        ## 比較結果
+
+        | 技術 | 有效性 | 複雜度 | 成本 | 威脅涵蓋 |
+        |------|--------|--------|------|----------|
+        | AID-H-001 | 85 | 40 | 30 | OWASP: 3, ATLAS: 2 |
+        | AID-D-002 | 78 | 55 | 45 | OWASP: 2, ATLAS: 4 |
+        | AID-I-003 | 72 | 65 | 60 | OWASP: 2, ATLAS: 3 |
+
+        ## 建議
+
+        🎯 快速獲勝（高效益、低複雜度、低成本）:
+        - AID-H-001: 輸入驗證與清理
+          有效性: 85, 複雜度: 40, 成本: 30
+
+        📈 實施優先順序（按效益/複雜度比率）:
+        1. AID-H-001 (比率: 2.13)
+        2. AID-D-002 (比率: 1.42)
+        3. AID-I-003 (比率: 1.11)
+
+        💡 策略投資（高效益，但需要大量資源）:
+        - 無（所有技術的複雜度/成本都可管理）
+```
+
+#### REST API 範例:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "technique_ids": ["AID-H-001", "AID-D-002", "AID-I-003"],
+    "include_recommendations": true
+  }'
+```
+
+**回應:**
+```json
+{
+  "input_techniques": ["AID-H-001", "AID-D-002", "AID-I-003"],
+  "comparison_matrix": [
+    {
+      "source_id": "AID-H-001",
+      "name": "輸入驗證與清理",
+      "tactic": "Harden",
+      "pillar": "Application Security",
+      "effectiveness_score": 85,
+      "complexity_score": 40,
+      "cost_score": 30,
+      "threat_coverage": {
+        "owasp": 3,
+        "atlas": 2,
+        "maestro": 1
+      },
+      "has_implementation_strategies": true,
+      "has_code_snippets": true
+    },
+    {
+      "source_id": "AID-D-002",
+      "name": "異常偵測",
+      "tactic": "Detect",
+      "pillar": "Model Security",
+      "effectiveness_score": 78,
+      "complexity_score": 55,
+      "cost_score": 45,
+      "threat_coverage": {
+        "owasp": 2,
+        "atlas": 4,
+        "maestro": 0
+      },
+      "has_implementation_strategies": true,
+      "has_code_snippets": false
+    }
+  ],
+  "summary": {
+    "techniques_compared": 3,
+    "average_effectiveness": 78.3,
+    "average_complexity": 53.3,
+    "average_cost": 45.0,
+    "tactics_covered": ["Harden", "Detect", "Isolate"],
+    "pillars_covered": ["Application Security", "Model Security", "Infrastructure Security"]
+  },
+  "recommendations": [
+    {
+      "category": "快速獲勝",
+      "description": "高效益、低複雜度、低成本",
+      "techniques": [
+        {"id": "AID-H-001", "name": "輸入驗證與清理"}
+      ]
+    },
+    {
+      "category": "實施優先順序",
+      "description": "按效益/複雜度比率排序",
+      "techniques": [
+        {"id": "AID-H-001", "name": "輸入驗證與清理"},
+        {"id": "AID-D-002", "name": "異常偵測"},
+        {"id": "AID-I-003", "name": "網路隔離"}
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### 工具 15: 生成事件應變劇本
+
+**用途**: 根據威脅分類生成結構化的 AI 安全事件應變劇本。提供基於時間軸的行動計畫，遵循 NIST 事件應變階段，包含可執行的步驟和預估時間。
+
+**何時使用**: 發生安全事件時（例如提示注入偵測、資料投毒懷疑、模型萃取嘗試），您需要：
+- 結構化的應變計畫
+- 基於時間軸的行動項目
+- 威脅特定的緩解步驟
+- 復原和修復指引
+
+**工作原理**:
+- 輸入事件描述（例如「在生產環境 LLM 中偵測到可疑的提示注入嘗試」）
+- 系統使用 `classify_threat` 工具識別威脅
+- 使用 `get_defenses_for_threat` 工具取得防禦技術
+- 生成 4 階段時間軸（NIST 事件應變週期）：
+  1. **立即行動** (0-15 分鐘)
+  2. **調查** (15 分鐘 - 2 小時)
+  3. **遏制** (2-8 小時)
+  4. **復原與修復** (8+ 小時)
+- 每個行動項目包含優先級、描述、預估時間
+
+**主要功能**:
+- **100% 本地與隱私保護**: 所有劇本生成都使用本地邏輯
+- **威脅感知**: 根據威脅類型自訂行動項目
+- **可執行的時間軸**: 清晰的階段和時間預估
+
+#### MCP 模式範例 (Claude Desktop):
+
+```
+你: "生成事件應變劇本：在生產環境 LLM API 中偵測到提示注入攻擊"
+
+Claude: [使用 generate_incident_playbook 工具]
+        事件應變劇本
+
+        ## 事件摘要
+
+        描述: 在生產環境 LLM API 中偵測到提示注入攻擊
+        總行動項目: 18
+        預估總時間: 1-3 天（視嚴重程度和複雜度而定）
+
+        主要威脅: OWASP-LLM01: Prompt Injection (信心度: 90%)
+
+        ## 時間軸
+
+        ### 階段 1: 立即行動 (0-15 分鐘)
+        目標: 初步回應、證據保存和遏制
+
+        ✅ 1. 啟動事件應變團隊（優先級: CRITICAL）
+           - 通知指定的 IR 團隊成員並建立溝通管道
+           - 預估時間: 2-5 分鐘
+
+        ✅ 2. 評估初始嚴重程度（優先級: CRITICAL）
+           - 根據初步觀察判定嚴重程度等級（低/中/高/嚴重）
+           - 預估時間: 5-10 分鐘
+
+        ✅ 3. 保存證據（優先級: HIGH）
+           - 在任何修改之前擷取日誌、截圖、系統狀態。記錄時間軸。
+           - 預估時間: 5-10 分鐘
+
+        ✅ 4. 隔離受影響的 LLM 端點（優先級: CRITICAL）
+           - 暫時停用或限速受影響的 LLM API 端點以防止利用
+           - 預估時間: 5 分鐘
+
+        ### 階段 2: 調查 (15 分鐘 - 2 小時)
+        目標: 威脅分析、範圍確定和根本原因識別
+
+        🔍 5. 執行威脅分類（優先級: HIGH）
+           - 將事件對應到 OWASP LLM Top 10、MITRE ATLAS 或 MAESTRO 框架
+           - 預估時間: 10-15 分鐘
+           - 工具: classify_threat 工具
+
+        🔍 6. 收集入侵指標 (IOCs)（優先級: HIGH）
+           - 收集 IP 位址、使用者 ID、時間戳記、請求模式、模型輸出
+           - 預估時間: 20-30 分鐘
+
+        🔍 7. 範圍分析（優先級: HIGH）
+           - 確定哪些系統、模型和使用者受到影響。評估資料曝光。
+           - 預估時間: 30-45 分鐘
+
+        ### 階段 3: 遏制 (2-8 小時)
+        目標: 隔離威脅、部署防禦並防止進一步損害
+
+        🛡️ 8. 隔離受影響系統（優先級: CRITICAL）
+           - 視需要進行網路分段、API 端點停用、使用者帳戶暫停
+           - 預估時間: 30-60 分鐘
+
+        🛡️ 9. 阻止攻擊向量（優先級: HIGH）
+           - 實施輸入驗證、輸出過濾或存取控制以防止持續利用
+           - 預估時間: 1-2 小時
+
+        🛡️ 10. 實施提示驗證（優先級: HIGH）
+           - 部署輸入清理和提示注入偵測機制
+           - 預估時間: 2-4 小時
+
+        ### 階段 4: 復原與修復 (8+ 小時)
+        目標: 恢復作業、實施長期修復並記錄經驗教訓
+
+        🔧 11. 實施安全控制（優先級: HIGH）
+           - 部署調查期間識別的建議 AIDEFEND 防禦技術
+           - 預估時間: 4-8 小時
+
+        🔧 12. 安全恢復服務（優先級: MEDIUM）
+           - 在增強監控和控制下逐步恢復受影響的服務
+           - 預估時間: 2-4 小時
+
+        🔧 13. 進行事後檢討（優先級: MEDIUM）
+           - 記錄經驗教訓、更新手冊、識別流程改進
+           - 預估時間: 2-3 小時
+
+        ## 防禦技術
+
+        建議部署 5 個 AIDEFEND 技術:
+        - AID-H-001: 輸入驗證與清理
+        - AID-D-002: 提示注入偵測
+        - AID-H-003: 輸出過濾與編碼
+        [...]
+```
+
+#### REST API 範例:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/incident-playbook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "incident_description": "模型輸出在生產環境中洩露訓練資料",
+    "include_defense_techniques": true
+  }'
+```
+
+**回應:**
+```json
+{
+  "incident_summary": {
+    "description": "模型輸出在生產環境中洩露訓練資料",
+    "total_action_items": 16,
+    "phases": 4,
+    "estimated_total_time": "1-3 天（視嚴重程度和複雜度而定）",
+    "primary_threat": {
+      "threat_id": "LLM06",
+      "framework": "OWASP LLM Top 10",
+      "description": "Sensitive Information Disclosure",
+      "confidence": 85
+    }
+  },
+  "threat_classification": {
+    "source": "static_keyword",
+    "matched_threats": [
+      {
+        "threat_id": "OWASP-LLM06",
+        "keyword": "training data disclosure",
+        "confidence": 85
+      }
+    ]
+  },
+  "timeline": {
+    "immediate": {
+      "phase": "立即行動",
+      "timeframe": "0-15 分鐘",
+      "objective": "初步回應、證據保存和遏制",
+      "actions": [
+        {
+          "action": "啟動事件應變團隊",
+          "priority": "CRITICAL",
+          "description": "通知指定的 IR 團隊成員並建立溝通管道",
+          "estimated_time": "2-5 分鐘"
+        },
+        {
+          "action": "評估初始嚴重程度",
+          "priority": "CRITICAL",
+          "description": "根據初步觀察判定嚴重程度等級",
+          "estimated_time": "5-10 分鐘"
+        }
+      ]
+    },
+    "investigation": {
+      "phase": "調查",
+      "timeframe": "15 分鐘 - 2 小時",
+      "objective": "威脅分析、範圍確定和根本原因識別",
+      "actions": [...]
+    },
+    "containment": {
+      "phase": "遏制",
+      "timeframe": "2-8 小時",
+      "objective": "隔離威脅、部署防禦並防止進一步損害",
+      "actions": [...]
+    },
+    "recovery": {
+      "phase": "復原與修復",
+      "timeframe": "8+ 小時",
+      "objective": "恢復作業、實施長期修復並記錄經驗教訓",
+      "actions": [...]
+    }
+  },
+  "defense_techniques": {
+    "threat_id": "LLM06",
+    "techniques": [
+      {
+        "source_id": "AID-H-007",
+        "name": "輸出過濾與清理",
+        "score": 0.234,
+        "defends_against": ["LLM06"]
+      }
+    ]
+  },
+  "generated_at": "2025-11-18T10:30:00Z"
 }
 ```
 
