@@ -55,18 +55,24 @@ async def get_defenses_for_threat(
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
-    # Pre-flight check: ensure query engine is ready
+    # Input validation (check parameters BEFORE database check)
+    if not threat_id and not threat_keyword:
+        raise InputValidationError("Either threat_id or threat_keyword must be provided")
+
+    if threat_keyword and len(threat_keyword) < 3:
+        raise InputValidationError("threat_keyword must be at least 3 characters")
+
+    if threat_keyword and len(threat_keyword) > 200:
+        raise InputValidationError("threat_keyword must not exceed 200 characters")
+
+    if top_k < 1 or top_k > 50:
+        raise InputValidationError("top_k must be between 1 and 50")
+
+    # Pre-flight check: ensure query engine is ready (AFTER parameter validation)
     if not query_engine.is_ready:
         raise QueryEngineNotInitializedError(
             "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
         )
-
-    # Input validation
-    if not threat_id and not threat_keyword:
-        raise InputValidationError("Either threat_id or threat_keyword must be provided")
-
-    if top_k < 1 or top_k > 50:
-        raise InputValidationError("top_k must be between 1 and 50")
 
     logger.info(f"Searching defenses for threat_id={threat_id}, threat_keyword={threat_keyword}")
 

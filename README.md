@@ -487,7 +487,7 @@ For developers integrating with other MCP clients, here are the tool schemas:
 
 ## P0 Tools - Practical Examples
 
-The AIDEFEND MCP Service includes **8 specialized P0 tools** designed for AI security practitioners, security engineers, and developers. These tools provide targeted functionality beyond basic knowledge base search.
+The AIDEFEND MCP Service includes **12 specialized P0 tools** designed for AI security practitioners, security engineers, and developers. These tools provide targeted functionality beyond basic knowledge base search.
 
 ### Tool 1: Get Statistics
 
@@ -1445,6 +1445,438 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
     }
   ],
   "timestamp": "2025-11-12T10:30:00Z"
+}
+```
+
+---
+
+### Tool 12: Comprehensive Search (Multi-Query Aggregation)
+
+**Purpose**: Execute multiple search queries in parallel and aggregate results intelligently. Auto-expands broad topics into specific queries for comprehensive coverage.
+
+**When to use**: Broad security topics, research-oriented exploration, getting full picture of a security domain, or when you don't know exact keywords.
+
+#### MCP Mode Example (Claude Desktop):
+
+```
+You: "Tell me everything about deepfake defenses in AIDEFEND"
+
+Claude: [Uses comprehensive_search tool]
+        Comprehensive Search Results for: deepfake defenses
+
+        Queries Executed: 3 parallel searches
+        Total Results: 15 unique techniques
+
+        Query 1: "deepfake detection" (5 results)
+        Query 2: "synthetic media defense" (5 results)
+        Query 3: "media authenticity" (5 results)
+
+        Top Techniques:
+        1. AID-D-008: Deepfake Detection (Score: 0.92)
+        2. AID-H-015: Media Validation (Score: 0.88)
+        3. AID-D-009: Synthetic Content Analysis (Score: 0.85)
+        ...
+```
+
+#### REST API Example:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/comprehensive-search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "RAG security best practices",
+    "max_results": 20
+  }'
+```
+
+**Response:**
+```json
+{
+  "topic": "RAG security best practices",
+  "queries_executed": 4,
+  "total_results": 18,
+  "query_breakdown": [
+    {
+      "query": "retrieval augmented generation security",
+      "results_count": 6
+    },
+    {
+      "query": "vector database security",
+      "results_count": 5
+    },
+    {
+      "query": "document injection prevention",
+      "results_count": 4
+    },
+    {
+      "query": "RAG prompt safety",
+      "results_count": 3
+    }
+  ],
+  "aggregated_results": [
+    {
+      "technique_id": "AID-H-003",
+      "name": "Document Validation",
+      "tactic": "Harden",
+      "relevance_score": 0.91,
+      "matched_queries": ["retrieval augmented generation security", "document injection prevention"]
+    }
+  ]
+}
+```
+
+---
+
+### Tool 13: Analyze Security Posture
+
+**Purpose**: Unified security posture analysis combining technical coverage, threat framework coverage, and actionable recommendations. One-stop shop for comprehensive security assessment.
+
+**When to use**: Executive reporting, security program assessment, quarterly reviews, or establishing security baseline.
+
+#### MCP Mode Example (Claude Desktop):
+
+```
+You: "Analyze my security posture. I've implemented: AID-H-001, AID-H-002, AID-D-001, AID-I-001"
+
+Claude: [Uses analyze_security_posture tool]
+        Security Posture Analysis
+
+        Overall Assessment: DEVELOPING
+        Techniques Implemented: 4
+
+        ## Technical Coverage
+        - Coverage: 25% (4/156 techniques)
+        - By Tactic:
+          • Harden: 11% (2/18) ⚠️
+          • Detect: 8% (1/12) ⚠️
+          • Isolate: 12.5% (1/8) ⚠️
+
+        ## Threat Framework Coverage
+        - OWASP LLM Top 10: 40% (4/10 threats covered)
+        - MITRE ATLAS: 7% (3/43 threats covered)
+        - MAESTRO: 15% (2/13 threats covered)
+
+        ## Key Insights
+        - ✅ Good foundation in Harden tactic
+        - ⚠️ Limited detection capabilities
+        - ❌ No Model hardening techniques
+        - ⚠️ Low ATLAS coverage
+
+        ## Top Priorities
+        1. Implement AID-D-002 (Anomaly Detection) - Fills detection gap
+        2. Implement AID-M-001 (Training Data Validation) - Addresses Model tactic gap
+        3. Cover top ATLAS threats: AML.T0043, AML.T0020
+```
+
+#### REST API Example:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/analyze-security-posture" \
+  -H "Content-Type" application/json" \
+  -d '{
+    "implemented_techniques": ["AID-H-001", "AID-H-002", "AID-D-001", "AID-I-001"],
+    "view": "both",
+    "system_type": "rag"
+  }'
+```
+
+**Response:**
+```json
+{
+  "implemented_count": 4,
+  "summary": {
+    "overall_posture": "developing",
+    "key_insights": [
+      "Good foundation in Harden tactic",
+      "Limited detection capabilities",
+      "No Model hardening techniques"
+    ],
+    "top_priorities": [
+      "Implement AID-D-002 (Anomaly Detection)",
+      "Implement AID-M-001 (Training Data Validation)"
+    ]
+  },
+  "technical_coverage": {
+    "overall_coverage": {
+      "percentage": 25.0,
+      "implemented": 4,
+      "total": 156
+    },
+    "by_tactic": [
+      {"tactic": "Harden", "percentage": 11.1, "implemented": 2, "total": 18}
+    ],
+    "critical_gaps": [
+      {"technique_id": "AID-M-001", "name": "Training Data Validation", "tactic": "Model"}
+    ]
+  },
+  "threat_coverage": {
+    "coverage_rate": {
+      "owasp": 0.4,
+      "atlas": 0.07,
+      "maestro": 0.15
+    },
+    "covered_threats": {
+      "owasp": ["LLM01", "LLM02", "LLM03", "LLM05"],
+      "atlas": ["AML.T0020", "AML.T0043", "AML.T0051"]
+    },
+    "uncovered_threats": {
+      "owasp": ["LLM04", "LLM06", "LLM07", "LLM08", "LLM09", "LLM10"]
+    }
+  }
+}
+```
+
+---
+
+### Tool 14: Compare Techniques
+
+**Purpose**: Side-by-side comparison of multiple AIDEFEND techniques with heuristic scoring (effectiveness, complexity, cost). Helps make informed implementation decisions.
+
+**When to use**: Technology selection, budget prioritization, understanding trade-offs, or educating stakeholders.
+
+**100% LOCAL** - All scoring uses heuristic algorithms based on metadata, no external API calls.
+
+#### MCP Mode Example (Claude Desktop):
+
+```
+You: "Compare AID-H-001, AID-D-001, and AID-I-001. Which should I implement first?"
+
+Claude: [Uses compare_techniques tool]
+        Technique Comparison Matrix
+
+        Techniques Compared: 3
+
+        ## Summary Statistics
+        - Average Effectiveness: 75.0/100
+        - Average Complexity: 45.0/100
+        - Average Cost: 38.0/100
+
+        ## Comparison Matrix
+
+        | Technique | Effectiveness | Complexity | Cost |
+        |-----------|---------------|------------|------|
+        | AID-H-001 | 85/100 | 35/100 | 30/100 |
+        | AID-D-001 | 75/100 | 50/100 | 40/100 |
+        | AID-I-001 | 65/100 | 50/100 | 45/100 |
+
+        ## Implementation Recommendations
+
+        ### Quick Wins
+        - AID-H-001: High effectiveness (85), low complexity (35), low cost (30)
+
+        ### Implementation Priority (by effectiveness/complexity ratio)
+        1. AID-H-001 (ratio: 2.43) ⭐ Highest ROI
+        2. AID-D-001 (ratio: 1.50)
+        3. AID-I-001 (ratio: 1.30)
+
+        Recommendation: Start with AID-H-001 for quick impact!
+```
+
+#### REST API Example:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "technique_ids": ["AID-H-001", "AID-D-001", "AID-I-001"],
+    "include_recommendations": true
+  }'
+```
+
+**Response:**
+```json
+{
+  "input_techniques": ["AID-H-001", "AID-D-001", "AID-I-001"],
+  "comparison_matrix": [
+    {
+      "source_id": "AID-H-001",
+      "name": "Baseline Input Validation",
+      "tactic": "Harden",
+      "effectiveness_score": 85,
+      "complexity_score": 35,
+      "cost_score": 30,
+      "threat_coverage": {
+        "owasp": 3,
+        "atlas": 2,
+        "maestro": 1
+      },
+      "has_implementation_strategies": true,
+      "has_code_snippets": true,
+      "has_opensource_tools": true
+    }
+  ],
+  "summary": {
+    "techniques_compared": 3,
+    "average_effectiveness": 75.0,
+    "average_complexity": 45.0,
+    "average_cost": 38.3
+  },
+  "recommendations": [
+    {
+      "category": "Quick Wins",
+      "description": "High effectiveness, low complexity, low cost",
+      "techniques": [
+        {"id": "AID-H-001", "name": "Baseline Input Validation"}
+      ]
+    },
+    {
+      "category": "Implementation Priority",
+      "description": "Ordered by effectiveness-to-complexity ratio",
+      "techniques": [
+        {"id": "AID-H-001", "name": "Baseline Input Validation"},
+        {"id": "AID-D-001", "name": "Semantic Anomaly Detection"},
+        {"id": "AID-I-001", "name": "Prompt Isolation"}
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### Tool 15: Generate Incident Playbook
+
+**Purpose**: Generate structured incident response playbooks for AI security incidents. Provides timeline-based action plans following NIST incident response phases.
+
+**When to use**: Active incident response, IR planning, training materials, or security operations runbook development.
+
+**100% LOCAL** - Integrates with local classify_threat and get_defenses_for_threat tools, no external API calls.
+
+#### MCP Mode Example (Claude Desktop):
+
+```
+You: "We detected suspicious prompt injection attempts bypassing our validation. Generate an incident playbook."
+
+Claude: [Uses generate_incident_playbook tool]
+        🚨 Incident Response Playbook
+
+        Primary Threat Identified: OWASP-LLM01 (Prompt Injection)
+        Confidence: 90%
+        Total Action Items: 23
+
+        ## Immediate Actions (0-15 min)
+
+        1. 🔴 Activate Incident Response Team
+           Priority: CRITICAL
+           Time: 2-5 minutes
+
+        2. 🔴 Isolate Affected LLM Endpoints
+           Priority: CRITICAL
+           Time: 5 minutes
+           Description: Temporarily disable or rate-limit affected endpoints
+
+        ## Investigation (15 min - 2 hours)
+
+        1. 🟠 Perform Threat Classification
+           Priority: HIGH
+           Time: 10-15 minutes
+           Tools: classify_threat tool
+
+        2. 🟠 Collect IOCs
+           Priority: HIGH
+           Time: 20-30 minutes
+           Description: Gather IP addresses, user IDs, timestamps, request patterns
+
+        ## Containment (2-8 hours)
+
+        1. 🔴 Deploy Defense: AID-H-001 (Baseline Input Validation)
+           Priority: HIGH
+           Time: 1-3 hours
+
+        2. 🔴 Deploy Defense: AID-H-002 (Prompt Guard)
+           Priority: HIGH
+           Time: 1-3 hours
+
+        ## Recovery & Remediation (8+ hours)
+
+        1. 🟠 Implement Security Controls
+           Priority: HIGH
+           Time: 4-8 hours
+           Reference: See defense techniques in containment phase
+
+        2. 🟡 Conduct Post-Incident Review
+           Priority: MEDIUM
+           Time: 2-3 hours
+```
+
+#### REST API Example:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/generate-incident-playbook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "incident_description": "Production LLM API showing unusual outputs. Users report getting responses that reveal internal system prompts and training data. Attack patterns from multiple IPs.",
+    "include_defense_techniques": true
+  }'
+```
+
+**Response:**
+```json
+{
+  "incident_summary": {
+    "description": "Production LLM API showing unusual outputs...",
+    "total_action_items": 23,
+    "estimated_total_time": "1-3 days",
+    "primary_threat": {
+      "threat_id": "OWASP-LLM01",
+      "framework": "OWASP LLM Top 10",
+      "description": "Prompt Injection",
+      "confidence": 0.9
+    }
+  },
+  "timeline": {
+    "immediate": {
+      "phase": "Immediate Actions",
+      "timeframe": "0-15 minutes",
+      "objective": "Initial response, evidence preservation, and containment",
+      "actions": [
+        {
+          "action": "Activate Incident Response Team",
+          "priority": "CRITICAL",
+          "description": "Notify designated IR team members",
+          "estimated_time": "2-5 minutes"
+        },
+        {
+          "action": "Isolate Affected LLM Endpoints",
+          "priority": "CRITICAL",
+          "description": "Temporarily disable or rate-limit affected LLM API endpoints",
+          "estimated_time": "5 minutes"
+        }
+      ]
+    },
+    "investigation": {
+      "phase": "Investigation",
+      "timeframe": "15 minutes - 2 hours",
+      "actions": [...]
+    },
+    "containment": {
+      "phase": "Containment",
+      "timeframe": "2-8 hours",
+      "actions": [...]
+    },
+    "recovery": {
+      "phase": "Recovery & Remediation",
+      "timeframe": "8+ hours",
+      "actions": [...]
+    }
+  },
+  "defense_techniques": {
+    "techniques": [
+      {
+        "source_id": "AID-H-001",
+        "name": "Baseline Input Validation",
+        "tactic": "Harden",
+        "description": "Implement robust input validation..."
+      },
+      {
+        "source_id": "AID-H-002",
+        "name": "Prompt Guard",
+        "tactic": "Harden",
+        "description": "Deploy prompt injection detection..."
+      }
+    ]
+  },
+  "generated_at": "2025-01-18T10:30:00Z"
 }
 ```
 

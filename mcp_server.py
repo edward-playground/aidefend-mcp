@@ -38,7 +38,10 @@ from app.tools import (
     analyze_coverage,
     map_to_compliance_framework,
     get_quick_reference,
-    comprehensive_search
+    comprehensive_search,
+    analyze_security_posture,
+    compare_techniques,
+    generate_incident_playbook
 )
 
 # Import new tools
@@ -448,12 +451,22 @@ async def serve():
             Tool(
                 name="comprehensive_search",
                 description=(
-                    "Perform comprehensive multi-query semantic search for broad topics. "
-                    "Automatically generates related queries, executes parallel searches, "
-                    "deduplicates results, and returns aggregated coverage. "
-                    "USE THIS for broad questions like 'deepfakes defenses', 'prompt injection overview', "
-                    "'RAG security', etc. to avoid timeout from sequential tool calls. "
-                    "Returns comprehensive results with coverage summary in a single call."
+                    "🔍 Auto-expanding semantic search for exploratory questions. "
+                    "Perfect when you don't know the exact keywords to search.\n\n"
+                    "✅ USE THIS when:\n"
+                    "- Broad exploratory questions ('What defenses exist for deepfakes?')\n"
+                    "- User unsure of technical terminology or related concepts\n"
+                    "- Want comprehensive coverage across multiple related topics\n"
+                    "- Exploring a new threat landscape\n\n"
+                    "❌ DON'T USE when:\n"
+                    "- Known specific threat ID (LLM01, T0043) → use get_defenses_for_threat\n"
+                    "- Precise keyword search → use query_aidefend (faster)\n"
+                    "- Need code/implementation details → use get_technique_detail afterward\n"
+                    "- User already knows exact technique ID → use get_technique_detail\n\n"
+                    "This tool automatically generates 4-5 related queries (e.g., 'deepfakes' → "
+                    "'synthetic media', 'deepfake detection', 'media manipulation'), executes them "
+                    "in parallel, deduplicates results by source_id, and provides coverage summary "
+                    "showing tactics/pillars distribution."
                 ),
                 inputSchema={
                     "type": "object",
@@ -482,6 +495,131 @@ async def serve():
                         }
                     },
                     "required": ["topic"]
+                }
+            ),
+            # New Tool 5: Unified Security Posture Analysis
+            Tool(
+                name="analyze_security_posture",
+                description=(
+                    "🛡️ Comprehensive security posture analysis combining technical and threat perspectives. "
+                    "This unified tool merges analyze_coverage + get_threat_coverage functionality.\n\n"
+                    "✅ USE THIS to get holistic view of:\n"
+                    "- Technical coverage: Tactics/pillars/phases distribution and gaps\n"
+                    "- Threat coverage: OWASP/ATLAS/MAESTRO frameworks coverage rates\n"
+                    "- Combined insights: Overall security posture assessment\n"
+                    "- Prioritized recommendations: What to implement next\n\n"
+                    "Supports 3 views:\n"
+                    "- 'both' (default): Full analysis (technical + threat)\n"
+                    "- 'technical': Only tactic/pillar/phase coverage\n"
+                    "- 'threat': Only threat framework coverage\n\n"
+                    "Perfect for security program management, audits, and strategic planning."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "implemented_techniques": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of technique IDs already implemented (e.g., ['AID-H-001', 'AID-D-001'])",
+                            "minItems": 1,
+                            "maxItems": 200
+                        },
+                        "view": {
+                            "type": "string",
+                            "description": "Analysis view: 'both' (default), 'technical', or 'threat'",
+                            "enum": ["both", "technical", "threat"],
+                            "default": "both"
+                        },
+                        "system_type": {
+                            "type": "string",
+                            "description": "Optional system type for context-aware analysis",
+                            "enum": ["chatbot", "rag", "agent", "classifier", "generative", "multimodal"]
+                        }
+                    },
+                    "required": ["implemented_techniques"]
+                }
+            ),
+            # New Tool 6: Technique Comparison Matrix
+            Tool(
+                name="compare_techniques",
+                description=(
+                    "🔬 Side-by-side comparison of multiple AIDEFEND techniques with heuristic scoring.\n\n"
+                    "Provides comparison matrix showing:\n"
+                    "- **Effectiveness Score (0-100):** Based on threat coverage, implementation support\n"
+                    "- **Complexity Score (0-100):** Based on implementation depth and requirements\n"
+                    "- **Cost Score (0-100):** Based on tooling and resource needs\n\n"
+                    "✅ USE THIS when:\n"
+                    "- Evaluating multiple techniques for selection\n"
+                    "- Prioritizing implementation based on ROI\n"
+                    "- Understanding trade-offs between different approaches\n"
+                    "- Building business case for security investments\n\n"
+                    "Includes smart recommendations:\n"
+                    "- **Quick Wins:** High effectiveness, low complexity/cost\n"
+                    "- **Strategic Investments:** High effectiveness but resource-intensive\n"
+                    "- **Implementation Priority:** Ordered by effectiveness-to-complexity ratio\n\n"
+                    "All scoring is 100% local using metadata analysis - no ML inference or external APIs."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "technique_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of technique IDs to compare (e.g., ['AID-H-001', 'AID-D-002'])",
+                            "minItems": 2,
+                            "maxItems": 10
+                        },
+                        "include_recommendations": {
+                            "type": "boolean",
+                            "description": "Include prioritization recommendations (default: true)",
+                            "default": True
+                        }
+                    },
+                    "required": ["technique_ids"]
+                }
+            ),
+            # New Tool 7: Incident Response Playbook Generator
+            Tool(
+                name="generate_incident_playbook",
+                description=(
+                    "🚨 Generate structured incident response playbook based on threat classification.\n\n"
+                    "Provides timeline-based action plan following NIST incident response phases:\n"
+                    "1. **Immediate Actions (0-15 min):** Assessment, team activation, evidence preservation\n"
+                    "2. **Investigation (15 min - 2 hours):** Threat classification, scope analysis, IOC collection\n"
+                    "3. **Containment (2-8 hours):** Isolation, defense deployment, attack vector blocking\n"
+                    "4. **Recovery (8+ hours):** Security controls, service restoration, post-incident review\n\n"
+                    "✅ USE THIS when:\n"
+                    "- Responding to active AI/ML security incident\n"
+                    "- Planning incident response procedures\n"
+                    "- Training IR teams on AI-specific threats\n"
+                    "- Documenting security incident workflows\n\n"
+                    "Integrates with existing tools:\n"
+                    "- Automatically classifies threats (via classify_threat)\n"
+                    "- Recommends specific defense techniques (via get_defenses_for_threat)\n"
+                    "- Provides context-aware, actionable checklists\n\n"
+                    "100% local implementation - all analysis happens on your machine."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "incident_description": {
+                            "type": "string",
+                            "description": (
+                                "Free-text description of the incident. "
+                                "Examples: 'Suspicious prompt injection attempts detected', "
+                                "'Model outputs revealing training data', "
+                                "'Unusual API query patterns suggesting model extraction'"
+                            ),
+                            "minLength": 10,
+                            "maxLength": 1000
+                        },
+                        "include_defense_techniques": {
+                            "type": "boolean",
+                            "description": "Include specific AIDEFEND defense techniques in playbook (default: true)",
+                            "default": True
+                        }
+                    },
+                    "required": ["incident_description"]
                 }
             )
         ]
@@ -552,6 +690,15 @@ async def serve():
 
             elif name == "comprehensive_search":
                 return await handle_comprehensive_search(arguments)
+
+            elif name == "analyze_security_posture":
+                return await handle_analyze_security_posture(arguments)
+
+            elif name == "compare_techniques":
+                return await handle_compare_techniques(arguments)
+
+            elif name == "generate_incident_playbook":
+                return await handle_generate_incident_playbook(arguments)
 
             else:
                 raise ValueError(f"Unknown tool: {name}")
@@ -1534,6 +1681,399 @@ async def handle_comprehensive_search(arguments: Dict[str, Any]) -> List[TextCon
 
         output += "---\n\n"
         output += "*Tip: Use `get_technique_detail` with a specific source_id for more information.*\n"
+
+        return [TextContent(type="text", text=output)]
+
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        raise
+
+
+async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[TextContent]:
+    """Handle analyze_security_posture tool call."""
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call("analyze_security_posture", arguments, start_time)
+
+    try:
+        # Extract parameters
+        implemented_techniques = arguments.get("implemented_techniques", [])
+        view = arguments.get("view", "both")
+        system_type = arguments.get("system_type")
+
+        # Call the unified tool
+        result = await analyze_security_posture(
+            implemented_techniques=implemented_techniques,
+            view=view,
+            system_type=system_type
+        )
+
+        # Determine success summary
+        if view == "both" and result.get("summary"):
+            summary_text = f"Posture: {result['summary']['overall_posture']}"
+        elif view == "technical" and result.get("technical_coverage"):
+            pct = result['technical_coverage'].get('overall_coverage', {}).get('percentage', 0)
+            summary_text = f"Technical: {pct:.1f}%"
+        elif view == "threat" and result.get("threat_coverage"):
+            owasp = result['threat_coverage'].get('coverage_rate', {}).get('owasp', 0)
+            summary_text = f"OWASP: {owasp:.1f}%"
+        else:
+            summary_text = "Analysis complete"
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=summary_text
+        )
+
+        # Format output
+        output = "# Security Posture Analysis\n\n"
+        output += f"**View:** {view.title()}\n"
+        output += f"**Techniques Analyzed:** {result['implemented_count']}\n"
+        if system_type:
+            output += f"**System Type:** {system_type}\n"
+        output += "\n"
+
+        # Unified summary (only for 'both' view)
+        if view == "both" and result.get("summary"):
+            summary = result["summary"]
+            output += "## Overall Security Posture\n\n"
+            output += f"**Assessment:** {summary['overall_posture'].upper()}\n\n"
+
+            output += "### Key Insights\n\n"
+            for insight in summary.get("key_insights", []):
+                output += f"- {insight}\n"
+            output += "\n"
+
+            if summary.get("top_priorities"):
+                output += "### Top Priorities\n\n"
+                for priority in summary["top_priorities"]:
+                    output += f"- {priority}\n"
+                output += "\n"
+
+        # Technical Coverage Section
+        if view in ["both", "technical"] and result.get("technical_coverage"):
+            tech = result["technical_coverage"]
+            output += "## Technical Coverage\n\n"
+
+            overall = tech.get("overall_coverage", {})
+            output += f"**Coverage:** {overall.get('percentage', 0):.1f}% "
+            output += f"({overall.get('coverage_level', 'unknown')})\n"
+            output += f"**Implemented:** {overall.get('implemented', 0)}/{overall.get('total', 0)} techniques\n\n"
+
+            # By Tactic
+            if tech.get("by_tactic"):
+                output += "### By Tactic\n\n"
+                for tactic_info in sorted(tech["by_tactic"], key=lambda x: -x["percentage"]):
+                    output += f"- **{tactic_info['tactic']}:** {tactic_info['percentage']:.1f}% "
+                    output += f"({tactic_info['implemented']}/{tactic_info['total']})\n"
+                output += "\n"
+
+            # Critical Gaps
+            if tech.get("critical_gaps"):
+                output += "### Critical Gaps (High Priority)\n\n"
+                for gap in tech["critical_gaps"][:5]:
+                    output += f"- **{gap['technique_id']}:** {gap['name']}\n"
+                    output += f"  - Tactic: {gap['tactic']}\n"
+                output += "\n"
+
+        # Threat Coverage Section
+        if view in ["both", "threat"] and result.get("threat_coverage"):
+            threat = result["threat_coverage"]
+            output += "## Threat Framework Coverage\n\n"
+
+            coverage_rate = threat.get("coverage_rate", {})
+            output += f"**OWASP LLM Top 10:** {coverage_rate.get('owasp', 0):.1f}%\n"
+            output += f"**MITRE ATLAS:** {coverage_rate.get('atlas', 0):.1f}%\n"
+            output += f"**MAESTRO:** {coverage_rate.get('maestro', 0):.1f}%\n\n"
+
+            # Covered Threats
+            covered = threat.get("covered_threats", {})
+            if covered.get("owasp"):
+                output += "### OWASP Threats Covered\n\n"
+                output += f"{', '.join(covered['owasp'])}\n\n"
+
+            # Uncovered Threats
+            uncovered = threat.get("uncovered_threats", {})
+            if uncovered.get("owasp"):
+                output += "### OWASP Threats NOT Covered (High Priority)\n\n"
+                output += f"{', '.join(uncovered['owasp'][:5])}\n\n"
+
+        output += "---\n\n"
+        output += "*Tip: Use `get_implementation_plan` to get prioritized recommendations for next steps.*\n"
+
+        return [TextContent(type="text", text=output)]
+
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        raise
+
+
+async def handle_compare_techniques(arguments: Dict[str, Any]) -> List[TextContent]:
+    """Handle compare_techniques tool call."""
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call("compare_techniques", arguments, start_time)
+
+    try:
+        # Extract parameters
+        technique_ids = arguments.get("technique_ids", [])
+        include_recommendations = arguments.get("include_recommendations", True)
+
+        # Call the comparison tool
+        result = await compare_techniques(
+            technique_ids=technique_ids,
+            include_recommendations=include_recommendations
+        )
+
+        # Audit success
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"Compared {result['summary']['techniques_compared']} techniques"
+        )
+
+        # Format output
+        output = "# Technique Comparison Matrix\n\n"
+        output += f"**Techniques Compared:** {result['summary']['techniques_compared']}\n"
+
+        if result['summary'].get('techniques_not_found'):
+            output += f"**Not Found:** {', '.join(result['summary']['techniques_not_found'])}\n"
+
+        output += "\n"
+
+        # Summary statistics
+        output += "## Summary Statistics\n\n"
+        summary = result['summary']
+        output += f"- **Average Effectiveness:** {summary['average_effectiveness']:.1f}/100\n"
+        output += f"- **Average Complexity:** {summary['average_complexity']:.1f}/100\n"
+        output += f"- **Average Cost:** {summary['average_cost']:.1f}/100\n"
+        output += f"- **Tactics Covered:** {', '.join(summary['tactics_covered'])}\n"
+        output += f"- **Pillars Covered:** {', '.join(summary['pillars_covered'])}\n\n"
+
+        # Comparison matrix table
+        output += "## Comparison Matrix\n\n"
+        output += "| Technique | Effectiveness | Complexity | Cost | Tactic | Pillar |\n"
+        output += "|-----------|---------------|------------|------|--------|--------|\n"
+
+        for tech in result['comparison_matrix']:
+            output += f"| **{tech['source_id']}**<br/>{tech['name'][:40]}... | "
+            output += f"{tech['effectiveness_score']}/100 | "
+            output += f"{tech['complexity_score']}/100 | "
+            output += f"{tech['cost_score']}/100 | "
+            output += f"{tech['tactic']} | "
+            output += f"{tech['pillar']} |\n"
+
+        output += "\n"
+
+        # Detailed breakdown
+        output += "## Detailed Analysis\n\n"
+
+        for i, tech in enumerate(result['comparison_matrix'], 1):
+            output += f"### {i}. {tech['name']} ({tech['source_id']})\n\n"
+
+            # Scores with interpretation
+            output += "**Scores:**\n"
+            output += f"- 🎯 **Effectiveness:** {tech['effectiveness_score']}/100 "
+            if tech['effectiveness_score'] >= 80:
+                output += "(Excellent)\n"
+            elif tech['effectiveness_score'] >= 60:
+                output += "(Good)\n"
+            elif tech['effectiveness_score'] >= 40:
+                output += "(Moderate)\n"
+            else:
+                output += "(Limited)\n"
+
+            output += f"- ⚙️ **Complexity:** {tech['complexity_score']}/100 "
+            if tech['complexity_score'] >= 70:
+                output += "(High - significant effort)\n"
+            elif tech['complexity_score'] >= 40:
+                output += "(Moderate)\n"
+            else:
+                output += "(Low - relatively simple)\n"
+
+            output += f"- 💰 **Cost:** {tech['cost_score']}/100 "
+            if tech['cost_score'] >= 70:
+                output += "(High - significant investment)\n"
+            elif tech['cost_score'] >= 40:
+                output += "(Moderate)\n"
+            else:
+                output += "(Low)\n\n"
+
+            # Key attributes
+            output += "**Key Attributes:**\n"
+            output += f"- **Tactic:** {tech['tactic']}\n"
+            output += f"- **Pillar:** {tech['pillar']}\n"
+            output += f"- **Phase:** {tech['phase']}\n"
+
+            # Threat coverage
+            threat_cov = tech['threat_coverage']
+            if any(threat_cov.values()):
+                output += f"- **Threat Coverage:** OWASP ({threat_cov['owasp']}), "
+                output += f"ATLAS ({threat_cov['atlas']}), MAESTRO ({threat_cov['maestro']})\n"
+
+            # Implementation support
+            if tech['has_implementation_strategies']:
+                output += "- ✅ Has implementation strategies\n"
+            if tech['has_code_snippets']:
+                output += "- ✅ Has code examples\n"
+            if tech['has_opensource_tools']:
+                output += "- ✅ Opensource tools available\n"
+            if tech['has_commercial_tools']:
+                output += "- 💰 Commercial tools required\n"
+
+            output += "\n"
+
+            # Brief description
+            output += f"**Description:** {tech['description']}\n\n"
+            output += "---\n\n"
+
+        # Recommendations
+        if include_recommendations and result.get('recommendations'):
+            output += "## 📊 Implementation Recommendations\n\n"
+
+            for rec in result['recommendations']:
+                output += f"### {rec['category']}\n\n"
+                output += f"*{rec['description']}*\n\n"
+
+                for tech in rec['techniques']:
+                    output += f"- **{tech['id']}:** {tech['name']}\n"
+
+                output += "\n"
+
+        output += "---\n\n"
+        output += "*Tip: Use `get_technique_detail` to dive deeper into any technique, "
+        output += "or `get_implementation_plan` for prioritized roadmap.*\n"
+
+        return [TextContent(type="text", text=output)]
+
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        raise
+
+
+async def handle_generate_incident_playbook(arguments: Dict[str, Any]) -> List[TextContent]:
+    """Handle generate_incident_playbook tool call."""
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call("generate_incident_playbook", arguments, start_time)
+
+    try:
+        # Extract parameters
+        incident_description = arguments.get("incident_description", "")
+        include_defense_techniques = arguments.get("include_defense_techniques", True)
+
+        # Call the playbook generator
+        result = await generate_incident_playbook(
+            incident_description=incident_description,
+            include_defense_techniques=include_defense_techniques
+        )
+
+        # Audit success
+        total_actions = result['incident_summary']['total_action_items']
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"Generated playbook with {total_actions} actions"
+        )
+
+        # Format output
+        output = "# 🚨 Incident Response Playbook\n\n"
+        output += f"**Generated:** {result['generated_at']}\n\n"
+
+        # Incident summary
+        summary = result['incident_summary']
+        output += "## 📋 Incident Summary\n\n"
+        output += f"**Description:** {summary['description']}\n\n"
+
+        if summary.get('primary_threat'):
+            threat = summary['primary_threat']
+            output += "**Primary Threat Identified:**\n"
+            output += f"- **Threat ID:** {threat['threat_id']}\n"
+            output += f"- **Framework:** {threat['framework']}\n"
+            output += f"- **Confidence:** {threat['confidence']:.1f}%\n"
+            output += f"- **Description:** {threat['description']}\n\n"
+
+        output += f"**Total Action Items:** {summary['total_action_items']}\n"
+        output += f"**Estimated Timeline:** {summary['estimated_total_time']}\n\n"
+
+        output += "---\n\n"
+
+        # Timeline-based playbook
+        for phase_key, phase_data in result['timeline'].items():
+            output += f"## {phase_data['phase']}\n\n"
+            output += f"**⏱️ Timeframe:** {phase_data['timeframe']}\n\n"
+            output += f"**🎯 Objective:** {phase_data['objective']}\n\n"
+
+            output += "### Action Items\n\n"
+
+            for i, action in enumerate(phase_data['actions'], 1):
+                priority_emoji = {
+                    "CRITICAL": "🔴",
+                    "HIGH": "🟠",
+                    "MEDIUM": "🟡",
+                    "LOW": "🟢"
+                }.get(action.get('priority', 'MEDIUM'), "⚪")
+
+                output += f"#### {i}. {priority_emoji} {action['action']}\n\n"
+                output += f"**Priority:** {action.get('priority', 'MEDIUM')}\n\n"
+                output += f"**Description:** {action['description']}\n\n"
+                output += f"**Estimated Time:** {action['estimated_time']}\n\n"
+
+                if action.get('tools'):
+                    output += f"**Tools:** {', '.join(action['tools'])}\n\n"
+
+                if action.get('reference'):
+                    output += f"**Reference:** {action['reference']}\n\n"
+
+                output += "**Status:** [ ] Not Started\n\n"
+
+            output += "---\n\n"
+
+        # Defense techniques recommendation
+        if include_defense_techniques and result.get('defense_techniques'):
+            defense = result['defense_techniques']
+            output += "## 🛡️ Recommended Defense Techniques\n\n"
+
+            if defense.get('techniques'):
+                output += f"**Total Techniques Found:** {len(defense['techniques'])}\n\n"
+                output += "### Top Defense Techniques\n\n"
+
+                for i, tech in enumerate(defense['techniques'][:5], 1):
+                    output += f"{i}. **{tech['source_id']}:** {tech['name']}\n"
+                    output += f"   - **Tactic:** {tech['tactic']}\n"
+                    output += f"   - **Description:** {tech['description'][:150]}...\n\n"
+
+                output += "\n*Use `get_technique_detail` for implementation details.*\n\n"
+            else:
+                output += "*No specific defense techniques found. Consider using `comprehensive_search` "
+                output += "to explore related defenses.*\n\n"
+
+        # Threat classification details
+        if result.get('threat_classification') and result['threat_classification'].get('matched_threats'):
+            output += "## 🔍 Threat Classification Details\n\n"
+
+            threats = result['threat_classification']['matched_threats']
+            output += f"**Matched Threats:** {len(threats)}\n\n"
+
+            for i, threat in enumerate(threats[:5], 1):
+                output += f"{i}. **{threat.get('threat_id', 'N/A')}** ({threat.get('framework', 'Unknown')})\n"
+                output += f"   - **Confidence:** {threat.get('confidence', 0):.1f}%\n"
+                output += f"   - **Keyword Match:** {threat.get('keyword', 'N/A')}\n"
+                output += f"   - **Description:** {threat.get('description', 'N/A')[:150]}...\n\n"
+
+        output += "---\n\n"
+
+        # Next steps
+        output += "## 📝 Next Steps\n\n"
+        output += "1. ✅ Review and customize this playbook for your environment\n"
+        output += "2. ✅ Assign action items to team members\n"
+        output += "3. ✅ Set up monitoring for completion\n"
+        output += "4. ✅ Update incident timeline in your tracking system\n"
+        output += "5. ✅ Document lessons learned after resolution\n\n"
+
+        output += "**Additional Resources:**\n"
+        output += "- Use `get_technique_detail` for implementation guides\n"
+        output += "- Use `get_secure_code_snippet` for code examples\n"
+        output += "- Use `analyze_security_posture` to assess current defenses\n"
+        output += "- Use `map_to_compliance_framework` for regulatory requirements\n\n"
 
         return [TextContent(type="text", text=output)]
 
