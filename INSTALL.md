@@ -398,11 +398,11 @@ pip install -r requirements.txt
 
 **Expected output:**
 ```
-Collecting fastapi==0.109.2
-Downloading fastapi-0.109.2-py3-none-any.whl (92 kB)
+Collecting fastapi==0.121.1
+Downloading fastapi-0.121.1-py3-none-any.whl (92 kB)
 ...
 Installing collected packages: ...
-Successfully installed fastapi-0.109.2 ...
+Successfully installed fastapi-0.121.1 ...
 ```
 
 ---
@@ -425,14 +425,19 @@ cp .env.example .env
 ### Step 5: Start the Service
 
 ```bash
+# Default (REST API mode)
 C:/Python313/python.exe __main__.py
+
+# Or explicitly specify REST API mode
+C:/Python313/python.exe __main__.py --api
 ```
 
 **What this command means:**
 - Runs the AIDEFEND service main program
-- Starts in REST API mode by default
+- Starts in REST API mode by default (or use `--api` flag explicitly)
 - Service will run on `127.0.0.1:8000`
 - All configuration loaded from `.env` file
+- Use `--mcp` flag for MCP mode, `--resync` for database rebuild, `--help` for help
 
 **Expected output:**
 ```
@@ -874,6 +879,31 @@ Both modes share the same knowledge base and sync service - they stay in sync au
 
 ## Troubleshooting Common Issues
 
+### ℹ️ About Automatic Cache Management
+
+**Good news:** You never need to manually delete cache files!
+
+AIDEFEND MCP uses **automatic cache invalidation** to ensure data consistency:
+
+**Automatic Updates:**
+- ✅ **Content updates**: System checks GitHub hourly for new techniques and updates automatically
+- ✅ **Schema updates**: Cache auto-invalidates when metadata format changes
+- ✅ **Model changes**: Detected automatically and triggers rebuild
+
+**When to use `--resync`:**
+Only needed in special cases:
+- Changing embedding model (e.g., from e5-base to embeddinggemma)
+- Database corruption
+- Development/testing with clean state
+
+**What happens during auto-update:**
+```
+System detects change → Downloads new data → Updates embeddings → Ready to use
+```
+No user intervention required!
+
+---
+
 ### ❌ Issue: "Python not found" or "python: command not found"
 
 **Possible causes:**
@@ -1144,6 +1174,68 @@ docker-compose down -v
 cd ..
 rm -rf aidefend-mcp
 ```
+
+---
+
+## Troubleshooting
+
+### Resync Database
+
+If you encounter database issues or need to upgrade the embedding model, use the resync command:
+
+```bash
+python __main__.py --resync
+```
+
+**When to use:**
+- ✅ Upgrading to a different embedding model
+- ✅ Database corruption or errors
+- ✅ Starting fresh with clean data
+- ✅ After changing `EMBEDDING_MODEL` in `.env`
+
+**What it does:**
+1. Deletes existing database (`data/aidefend_kb.lancedb`)
+2. Deletes version tracking (`data/local_version.json`)
+3. Re-downloads content from GitHub
+4. Rebuilds database with current configuration
+5. Recreates embedding cache
+
+**Note:** This is a safe operation - all data is recoverable from the source repository.
+
+**After resync, start your preferred mode:**
+```bash
+# Start MCP mode
+python __main__.py --mcp
+
+# Or start REST API
+python __main__.py --api
+```
+
+### Common Issues
+
+**Database model mismatch:**
+```
+❌ Embedding model upgrade detected!
+   Database model: intfloat/multilingual-e5-small (384d)
+   Configured model: intfloat/multilingual-e5-base (768d)
+```
+**Solution:** Run `python __main__.py --resync`
+
+**Database corruption:**
+```
+Error: Failed to load database
+```
+**Solution:** Run `python __main__.py --resync`
+
+**Service not responding:**
+- Check if service is running: `ps aux | grep python` (Unix) or Task Manager (Windows)
+- Check logs: `tail -f data/logs/aidefend_mcp.log`
+- Restart the service
+
+**MCP tools not showing in Claude Desktop:**
+- Verify `claude_desktop_config.json` paths are absolute (not relative)
+- Restart Claude Desktop completely
+- Check Python path: `which python3` (Unix) or `where python` (Windows)
 
 ---
 

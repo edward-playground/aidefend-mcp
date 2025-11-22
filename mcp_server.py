@@ -387,7 +387,9 @@ async def serve():
                     "based on heuristic scoring (threat importance, ease of implementation, "
                     "phase weight, pillar weight). Use this to prioritize security investments. "
                     "Note: This tool provides ONLY heuristic scores. You should use these scores "
-                    "to make final recommendations via your own reasoning."
+                    "to make final recommendations via your own reasoning. "
+                    "IMPORTANT: Use detail_level='detailed' to get actionable strategies and code snippets "
+                    "for top 5 recommendations, eliminating the need for subsequent get_technique_detail calls."
                 ),
                 inputSchema={
                     "type": "object",
@@ -410,6 +412,12 @@ async def serve():
                             "default": 10,
                             "minimum": 1,
                             "maximum": 20
+                        },
+                        "detail_level": {
+                            "type": "string",
+                            "description": "Level of detail: 'basic' (IDs only), 'standard' (brief summaries for top 5), 'detailed' (full summaries + code for top 5)",
+                            "enum": ["basic", "standard", "detailed"],
+                            "default": "basic"
                         }
                     },
                     "required": []
@@ -512,6 +520,7 @@ async def serve():
                     "- 'both' (default): Full analysis (technical + threat)\n"
                     "- 'technical': Only tactic/pillar/phase coverage\n"
                     "- 'threat': Only threat framework coverage\n\n"
+                    "💡 TIP: Use empty array [] for baseline security planning (shows all gaps and 0% coverage)\n\n"
                     "Perfect for security program management, audits, and strategic planning."
                 ),
                 inputSchema={
@@ -520,9 +529,9 @@ async def serve():
                         "implemented_techniques": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "List of technique IDs already implemented (e.g., ['AID-H-001', 'AID-D-001'])",
-                            "minItems": 1,
-                            "maxItems": 200
+                            "description": "List of technique IDs already implemented (e.g., ['AID-H-001', 'AID-D-001']). Use empty array [] for baseline analysis.",
+                            "maxItems": 200,
+                            "default": []
                         },
                         "view": {
                             "type": "string",
@@ -536,7 +545,7 @@ async def serve():
                             "enum": ["chatbot", "rag", "agent", "classifier", "generative", "multimodal"]
                         }
                     },
-                    "required": ["implemented_techniques"]
+                    "required": []
                 }
             ),
             # New Tool 6: Technique Comparison Matrix
@@ -1448,17 +1457,19 @@ async def handle_get_implementation_plan(arguments: Dict[str, Any]) -> List[Text
         implemented_techniques = arguments.get("implemented_techniques")
         exclude_tactics = arguments.get("exclude_tactics")
         top_k = arguments.get("top_k", 10)
+        detail_level = arguments.get("detail_level", "basic")
 
         result = await get_implementation_plan(
             implemented_techniques=implemented_techniques,
             exclude_tactics=exclude_tactics,
-            top_k=top_k
+            top_k=top_k,
+            detail_level=detail_level
         )
 
         audit_tool_completion(
             audit_ctx,
             success=True,
-            result_summary=f"{len(result['recommendations'])} recommendations, {len(result['categories']['quick_wins'])} quick wins"
+            result_summary=f"{len(result['recommendations'])} recommendations, {len(result['categories']['quick_wins'])} quick wins, detail_level={detail_level}"
         )
 
         output = "# Defense Implementation Plan\n\n"
@@ -1494,6 +1505,54 @@ async def handle_get_implementation_plan(arguments: Dict[str, Any]) -> List[Text
             if rec['has_opensource_tools']:
                 output += "   - ✅ **Open-source tools available**\n"
             output += "\n"
+
+        # Add actionable strategies if detail_level is "standard" or "detailed"
+        if 'actionable_strategies' in result and result['actionable_strategies']:
+            output += "## 🎯 Actionable Implementation Strategies (Top 5)\n\n"
+            output += f"*Generated with detail_level='{detail_level}' - eliminates need for subsequent get_technique_detail calls*\n\n"
+
+            for strategy_data in result['actionable_strategies']:
+                tech_id = strategy_data['technique_id']
+                tech_name = strategy_data['technique_name']
+                strategies = strategy_data['strategies']
+                strategy_count = strategy_data['strategy_count']
+
+                output += f"### {tech_id}: {tech_name}\n\n"
+
+                if 'error' in strategy_data:
+                    output += f"*Error: {strategy_data['error']}*\n\n"
+                    continue
+
+                if strategy_count == 0:
+                    output += "*No implementation strategies available in database*\n\n"
+                    continue
+
+                output += f"**{strategy_count} Implementation Strategies:**\n\n"
+
+                for i, strat in enumerate(strategies, 1):
+                    output += f"{i}. **{strat['strategy_name']}**\n"
+                    output += f"   {strat['summary']}\n"
+
+                    # Add code snippets if in "detailed" mode
+                    if 'code_snippets' in strat:
+                        code_count = strat.get('code_snippet_count', len(strat['code_snippets']))
+                        output += f"\n   **Code Examples ({code_count}):**\n"
+                        for j, code_block in enumerate(strat['code_snippets'], 1):
+                            lang = code_block['language']
+                            code = code_block['code']
+                            output += f"\n   *Example {j} ({lang}):*\n"
+                            output += f"   ```{lang}\n"
+                            # Indent code block for proper markdown rendering
+                            indented_code = '\n'.join('   ' + line for line in code.split('\n'))
+                            output += f"{indented_code}\n"
+                            output += "   ```\n"
+
+                    output += "\n"
+
+            # Add metadata
+            if 'metadata' in result:
+                metadata = result['metadata']
+                output += f"\n---\n*Compound Tool Metadata: {metadata['strategies_fetched']} techniques processed with detail_level={metadata['detail_level']}*\n"
 
         return [TextContent(type="text", text=output)]
 

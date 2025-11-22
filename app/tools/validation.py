@@ -11,7 +11,7 @@ from difflib import SequenceMatcher
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError
+from app.security import InputValidationError, sanitize_technique_id
 
 logger = get_logger(__name__)
 
@@ -106,14 +106,18 @@ async def validate_technique_id(technique_id: str) -> Dict[str, Any]:
 
     # Step 2: Database lookup
     try:
+        # Sanitize technique_id to prevent filter injection
+        # This is defense-in-depth: format validation + sanitization
+        sanitized_id = sanitize_technique_id(technique_id)
+
         # Connect to LanceDB
         db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
         table = await asyncio.to_thread(db.open_table, "aidefend")
 
-        # Search for exact match
-        logger.info(f"Searching database for: {technique_id}")
+        # Search for exact match (using sanitized ID)
+        logger.info(f"Searching database for: {sanitized_id}")
         results = await asyncio.to_thread(
-            lambda: table.search().where(f"source_id = '{technique_id}'").limit(1).to_pandas().to_dict('records')
+            lambda: table.search().where(f"source_id = '{sanitized_id}'").limit(1).to_pandas().to_dict('records')
         )
 
         if results:

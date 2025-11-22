@@ -102,8 +102,12 @@ async def get_statistics() -> Dict[str, Any]:
         for doc in all_docs:
             doc_type = doc.get('type', 'unknown')
             tactic = doc.get('tactic', 'Unknown')
-            pillar = doc.get('pillar', '')
-            phase = doc.get('phase', '')
+            pillar_raw = doc.get('pillar', '')
+            phase_raw = doc.get('phase', '')
+
+            # Parse pillar and phase (now JSON arrays)
+            pillars = json.loads(pillar_raw) if isinstance(pillar_raw, str) and pillar_raw.strip() else []
+            phases = json.loads(phase_raw) if isinstance(phase_raw, str) and phase_raw.strip() else []
 
             # Count by type
             type_counts[doc_type] += 1
@@ -111,13 +115,17 @@ async def get_statistics() -> Dict[str, Any]:
             # Count by tactic (all documents)
             tactic_counts[tactic] += 1
 
-            # Count by pillar (only if not empty)
-            if pillar:
-                pillar_counts[pillar] += 1
+            # Count by pillar (iterate over array elements)
+            if isinstance(pillars, list):
+                for pillar in pillars:
+                    if pillar:
+                        pillar_counts[pillar] += 1
 
-            # Count by phase (only if not empty)
-            if phase:
-                phase_counts[phase] += 1
+            # Count by phase (iterate over array elements)
+            if isinstance(phases, list):
+                for phase in phases:
+                    if phase:
+                        phase_counts[phase] += 1
 
             # Enhanced features (only for techniques)
             if doc_type == 'technique':

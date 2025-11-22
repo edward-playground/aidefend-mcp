@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError
+from app.security import InputValidationError, sanitize_technique_id
 
 logger = get_logger(__name__)
 
@@ -87,10 +87,13 @@ async def get_secure_code_snippet(
             if len(topic) < 3:
                 raise InputValidationError("topic must be at least 3 characters")
 
-            # First, get code from specific technique
+            # Sanitize technique_id to prevent OR-clause injection (CRITICAL)
+            sanitized_id = sanitize_technique_id(technique_id)
+
+            # First, get code from specific technique (using sanitized ID)
             docs = await asyncio.to_thread(
                 lambda: table.search().where(
-                    f"source_id = '{technique_id}' OR parent_technique_id = '{technique_id}'"
+                    f"source_id = '{sanitized_id}' OR parent_technique_id = '{sanitized_id}'"
                 ).to_pandas().to_dict('records')
             )
 
@@ -125,10 +128,13 @@ async def get_secure_code_snippet(
         elif technique_id:
             technique_id = technique_id.strip().upper()
 
-            # Get the technique and all related documents
+            # Sanitize technique_id to prevent OR-clause injection (CRITICAL)
+            sanitized_id = sanitize_technique_id(technique_id)
+
+            # Get the technique and all related documents (using sanitized ID)
             docs = await asyncio.to_thread(
                 lambda: table.search().where(
-                    f"source_id = '{technique_id}' OR parent_technique_id = '{technique_id}'"
+                    f"source_id = '{sanitized_id}' OR parent_technique_id = '{sanitized_id}'"
                 ).to_pandas().to_dict('records')
             )
 

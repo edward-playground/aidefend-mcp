@@ -398,11 +398,11 @@ pip install -r requirements.txt
 
 **預期輸出：**
 ```
-Collecting fastapi==0.109.2
-Downloading fastapi-0.109.2-py3-none-any.whl (92 kB)
+Collecting fastapi==0.121.1
+Downloading fastapi-0.121.1-py3-none-any.whl (92 kB)
 ...
 Installing collected packages: ...
-Successfully installed fastapi-0.109.2 ...
+Successfully installed fastapi-0.121.1 ...
 ```
 
 ---
@@ -425,14 +425,19 @@ cp .env.example .env
 ### 步驟 5: 啟動服務
 
 ```bash
+# 預設（REST API 模式）
 C:/Python313/python.exe __main__.py
+
+# 或明確指定 REST API 模式
+C:/Python313/python.exe __main__.py --api
 ```
 
 **這個指令的意思：**
 - 執行 AIDEFEND 服務的主程式
-- 預設會啟動 REST API 模式
+- 預設會啟動 REST API 模式（或使用 `--api` flag 明確指定）
 - 服務會在 `127.0.0.1:8000` 執行
 - 所有設定從 `.env` 檔案載入
+- 使用 `--mcp` flag 啟動 MCP 模式，`--resync` 重建資料庫，`--help` 顯示說明
 
 **預期輸出：**
 ```
@@ -873,6 +878,31 @@ C:/Python313/python.exe __main__.py          # REST API 在 http://localhost:800
 
 ## 疑難排解常見問題
 
+### ℹ️ 關於自動快取管理
+
+**好消息：你永遠不需要手動刪除快取檔案！**
+
+AIDEFEND MCP 使用**自動快取失效機制**確保資料一致性：
+
+**自動更新：**
+- ✅ **內容更新**：系統每小時檢查 GitHub 是否有新技術，自動更新
+- ✅ **Schema 更新**：當 metadata 格式改變時，快取自動失效
+- ✅ **模型變更**：自動檢測並觸發重建
+
+**何時需要使用 `--resync`：**
+只在特殊情況需要：
+- 更換 embedding 模型（例如從 e5-base 改成 embeddinggemma）
+- 資料庫損壞
+- 開發/測試需要乾淨狀態
+
+**自動更新時會發生什麼：**
+```
+系統偵測變更 → 下載新資料 → 更新 embeddings → 可以使用
+```
+不需要使用者介入！
+
+---
+
 ### ❌ 問題：「Python not found」或「python: command not found」
 
 **可能原因：**
@@ -1146,6 +1176,68 @@ docker-compose down -v
 cd ..
 rm -rf aidefend-mcp
 ```
+
+---
+
+## 疑難排解
+
+### 重新同步資料庫
+
+如果遇到資料庫問題或需要升級 embedding 模型，請使用 resync 指令：
+
+```bash
+python __main__.py --resync
+```
+
+**何時使用：**
+- ✅ 升級到不同的 embedding 模型
+- ✅ 資料庫損壞或錯誤
+- ✅ 想要從乾淨狀態開始
+- ✅ 在 `.env` 中變更 `EMBEDDING_MODEL` 後
+
+**執行內容：**
+1. 刪除現有資料庫（`data/aidefend_kb.lancedb`）
+2. 刪除版本追蹤（`data/local_version.json`）
+3. 從 GitHub 重新下載內容
+4. 使用目前設定重建資料庫
+5. 重新建立 embedding 快取
+
+**注意：** 這是安全操作 - 所有資料都可以從來源儲存庫恢復。
+
+**重新同步後，啟動您偏好的模式：**
+```bash
+# 啟動 MCP 模式
+python __main__.py --mcp
+
+# 或啟動 REST API
+python __main__.py --api
+```
+
+### 常見問題
+
+**資料庫模型不匹配：**
+```
+❌ Embedding model upgrade detected!
+   Database model: intfloat/multilingual-e5-small (384d)
+   Configured model: intfloat/multilingual-e5-base (768d)
+```
+**解決方案：** 執行 `python __main__.py --resync`
+
+**資料庫損壞：**
+```
+Error: Failed to load database
+```
+**解決方案：** 執行 `python __main__.py --resync`
+
+**服務沒有回應：**
+- 檢查服務是否正在執行：`ps aux | grep python`（Unix）或工作管理員（Windows）
+- 檢查日誌：`tail -f data/logs/aidefend_mcp.log`
+- 重新啟動服務
+
+**MCP 工具未顯示在 Claude Desktop：**
+- 驗證 `claude_desktop_config.json` 路徑為絕對路徑（非相對路徑）
+- 完全重新啟動 Claude Desktop
+- 檢查 Python 路徑：`which python3`（Unix）或 `where python`（Windows）
 
 ---
 

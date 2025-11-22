@@ -90,6 +90,176 @@ def validate_query_text(query: str) -> str:
     return sanitized
 
 
+def validate_chunked_query(query_text: str) -> tuple[str, dict]:
+    """
+    Validate query text for chunked search with additional security checks.
+
+    Performs comprehensive validation for long queries that will be chunked:
+    1. Total length validation (MAX_TOTAL_QUERY_LENGTH)
+    2. Chunk count estimation and validation (MAX_CHUNKS)
+    3. Basic sanitization (reuses validate_query_text for each potential chunk)
+    4. Security logging for long queries
+
+    Args:
+        query_text: User query text (potentially very long)
+
+    Returns:
+        Tuple of (sanitized_text, metadata_dict):
+        - sanitized_text: Cleaned and validated query text
+        - metadata_dict: Contains chunking information for monitoring
+
+    Raises:
+        InputValidationError: If query is invalid, too long, or would require too many chunks
+
+    Security Notes:
+        - Prevents DoS via excessive chunk counts
+        - Logs all long queries for security audit
+        - Each chunk will be independently validated before search
+
+    Example:
+        >>> text = "Very long security report..." * 100
+        >>> sanitized, meta = validate_chunked_query(text)
+        >>> print(meta['estimated_chunks'])  # Number of chunks needed
+    """
+    from app.chunking import estimate_chunk_count
+
+    # Basic empty check
+    if not query_text or not query_text.strip():
+        raise InputValidationError("Query cannot be empty")
+
+    # 1. Total length validation
+    text_length = len(query_text)
+    if text_length > settings.MAX_TOTAL_QUERY_LENGTH:
+        logger.warning(
+            f"Query too long for chunked search",
+            extra={
+                "query_length": text_length,
+                "max_allowed": settings.MAX_TOTAL_QUERY_LENGTH,
+                "query_preview": query_text[:200]
+            }
+        )
+        raise InputValidationError(
+            f"Query too long: {text_length} characters. "
+            f"Maximum allowed: {settings.MAX_TOTAL_QUERY_LENGTH} characters"
+        )
+
+    # 2. Estimate chunk count (fast check before actual chunking)
+    estimated_chunks = estimate_chunk_count(query_text)
+
+    if estimated_chunks > settings.MAX_CHUNKS:
+        logger.warning(
+            f"Query would require too many chunks",
+            extra={
+                "query_length": text_length,
+                "estimated_chunks": estimated_chunks,
+                "max_chunks": settings.MAX_CHUNKS
+            }
+        )
+        raise InputValidationError(
+            f"Query would require {estimated_chunks} chunks. "
+            f"Maximum allowed: {settings.MAX_CHUNKS} chunks. "
+            f"Please use a shorter query."
+        )
+
+    # 3. Basic sanitization (same as regular queries)
+    # Note: Individual chunks will be validated again during actual search
+    sanitized = " ".join(query_text.strip().split())
+
+    # 4. Check for dangerous patterns (same as validate_query_text)
+    dangerous_patterns = [
+        r'<script', r'javascript:', r'onerror=', r'onclick=',
+        r'\bexec\b', r'\beval\b', r'__import__', r'\{\{.*\}\}',
+        r'\$\{.*\}', r'\.\./', r'\.\.\\'
+    ]
+
+    for pattern in dangerous_patterns:
+        if re.search(pattern, sanitized, re.IGNORECASE):
+            logger.warning(
+                f"Suspicious pattern in long query",
+                extra={"pattern": pattern, "query_preview": sanitized[:100]}
+            )
+            raise InputValidationError("Query contains potentially malicious content")
+
+    # 5. Security audit logging for long queries
+    if text_length > settings.MAX_QUERY_LENGTH:
+        logger.info(
+            f"Long query validated (chunking required)",
+            extra={
+                "original_length": text_length,
+                "estimated_chunks": estimated_chunks,
+                "query_preview": sanitized[:200]
+            }
+        )
+
+    # Build metadata
+    metadata = {
+        "original_length": text_length,
+        "estimated_chunks": estimated_chunks,
+        "chunking_required": text_length > settings.MAX_QUERY_LENGTH,
+        "max_chunks_allowed": settings.MAX_CHUNKS,
+        "chunk_size": settings.CHUNK_SIZE,
+        "chunk_overlap": settings.CHUNK_OVERLAP
+    }
+
+    return sanitized, metadata
+
+
+def sanitize_technique_id(technique_id: str) -> str:
+    """
+    Sanitize technique ID to prevent filter injection in LanceDB where() clauses.
+
+    Validates that technique_id contains only safe characters using a whitelist approach.
+    This prevents SQL-like injection attacks in LanceDB filter expressions.
+
+    Args:
+        technique_id: Technique ID from user input (e.g., "AID-H-001", "OWASP-LLM01:2023")
+
+    Returns:
+        Validated technique ID (unchanged if valid)
+
+    Raises:
+        InputValidationError: If technique_id contains unsafe characters or is invalid
+
+    Security:
+        - Uses whitelist regex: ^[A-Za-z0-9\\-\\._:]{3,100}$
+        - Prevents injection via where() clause f-strings
+        - Allows common formats: AID-H-001, OWASP-LLM01:2023, AML.T0001.001
+    """
+    if not technique_id or not technique_id.strip():
+        raise InputValidationError("Technique ID cannot be empty")
+
+    technique_id = technique_id.strip()
+
+    # Length validation (3-100 characters)
+    if len(technique_id) < 3:
+        raise InputValidationError("Technique ID must be at least 3 characters")
+    if len(technique_id) > 100:
+        raise InputValidationError("Technique ID cannot exceed 100 characters")
+
+    # Whitelist pattern: Allow only alphanumeric, dash, dot, underscore, colon
+    # This supports common formats:
+    # - AIDEFEND: AID-H-001, AID-P-002.001
+    # - OWASP: OWASP-LLM01:2023, OWASP-LLM01
+    # - MITRE ATLAS: AML.T0001.001, AML.T0001
+    # - MAESTRO: similar patterns
+    SAFE_TECHNIQUE_ID_PATTERN = re.compile(r'^[A-Za-z0-9\-\._:]{3,100}$')
+
+    if not SAFE_TECHNIQUE_ID_PATTERN.match(technique_id):
+        logger.warning(
+            f"Invalid technique ID format (injection attempt?)",
+            extra={
+                "technique_id": technique_id[:50],  # Truncate for logging
+                "length": len(technique_id)
+            }
+        )
+        raise InputValidationError(
+            "Technique ID contains invalid characters. "
+            "Allowed: letters, numbers, dash (-), dot (.), underscore (_), colon (:)"
+        )
+
+    return technique_id
+
+
 def validate_commit_sha(sha: str) -> str:
     """
     Validate GitHub commit SHA format.

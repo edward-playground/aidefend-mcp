@@ -75,11 +75,11 @@ async def analyze_security_posture(
         >>> print(f"OWASP threats covered: {result['threat_coverage']['covered_threats']['owasp']}")
     """
     # Input validation
-    if not implemented_techniques:
-        raise InputValidationError("implemented_techniques cannot be empty")
-
     if not isinstance(implemented_techniques, list):
         raise InputValidationError("implemented_techniques must be a list")
+
+    # Allow empty array for baseline analysis (0% coverage, all gaps)
+    # This enables users to generate initial security plans without any existing implementations
 
     if view not in ["both", "technical", "threat"]:
         raise InputValidationError(

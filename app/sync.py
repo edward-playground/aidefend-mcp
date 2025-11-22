@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 from fastembed import TextEmbedding
 from bs4 import BeautifulSoup
+from filelock import FileLock, Timeout
 
 from app.config import settings
 from app.logger import get_logger
@@ -30,12 +31,14 @@ from app.utils import (
     get_local_commit_sha,
     format_bytes
 )
+from app.embedding_cache import EmbeddingCache, compute_content_hash
 
 logger = get_logger(__name__)
 
-# Sync lock using asyncio.Lock (non-blocking, in-memory)
-# Since API_WORKERS=1, we run in single process, so asyncio.Lock is sufficient
-_sync_lock = asyncio.Lock()
+# Cross-process file lock for sync operations
+# This prevents concurrent sync across multiple processes (defense-in-depth)
+# File lock is stored in DATA_PATH for cross-process visibility
+_file_lock = FileLock(str(settings.DATA_PATH / "sync.lock"), timeout=0.1)
 
 # Global state for last sync error
 _last_sync_error: Optional[str] = None
@@ -43,37 +46,53 @@ _last_sync_error: Optional[str] = None
 
 async def _acquire_sync_lock() -> bool:
     """
-    Acquire sync lock using asyncio.Lock (non-blocking).
+    Acquire sync lock using cross-process file lock (non-blocking).
+
+    Uses run_in_executor to avoid blocking the event loop on file I/O.
 
     Returns:
-        True if lock acquired, False if another coroutine holds the lock
+        True if lock acquired, False if another process holds the lock
     """
-    if _sync_lock.locked():
-        logger.info("Sync already in progress (asyncio.Lock is held)")
+    loop = asyncio.get_event_loop()
+    try:
+        # Non-blocking acquire: timeout=0 means fail immediately if lock is held
+        # We need to use a lambda to pass timeout as keyword argument
+        await loop.run_in_executor(None, lambda: _file_lock.acquire(timeout=0))
+        logger.info("Acquired file-based sync lock")
+        return True
+    except (Timeout, Exception) as e:
+        # Catch both Timeout and any other exceptions
+        logger.info(f"Sync already in progress (file lock is held): {type(e).__name__}")
         return False
-
-    await _sync_lock.acquire()
-    logger.info("Acquired async sync lock")
-    return True
 
 
 def _release_sync_lock() -> None:
-    """Release async sync lock."""
+    """
+    Release file-based sync lock.
+
+    Note: This is a synchronous function because release() is fast (< 1ms).
+    """
     try:
-        _sync_lock.release()
-        logger.info("Released async sync lock")
+        _file_lock.release()
+        logger.info("Released file-based sync lock")
     except RuntimeError:
-        logger.warning("Attempted to release a lock that was not held.")
+        logger.warning("Attempted to release a lock that was not held")
 
 
 def is_sync_in_progress() -> bool:
     """
-    Check if sync is currently running (non-blocking).
+    Check if sync is currently running (cross-process check).
+
+    Note: This checks if the lock file exists and is locked.
+    For cross-process checking, we verify the lock file's existence.
 
     Returns:
-        True if asyncio.Lock is currently held
+        True if file lock is currently held by current process
     """
-    return _sync_lock.locked()
+    # FileLock.is_locked only works for current process
+    # For cross-process check, we'd need to check lock file existence
+    # or attempt a non-blocking acquire
+    return _file_lock.is_locked
 
 
 def get_last_sync_error() -> Optional[str]:
@@ -117,8 +136,12 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
     for record in records:
         doc_type = record.get('type', 'unknown')
         tactic = record.get('tactic', 'Unknown')
-        pillar = record.get('pillar', '')
-        phase = record.get('phase', '')
+        pillar_raw = record.get('pillar', '')
+        phase_raw = record.get('phase', '')
+
+        # Parse pillar and phase (now JSON arrays)
+        pillars = json.loads(pillar_raw) if isinstance(pillar_raw, str) and pillar_raw.strip() else []
+        phases = json.loads(phase_raw) if isinstance(phase_raw, str) and phase_raw.strip() else []
 
         # Count by type
         type_counts[doc_type] += 1
@@ -126,13 +149,17 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
         # Count by tactic
         tactic_counts[tactic] += 1
 
-        # Count by pillar (only if not empty)
-        if pillar:
-            pillar_counts[pillar] += 1
+        # Count by pillar (iterate over array elements)
+        if isinstance(pillars, list):
+            for pillar in pillars:
+                if pillar:
+                    pillar_counts[pillar] += 1
 
-        # Count by phase (only if not empty)
-        if phase:
-            phase_counts[phase] += 1
+        # Count by phase (iterate over array elements)
+        if isinstance(phases, list):
+            for phase in phases:
+                if phase:
+                    phase_counts[phase] += 1
 
         # Enhanced features (only for techniques)
         if doc_type == 'technique':
@@ -189,7 +216,7 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
             "total_strategies": type_counts.get('strategy', 0),
             "last_synced": datetime.now(timezone.utc).isoformat(),
             "embedding_model": settings.EMBEDDING_MODEL,
-            "database_path": str(settings.DB_PATH)
+            "database_path": settings.DB_PATH.name
         },
         "by_tactic": dict(sorted(tactic_counts.items())),
         "by_pillar": dict(sorted(pillar_counts.items())),
@@ -295,7 +322,6 @@ def _build_threat_mappings(records: List[Dict[str, Any]]) -> Dict[str, List[str]
         except (json.JSONDecodeError, TypeError) as e:
             logger.warning(f"Failed to parse defends_against for {technique_id}: {e}")
 
-    logger.info(f"Built threat mappings index: {len(threat_mappings)} unique threat IDs")
     return threat_mappings
 
 
@@ -404,6 +430,42 @@ async def download_file(filename: str, commit_sha: str) -> Optional[Path]:
     except Exception as e:
         logger.error(f"Error downloading {filename}: {e}")
         return None
+
+
+async def download_intro_file(commit_sha: str) -> Optional[Path]:
+    """
+    Download aidefend-intro.js file from repository root.
+
+    This file is in the root directory, not in tactics/, so needs special handling.
+    It's optional for operation (used only for version extraction).
+
+    Args:
+        commit_sha: Git commit SHA
+
+    Returns:
+        Path to downloaded file or None if failed (non-critical)
+    """
+    filename = "aidefend-intro.js"
+    try:
+        url = f"{settings.github_raw_base_url}/{commit_sha}/{filename}"
+
+        logger.info(f"Downloading {filename} from root...")
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            headers = {"User-Agent": "AIDEFEND-MCP-Service/1.0"}
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+
+            file_path = settings.RAW_PATH / filename
+            file_path.write_text(response.text, encoding='utf-8')
+            set_secure_file_permissions(file_path)
+
+            logger.info(f"Downloaded {filename} from root directory")
+            return file_path
+
+    except Exception as e:
+        logger.warning(f"Failed to download {filename} (non-critical): {e}")
+        return None  # Non-critical - intro file is optional
 
 
 def parse_tactic_file(file_path: Path) -> Optional[Dict[str, Any]]:
@@ -529,6 +591,21 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
         tools_opensource = technique.get("toolsOpenSource", [])
         tools_commercial = technique.get("toolsCommercial", [])
 
+        # Extract implementation strategies for techniques WITHOUT subtechniques
+        # Note: Techniques WITH subtechniques have strategies in subtechniques only
+        #       Techniques WITHOUT subtechniques have strategies in parent technique
+        tech_implementation_strategies = technique.get("implementationStrategies", [])
+
+        # Check if technique has code snippets in its strategies
+        tech_has_code = False
+        for strat in tech_implementation_strategies:
+            how_to = strat.get("howTo", "")
+            if how_to:
+                soup_check = BeautifulSoup(how_to, 'html.parser')
+                if soup_check.find_all(['pre', 'code']):
+                    tech_has_code = True
+                    break
+
         # Document for technique
         tech_text = f"Technique: {tech_name}\nID: {tech_id}\nDescription: {tech_desc}"
 
@@ -555,8 +632,8 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
             "tools_opensource": tools_opensource,
             "tools_commercial": tools_commercial,
             "parent_technique_id": None,  # Techniques have no parent (use None instead of empty string)
-            "implementation_strategies": [],  # Techniques don't have strategies directly
-            "has_code_snippets": False  # Techniques don't have code (code is in subtechnique strategies)
+            "implementation_strategies": tech_implementation_strategies,  # Extract from technique
+            "has_code_snippets": tech_has_code  # Check technique's strategies for code
         })
 
         # Documents for sub-techniques
@@ -742,22 +819,72 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
                 f"Check HuggingFace availability or network connection."
             )
 
-        logger.info(f"Embedding {len(documents)} documents...")
-
-        # Extract texts for batch embedding
-        texts = [doc["text"] for doc in documents]
-
-        # Embed in batches (fastembed returns generator, convert to list)
-        embeddings_generator = await asyncio.to_thread(
-            model.embed,
-            texts,
-            batch_size=32
+        # Initialize embedding cache
+        cache_file = settings.DATA_PATH / "embedding_cache.json"
+        cache = EmbeddingCache(
+            cache_file=cache_file,
+            model_name=settings.EMBEDDING_MODEL,
+            dimension=settings.EMBEDDING_DIMENSION
         )
 
-        # Convert generator to list and ensure numpy arrays
-        embeddings = list(embeddings_generator)
+        # Auto-cleanup: remove cache entries for deleted documents
+        current_doc_ids = {doc["source_id"] for doc in documents}
+        cache.auto_cleanup(current_doc_ids)
 
-        logger.info("Creating LanceDB records...")
+        # Check cache and generate embeddings (with progress indicators)
+        logger.info(f"🔄 Generating embeddings for {len(documents)} documents (using cache when possible)...")
+
+        embeddings = []
+        texts_to_embed = []
+        text_to_embed_indices = []
+
+        # First pass: check cache for all documents
+        for i, doc in enumerate(documents):
+            content_hash = compute_content_hash(doc["text"], settings.EMBEDDING_MODEL)
+            cached_embedding = cache.get(content_hash)
+
+            if cached_embedding is not None:
+                # Use cached embedding
+                embeddings.append(cached_embedding)
+            else:
+                # Need to generate embedding
+                embeddings.append(None)  # Placeholder
+                texts_to_embed.append(doc["text"])
+                text_to_embed_indices.append((i, content_hash, doc["source_id"]))
+
+        cache_stats = cache.get_stats()
+        logger.info(
+            f"📊 Cache stats: {cache_stats['hits']} hits, {cache_stats['misses']} misses "
+            f"({cache_stats['hit_rate']*100:.1f}% hit rate)"
+        )
+
+        # Second pass: generate embeddings for cache misses
+        if texts_to_embed:
+            logger.info(f"🔄 Generating {len(texts_to_embed)} new embeddings...")
+
+            embeddings_generator = await asyncio.to_thread(
+                model.embed,
+                texts_to_embed,
+                batch_size=32
+            )
+
+            new_embeddings = list(embeddings_generator)
+
+            # Store new embeddings in cache and fill placeholders
+            for j, (orig_idx, content_hash, source_id) in enumerate(text_to_embed_indices):
+                embedding = new_embeddings[j]
+                embeddings[orig_idx] = embedding
+                cache.set(content_hash, source_id, embedding)
+
+            logger.info(f"✅ Generated and cached {len(new_embeddings)} new embeddings")
+        else:
+            logger.info(f"✅ All {len(documents)} embeddings retrieved from cache!")
+
+        # Save cache to disk
+        cache.save()
+
+        logger.info(f"✅ Embedding complete: {len(embeddings)} vectors ready (768 dimensions each)")
+        logger.info("💾 Creating LanceDB records...")
 
         # Prepare LanceDB records with extended schema
         records = []
@@ -772,8 +899,9 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
                 "tactic": doc["tactic"],
                 "type": doc["type"],
                 "name": doc["name"],
-                "pillar": doc.get("pillar", ""),
-                "phase": doc.get("phase", ""),
+                # Convert pillar and phase to JSON strings (they are arrays now)
+                "pillar": json.dumps(doc.get("pillar", [])),
+                "phase": json.dumps(doc.get("phase", [])),
                 # New fields for enhanced functionality
                 "defends_against": json.dumps(doc.get("defends_against", [])),
                 "tools_opensource": json.dumps(doc.get("tools_opensource", [])),
@@ -784,18 +912,18 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
             })
 
         # Pre-compute statistics from records (optimization for get_statistics tool)
-        logger.info("Pre-computing statistics from records...")
+        logger.info("📊 Pre-computing statistics from records...")
         statistics = _calculate_statistics_from_records(records)
-        logger.info(f"Statistics pre-computed: {statistics['overview']['total_documents']} documents")
+        logger.info(f"✅ Statistics pre-computed: {statistics['overview']['total_documents']} documents")
 
         # Build threat mappings reverse index (optimization for defenses_for_threat tool)
-        logger.info("Building threat mappings reverse index...")
+        logger.info("🔗 Building threat mappings reverse index...")
         threat_mappings = _build_threat_mappings(records)
         statistics['threat_mappings'] = threat_mappings
-        logger.info(f"Threat mappings built: {len(threat_mappings)} unique threat IDs")
+        logger.info(f"✅ Threat mappings built: {len(threat_mappings)} unique threat IDs")
 
         # Connect to LanceDB
-        logger.info(f"Connecting to LanceDB: {settings.DB_PATH}")
+        logger.info(f"💾 Connecting to LanceDB: {settings.DB_PATH.name}")
         db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
 
         # Blue-Green Deployment: Write to temporary table first
@@ -809,13 +937,15 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
             pass  # Table doesn't exist, that's fine
 
         # Create new table with explicit schema
-        logger.info(f"Creating '{temp_table_name}' table with {len(records)} records...")
+        logger.info(f"💾 Writing {len(records)} records to database ('{temp_table_name}' table)...")
 
         await asyncio.to_thread(
             db.create_table,
             temp_table_name,
             data=records
         )
+
+        logger.info(f"✅ Database write complete: {len(records)} records written")
 
         # Verify new table was created successfully
         table_names = await asyncio.to_thread(db.table_names)
@@ -904,6 +1034,7 @@ async def run_sync() -> bool:
     try:
         logger.info("=" * 60)
         logger.info("Starting AIDEFEND sync process")
+        logger.info(f"Cache schema version: {settings.CACHE_SCHEMA_VERSION}")
         logger.info("=" * 60)
 
         # Fetch latest commit
@@ -922,35 +1053,51 @@ async def run_sync() -> bool:
 
         logger.info(f"Update available: {local_sha[:8] if local_sha else 'None'} -> {latest_sha[:8]}")
 
-        # Download all files
-        downloaded_files: List[Path] = []
+        # Download all files in parallel (faster than serial downloads)
+        logger.info(f"📥 Downloading {len(settings.AIDEFEND_FILES)} files in parallel...")
+
+        download_tasks = []
         for filename in settings.AIDEFEND_FILES:
-            # Special handling for aidefend-intro.js (in root, not tactics/)
             if filename == "aidefend-intro.js":
-                # Manually construct root URL
-                url = f"{settings.github_raw_base_url}/{latest_sha}/{filename}"
-                try:
-                    async with httpx.AsyncClient(timeout=60.0) as client:
-                        headers = {"User-Agent": "AIDEFEND-MCP-Service/1.0"}
-                        response = await client.get(url, headers=headers)
-                        response.raise_for_status()
-                        file_path = settings.RAW_PATH / filename
-                        file_path.write_text(response.text, encoding='utf-8')
-                        downloaded_files.append(file_path)
-                        logger.info(f"Downloaded {filename} from root directory")
-                except Exception as e:
-                    logger.warning(f"Failed to download {filename}: {e}")
-                    # Non-critical - intro file is optional for versioning
-                    continue
+                # Special handling for intro file (in root directory)
+                download_tasks.append(download_intro_file(latest_sha))
             else:
-                file_path = await download_file(filename, latest_sha)
-                if file_path:
-                    downloaded_files.append(file_path)
+                download_tasks.append(download_file(filename, latest_sha))
+
+        # Execute all downloads concurrently
+        download_results = await asyncio.gather(*download_tasks, return_exceptions=True)
+
+        # Process results
+        downloaded_files: List[Path] = []
+        failed_required = []
+
+        for i, result in enumerate(download_results):
+            filename = settings.AIDEFEND_FILES[i]
+
+            if isinstance(result, Exception):
+                # Download task raised an exception
+                if filename == "aidefend-intro.js":
+                    logger.warning(f"Failed to download {filename} (non-critical): {result}")
                 else:
-                    error_msg = f"Failed to download {filename}"
-                    logger.error(error_msg)
-                    _last_sync_error = error_msg
-                    return False
+                    logger.error(f"Failed to download {filename}: {result}")
+                    failed_required.append(filename)
+            elif result is None:
+                # Download failed (function returned None)
+                if filename == "aidefend-intro.js":
+                    logger.warning(f"Failed to download {filename} (non-critical)")
+                else:
+                    logger.error(f"Failed to download {filename}")
+                    failed_required.append(filename)
+            else:
+                # Download successful
+                downloaded_files.append(result)
+
+        # Check if any required files failed
+        if failed_required:
+            error_msg = f"Failed to download required files: {', '.join(failed_required)}"
+            logger.error(error_msg)
+            _last_sync_error = error_msg
+            return False
 
         # Check if enough files downloaded (intro.js is optional)
         required_count = len(settings.AIDEFEND_FILES) - 1  # Exclude optional intro.js
@@ -960,7 +1107,7 @@ async def run_sync() -> bool:
             _last_sync_error = error_msg
             return False
 
-        logger.info(f"Downloaded {len(downloaded_files)}/{len(settings.AIDEFEND_FILES)} files")
+        logger.info(f"✅ Downloaded {len(downloaded_files)}/{len(settings.AIDEFEND_FILES)} files")
 
         # Extract framework version from aidefend-intro.js (if present)
         framework_version = None
@@ -979,14 +1126,21 @@ async def run_sync() -> bool:
 
         # Parse all files with resilient error handling
         # Single file failure should not fail entire sync
+        logger.info(f"📄 Parsing {len(downloaded_files)} files...")
+
         all_documents = []
         failed_files = []
+        total_files = len(downloaded_files)
+        parsed_count = 0
 
         for file_path in downloaded_files:
             # Skip aidefend-intro.js - it's for metadata only, not for embedding
             if file_path.name == "aidefend-intro.js":
                 logger.info(f"Skipping {file_path.name} (metadata only)")
                 continue
+
+            parsed_count += 1
+
             try:
                 # Use asyncio.to_thread to avoid blocking the event loop
                 # (parse_tactic_file involves file I/O and CPU-intensive regex operations)
@@ -997,8 +1151,11 @@ async def run_sync() -> bool:
                     # (involves CPU-intensive data transformation)
                     documents = await asyncio.to_thread(extract_documents_from_tactic, tactic_data)
                     all_documents.extend(documents)
-                    # Fixed: Remove Unicode symbol for Windows cp950 compatibility
-                    logger.info(f"Successfully parsed {file_path.name}: {len(documents)} documents")
+
+                    # Show progress every 10 files or at completion
+                    if parsed_count % 10 == 0 or parsed_count == total_files:
+                        progress_pct = (parsed_count / total_files) * 100
+                        logger.info(f"📄 Parsing progress: {parsed_count}/{total_files} ({progress_pct:.1f}%) - {len(documents)} docs from {file_path.name}")
                 else:
                     # parse_tactic_file returned None
                     raise Exception("parse_tactic_file returned None")
@@ -1010,7 +1167,7 @@ async def run_sync() -> bool:
                 failed_files.append(file_path.name)
                 # Continue processing other files instead of returning False
 
-        logger.info(f"Total documents extracted: {len(all_documents)}")
+        logger.info(f"✅ Parsing complete: {len(all_documents)} documents extracted from {parsed_count} files")
 
         # Only fail if ALL files failed to parse
         if not all_documents:
@@ -1090,6 +1247,11 @@ async def run_sync() -> bool:
             }
         )
 
+        # Auto-create vector index for faster queries (if enabled)
+        # This is done AFTER sync succeeds and query engine reloads
+        # Non-critical failure won't affect sync success
+        await _create_vector_index_if_needed()
+
         logger.info("=" * 60)
         logger.info(f"Sync complete! Updated to commit {latest_sha[:8]}")
         logger.info(f"Indexed {len(all_documents)} documents")
@@ -1107,6 +1269,102 @@ async def run_sync() -> bool:
     finally:
         # Always release lock when done
         _release_sync_lock()
+
+
+async def _create_vector_index_if_needed() -> bool:
+    """
+    Create LanceDB vector index for faster searches (2-5x speedup).
+
+    This is automatically called after first successful sync.
+    Users can disable with AUTO_CREATE_INDEX=false in .env
+
+    Returns:
+        True if index created or already exists, False on failure
+    """
+    try:
+        import lancedb
+
+        # Check if indexing is enabled
+        if not settings.AUTO_CREATE_INDEX:
+            logger.info("AUTO_CREATE_INDEX=false, skipping index creation")
+            return True
+
+        # Check if database exists
+        if not settings.DB_PATH.exists():
+            logger.warning("Database not found, cannot create index")
+            return False
+
+        logger.info("Checking if vector index needed...")
+
+        # Connect to database
+        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
+        table = await asyncio.to_thread(db.open_table, "aidefend")
+
+        # Check if index already exists
+        # LanceDB doesn't have a direct "has_index()" method, but we can check indices list
+        try:
+            indices = await asyncio.to_thread(lambda: table.list_indices())
+            if indices and len(indices) > 0:
+                logger.info(f"✅ Vector index already exists ({len(indices)} indices found), skipping creation")
+                return True
+        except Exception:
+            # list_indices() might not be available or might error - proceed with creation
+            pass
+
+        # Get row count
+        row_count = await asyncio.to_thread(table.count_rows)
+
+        # For small datasets (< 1000 rows), index creation has minimal benefit
+        # and can cause KMeans warnings about empty clusters
+        if row_count < 1000:
+            logger.info(
+                f"Database has {row_count} rows (< 1000). "
+                "Vector index provides minimal benefit for small datasets. Skipping index creation."
+            )
+            return True
+
+        # Calculate optimal index parameters based on dataset size
+        # Small-medium datasets (1K-10K): Use sqrt(row_count) partitions
+        # Large datasets (>10K): Use more partitions for better performance
+        if row_count < 10000:
+            num_partitions = max(8, int(row_count ** 0.5))
+        else:
+            num_partitions = max(256, int(row_count ** 0.5))
+
+        dimension = settings.EMBEDDING_DIMENSION
+        num_sub_vectors = dimension // 16
+
+        logger.info("=" * 60)
+        logger.info("CREATING VECTOR INDEX (This may take 5-10 minutes)")
+        logger.info("=" * 60)
+        logger.info(f"Database rows: {row_count}")
+        logger.info(f"Index partitions: {num_partitions}")
+        logger.info(f"Sub-vectors: {num_sub_vectors}")
+        logger.info("This is a one-time operation for 2-5x faster queries...")
+
+        # Create index
+        await asyncio.to_thread(
+            table.create_index,
+            metric="cosine",
+            num_partitions=num_partitions,
+            num_sub_vectors=num_sub_vectors
+        )
+
+        logger.info("=" * 60)
+        logger.info("✅ Vector index created successfully!")
+        logger.info("Future queries will be 2-5x faster")
+        logger.info("=" * 60)
+
+        return True
+
+    except Exception as e:
+        # Non-critical failure - service still works without index
+        logger.warning(
+            f"Failed to create vector index (non-critical): {e}",
+            exc_info=True
+        )
+        logger.info("Service will continue to work (queries may be slower without index)")
+        return False
 
 
 async def sync_loop():

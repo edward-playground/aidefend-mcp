@@ -11,7 +11,7 @@ from typing import Dict, Any, List
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError
+from app.security import InputValidationError, sanitize_technique_id
 
 logger = get_logger(__name__)
 
@@ -92,9 +92,12 @@ async def map_to_compliance_framework(
         for tech_id in technique_ids:
             tech_id = tech_id.strip().upper()
 
-            # Get technique
+            # Sanitize technique_id to prevent filter injection
+            sanitized_id = sanitize_technique_id(tech_id)
+
+            # Get technique (using sanitized ID)
             docs = await asyncio.to_thread(
-                lambda: table.search().where(f"source_id = '{tech_id}'").limit(1).to_pandas().to_dict('records')
+                lambda: table.search().where(f"source_id = '{sanitized_id}'").limit(1).to_pandas().to_dict('records')
             )
 
             if not docs:
