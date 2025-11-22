@@ -39,4 +39,5 @@ rapidfuzz==3.10.1
 aiorwlock==1.4.0
 
 # Security
-# (No additional packages needed - using stdlib + our custom security module)
+# filelock: Cross-process file locking for safe concurrent sync operations
+filelock==3.13.1

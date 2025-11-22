@@ -14,9 +14,12 @@ Scoring dimensions:
 
 import json
 import asyncio
+import html  # For HTML entity unescaping
+import re    # For fallback HTML parsing
 import lancedb
 from typing import Dict, Any, List, Set, Optional
 from collections import defaultdict
+from bs4 import BeautifulSoup  # Robust HTML parsing for Compound Tool optimization
 
 from app.logger import get_logger
 from app.config import settings
@@ -33,10 +36,128 @@ HIGH_RISK_PATTERNS = [
 ]
 
 
+# ============================================================================
+# HTML Parsing Helpers (for Compound Tool optimization)
+# ============================================================================
+
+def _strip_html(text: str) -> str:
+    """
+    Fallback regex-based HTML tag stripper.
+
+    Used when BeautifulSoup parsing fails to provide a basic text extraction.
+
+    Args:
+        text: HTML text to strip
+
+    Returns:
+        Plain text with HTML tags removed and whitespace normalized
+    """
+    if not text:
+        return ""
+    # Remove HTML tags
+    clean = re.sub(r'<[^>]+>', ' ', str(text))
+    # Normalize whitespace
+    return ' '.join(clean.split())
+
+
+def _extract_strategy_details(
+    html_text: str,
+    include_code: bool = False,
+    summary_length: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Robustly extract summary and code snippets from HTML using BeautifulSoup.
+
+    Implements defense-in-depth error handling:
+    1. Try BeautifulSoup parsing (removes script/style tags)
+    2. Fallback to regex stripper (_strip_html)
+    3. Final fallback to error message
+
+    This function is designed to handle AIDEFEND's diverse HTML/Markdown content,
+    including various tag structures, nested elements, and code blocks.
+
+    Args:
+        html_text: Raw HTML content from database (may include markdown-style tags)
+        include_code: Whether to extract code blocks (False for "standard", True for "detailed")
+        summary_length: Custom summary length (defaults: 500 with code, 200 without)
+
+    Returns:
+        Dictionary containing:
+            - 'summary' (str): Clean text summary, length-limited
+            - 'code_snippets' (List[Dict], optional): Code blocks with 'language' and 'code'
+            - 'code_snippet_count' (int, optional): Number of code blocks found
+
+    Example:
+        >>> details = _extract_strategy_details("<p>Validate inputs</p>", include_code=False)
+        >>> print(details['summary'])
+        'Validate inputs'
+    """
+    if not html_text:
+        return {"summary": "", "code_snippets": []}
+
+    try:
+        soup = BeautifulSoup(html_text, 'html.parser')
+
+        # Security: Remove script and style elements that might add noise
+        for tag in soup(['script', 'style']):
+            tag.decompose()
+
+        # Extract clean text with separator to prevent word merging
+        text_content = soup.get_text(separator=' ', strip=True)
+
+        # Determine summary length based on mode
+        if summary_length is None:
+            summary_length = 500 if include_code else 200
+
+        summary = text_content[:summary_length] + "..." if len(text_content) > summary_length else text_content
+        result = {"summary": summary}
+
+        # Extract code blocks if requested (only in "detailed" mode)
+        if include_code:
+            code_blocks = []
+            for pre in soup.find_all('pre'):
+                code_tag = pre.find('code')
+                if code_tag:
+                    # Extract language from class attribute (e.g., class="language-python")
+                    lang = "plaintext"
+                    classes = code_tag.get('class', [])
+                    for cls in classes:
+                        if isinstance(cls, str) and cls.startswith('language-'):
+                            lang = cls.replace('language-', '')
+                            break
+
+                    # BeautifulSoup's get_text() automatically handles HTML entity unescaping
+                    code_content = code_tag.get_text().strip()
+
+                    if code_content:
+                        code_blocks.append({
+                            "language": lang,
+                            "code": code_content
+                        })
+
+            if code_blocks:
+                result["code_snippets"] = code_blocks
+                result["code_snippet_count"] = len(code_blocks)
+
+        return result
+
+    except Exception as e:
+        # Level 1 Fallback: Regex stripper
+        logger.warning(f"BeautifulSoup parsing failed: {e}. Using regex fallback.")
+        try:
+            fallback_text = _strip_html(html_text)
+            limit = summary_length if summary_length else 200
+            return {"summary": fallback_text[:limit] + "..." if len(fallback_text) > limit else fallback_text}
+        except Exception:
+            # Level 2 Fallback: Ultimate safety net
+            return {"summary": "[Error: Unable to parse content]"}
+
+
 async def get_implementation_plan(
     implemented_techniques: Optional[List[str]] = None,
     exclude_tactics: Optional[List[str]] = None,
-    top_k: int = 10
+    top_k: int = 10,
+    detail_level: str = "basic"
 ) -> Dict[str, Any]:
     """
     Recommend next techniques to implement based on heuristic scoring.
@@ -49,28 +170,52 @@ async def get_implementation_plan(
 
     NO LLM inference is used. All scoring is heuristic.
 
+    Compound Tool Pattern (detail_level parameter):
+    - "basic": Returns technique IDs and scores only (fastest, original behavior)
+    - "standard": Returns brief summaries (200 chars) for top 5 techniques (recommended)
+    - "detailed": Returns full summaries (500 chars) for top 5 techniques
+
+    Strategy Querying:
+    - Uses union logic to query BOTH parent-level and sub-technique-level strategies
+    - Adds context_source field for strategies from sub-techniques
+    - NEVER includes code snippets automatically (use get_secure_code_snippet separately)
+
     Args:
         implemented_techniques: List of already implemented technique IDs
         exclude_tactics: List of tactics to exclude (e.g., ["Model", "Harden"])
         top_k: Number of recommendations to return (1-20)
+        detail_level: Level of detail ("basic", "standard", "detailed")
 
     Returns:
         Dict containing:
         - input: Summary of input parameters
         - recommendations: List of recommended techniques with scores
         - categories: Bucketed recommendations (quick_wins, high_priority, standard)
+        - actionable_strategies (optional): Strategy summaries for top 5 (if detail_level != "basic")
+          Each strategy may include context_source field if from sub-technique
 
     Raises:
         InputValidationError: If input validation fails
         Exception: If database query fails
 
     Example:
+        >>> # Basic mode (original behavior)
         >>> result = await get_implementation_plan(
         ...     implemented_techniques=["AID-D-001"],
         ...     top_k=10
         ... )
         >>> print(result['recommendations'][0]['technique_id'])
         'AID-D-014'
+
+        >>> # Standard mode (recommended - fast with summaries)
+        >>> result = await get_implementation_plan(
+        ...     implemented_techniques=["AID-D-001"],
+        ...     top_k=10,
+        ...     detail_level="standard"
+        ... )
+        >>> print(result['actionable_strategies'][0]['strategies'][0]['summary'])
+        'Implement input validation...'
+        >>> # For code examples, use get_secure_code_snippet() separately
     """
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
@@ -96,6 +241,9 @@ async def get_implementation_plan(
 
     if top_k < 1 or top_k > 20:
         raise InputValidationError("top_k must be between 1 and 20")
+
+    if detail_level not in ["basic", "standard", "detailed"]:
+        raise InputValidationError("detail_level must be 'basic', 'standard', or 'detailed'")
 
     # Normalize inputs
     implemented_set = set(tid.strip().upper() for tid in implemented_techniques)
@@ -185,20 +333,153 @@ async def get_implementation_plan(
         # Categorize recommendations
         categories = _categorize_recommendations(scored_techniques[:top_k])
 
+        # Compound Tool Pattern: Proactively fetch detailed implementation guidance
+        # This eliminates N+1 query problem by returning actionable strategies upfront
+        actionable_strategies = None
+        if detail_level in ["standard", "detailed"]:
+            actionable_strategies = []
+
+            # Process top 5 recommendations only (balance between detail and performance)
+            top_5_items = top_recommendations[:min(5, len(top_recommendations))]
+
+            for item in top_5_items:
+                tech = item["technique"]
+                tech_id = tech.get('source_id')
+                tech_name = tech.get('name')
+
+                try:
+                    # Strategy Storage Model:
+                    # - Strategies are stored in the 'implementation_strategies' field (JSON string)
+                    # - Parent techniques: strategies in technique.implementation_strategies
+                    # - Techniques with subtechniques: strategies in subtechnique.implementation_strategies
+
+                    strategy_details = []
+
+                    # Step 1: Check for subtechniques
+                    sub_techniques = await asyncio.to_thread(
+                        lambda tid=tech_id: table.search()
+                        .where(f"type = 'subtechnique' AND parent_technique_id = '{tid}'")
+                        .limit(5)  # Get up to 5 subtechniques
+                        .to_pandas()
+                        .to_dict('records')
+                    )
+
+                    if sub_techniques:
+                        # Technique has subtechniques - extract strategies from each subtechnique
+                        for sub_tech in sub_techniques:
+                            sub_tech_name = sub_tech.get('name', '')
+                            impl_strat_raw = sub_tech.get('implementation_strategies', '')
+
+                            # Parse embedded strategies (stored as JSON string)
+                            if isinstance(impl_strat_raw, str) and impl_strat_raw:
+                                try:
+                                    strategies = json.loads(impl_strat_raw)
+                                    if isinstance(strategies, list):
+                                        for strat in strategies:
+                                            strategy_name = strat.get('strategy', '')
+                                            how_to_html = strat.get('howTo', '')
+
+                                            # NEVER include code automatically
+                                            include_code = False
+
+                                            # Set summary length based on detail_level
+                                            summary_length = 200 if detail_level == "standard" else 500
+
+                                            # Extract summary from howTo HTML
+                                            extracted = _extract_strategy_details(
+                                                how_to_html,
+                                                include_code=include_code,
+                                                summary_length=summary_length
+                                            )
+
+                                            strategy_entry = {
+                                                "strategy_name": strategy_name,
+                                                "summary": extracted.get("summary", ""),
+                                                "context_source": sub_tech_name  # Label which subtechnique this came from
+                                            }
+
+                                            strategy_details.append(strategy_entry)
+
+                                except json.JSONDecodeError as e:
+                                    logger.warning(f"Failed to parse strategies for {sub_tech.get('source_id')}: {e}")
+                    else:
+                        # No subtechniques - try to get strategies from parent technique
+                        impl_strat_raw = tech.get('implementation_strategies', '')
+
+                        if isinstance(impl_strat_raw, str) and impl_strat_raw:
+                            try:
+                                strategies = json.loads(impl_strat_raw)
+                                if isinstance(strategies, list):
+                                    for strat in strategies:
+                                        strategy_name = strat.get('strategy', '')
+                                        how_to_html = strat.get('howTo', '')
+
+                                        # NEVER include code automatically
+                                        include_code = False
+
+                                        # Set summary length based on detail_level
+                                        summary_length = 200 if detail_level == "standard" else 500
+
+                                        # Extract summary from howTo HTML
+                                        extracted = _extract_strategy_details(
+                                            how_to_html,
+                                            include_code=include_code,
+                                            summary_length=summary_length
+                                        )
+
+                                        strategy_entry = {
+                                            "strategy_name": strategy_name,
+                                            "summary": extracted.get("summary", "")
+                                        }
+
+                                        strategy_details.append(strategy_entry)
+
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Failed to parse strategies for {tech_id}: {e}")
+
+                    actionable_strategies.append({
+                        "technique_id": tech_id,
+                        "technique_name": tech_name,
+                        "strategies": strategy_details,
+                        "strategy_count": len(strategy_details)
+                    })
+
+                except Exception as e:
+                    # Graceful degradation: log error but continue processing other techniques
+                    logger.warning(f"Failed to fetch strategies for {tech_id}: {e}")
+                    actionable_strategies.append({
+                        "technique_id": tech_id,
+                        "technique_name": tech_name,
+                        "strategies": [],
+                        "strategy_count": 0,
+                        "error": "Failed to fetch strategies"
+                    })
+
         result = {
             "input": {
                 "implemented_count": len(implemented_set),
                 "exclude_tactics": list(exclude_tactics_set),
-                "top_k": top_k
+                "top_k": top_k,
+                "detail_level": detail_level
             },
             "recommendations": recommendations,
             "categories": categories
         }
 
+        # Add actionable_strategies only when detail_level != "basic"
+        if actionable_strategies is not None:
+            result["actionable_strategies"] = actionable_strategies
+            result["metadata"] = {
+                "compound_tool_enabled": True,
+                "detail_level": detail_level,
+                "strategies_fetched": len(actionable_strategies)
+            }
+
         logger.info(
             f"Implementation plan generated: {len(recommendations)} recommendations, "
             f"{len(categories['quick_wins'])} quick wins, "
             f"{len(categories['high_priority'])} high priority"
+            + (f", {len(actionable_strategies)} actionable strategies (detail_level={detail_level})" if actionable_strategies else "")
         )
 
         return result
@@ -256,26 +537,60 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
     breakdown["ease_of_implementation"] = ease_score
 
     # 3. Phase weight (0-2 points)
-    phase = technique.get('phase', '')
+    # Note: phase is stored as JSON array in database (e.g., ["scoping", "building"])
+    phase_raw = technique.get('phase', '[]')
+    if isinstance(phase_raw, str):
+        try:
+            phases = json.loads(phase_raw) if phase_raw.strip() else []
+        except json.JSONDecodeError:
+            phases = []
+    elif isinstance(phase_raw, list):
+        phases = phase_raw
+    else:
+        phases = []
+
+    # Map actual database phase values to scores (earlier phases = higher priority)
     phase_scores = {
-        'Design': 2.0,
-        'Development': 1.5,
-        'Deployment': 1.0,
-        'Runtime': 0.5
+        'scoping': 2.0,       # Early design/planning phase
+        'building': 1.5,      # Development phase
+        'validation': 1.0,    # Testing/deployment phase
+        'operation': 0.5,     # Runtime/production phase
+        'improvement': 0.8    # Ongoing improvement
     }
-    phase_score = phase_scores.get(phase, 0.0)
+
+    # Take the highest score from all phases this technique applies to
+    phase_score = 0.0
+    if isinstance(phases, list) and phases:
+        phase_score = max([phase_scores.get(p, 0.0) for p in phases])
 
     score += phase_score
     breakdown["phase_weight"] = phase_score
 
     # 4. Pillar weight (0-2 points)
-    pillar = technique.get('pillar', '')
+    # Note: pillar is stored as JSON array in database (e.g., ["data", "model", "app"])
+    pillar_raw = technique.get('pillar', '[]')
+    if isinstance(pillar_raw, str):
+        try:
+            pillars = json.loads(pillar_raw) if pillar_raw.strip() else []
+        except json.JSONDecodeError:
+            pillars = []
+    elif isinstance(pillar_raw, list):
+        pillars = pillar_raw
+    else:
+        pillars = []
+
+    # Map actual database pillar values to scores (security-critical pillars = higher priority)
     pillar_scores = {
-        'Prevent': 2.0,
-        'Detect': 1.5,
-        'Respond': 1.0
+        'model': 2.0,    # Model security (highest risk)
+        'data': 2.0,     # Data protection (highest risk)
+        'app': 1.5,      # Application security
+        'infra': 1.0     # Infrastructure security
     }
-    pillar_score = pillar_scores.get(pillar, 0.0)
+
+    # Take the highest score from all pillars this technique applies to
+    pillar_score = 0.0
+    if isinstance(pillars, list) and pillars:
+        pillar_score = max([pillar_scores.get(p, 0.0) for p in pillars])
 
     score += pillar_score
     breakdown["pillar_weight"] = pillar_score
@@ -311,17 +626,30 @@ def _generate_reasoning(technique: Dict, breakdown: Dict[str, float]) -> str:
     if breakdown.get("ease_of_implementation", 0) >= 2.0:
         reasons.append("Has open-source tools available")
 
-    # Pillar
-    pillar = technique.get('pillar', '')
-    if pillar == 'Prevent':
-        reasons.append("Prevention is most cost-effective")
-    elif pillar == 'Detect':
-        reasons.append("Detection adds defense-in-depth")
+    # Pillar (parse JSON array)
+    pillar_raw = technique.get('pillar', '')
+    try:
+        pillars = json.loads(pillar_raw) if isinstance(pillar_raw, str) and pillar_raw.strip() else []
+    except json.JSONDecodeError:
+        pillars = []
 
-    # Phase
-    phase = technique.get('phase', '')
-    if phase in ['Design', 'Development']:
-        reasons.append(f"Early-stage implementation ({phase})")
+    if isinstance(pillars, list):
+        if 'model' in pillars or 'data' in pillars:
+            reasons.append("Addresses critical security pillars (model/data)")
+        elif 'app' in pillars:
+            reasons.append("Strengthens application layer security")
+
+    # Phase (parse JSON array)
+    phase_raw = technique.get('phase', '')
+    try:
+        phases = json.loads(phase_raw) if isinstance(phase_raw, str) and phase_raw.strip() else []
+    except json.JSONDecodeError:
+        phases = []
+
+    if isinstance(phases, list):
+        if 'scoping' in phases or 'building' in phases:
+            phase_str = 'scoping' if 'scoping' in phases else 'building'
+            reasons.append(f"Early-stage implementation ({phase_str})")
 
     if not reasons:
         reasons.append("Standard priority technique")

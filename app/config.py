@@ -3,10 +3,14 @@ Configuration module for AIDEFEND MCP Service.
 Uses Pydantic BaseSettings for environment variable management.
 """
 
+import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Get logger for config warnings
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -79,6 +83,15 @@ class Settings(BaseSettings):
         description="Embedding vector dimension (768 for multilingual-e5-base)"
     )
 
+    # Cache Schema Version
+    # Increment when metadata structure changes require cache rebuild
+    # Version History:
+    # 1.0 (2025-11): Initial version with JSON array format for pillar/phase
+    CACHE_SCHEMA_VERSION: str = Field(
+        default="1.0",
+        description="Cache schema version for automatic invalidation on breaking changes"
+    )
+
     # Fuzzy Matching Configuration (for classify_threat tool)
     ENABLE_FUZZY_MATCHING: bool = Field(
         default=True,
@@ -103,6 +116,10 @@ class Settings(BaseSettings):
         ge=30,
         le=1800,
         description="Timeout for sync operations (5 minutes default)"
+    )
+    AUTO_CREATE_INDEX: bool = Field(
+        default=True,
+        description="Automatically create LanceDB vector index after first sync for 2-5x faster queries"
     )
     ENABLE_AUTO_SYNC: bool = Field(
         default=True,
@@ -155,6 +172,56 @@ class Settings(BaseSettings):
         ge=1,
         le=1000,
         description="Maximum requests per minute per IP"
+    )
+
+    # Chunked Query Configuration (for long text processing)
+    MAX_TOTAL_QUERY_LENGTH: int = Field(
+        default=5000,
+        ge=1500,
+        le=50000,
+        description="Maximum total query length for chunked search (conservative: 5000 chars)"
+    )
+    MAX_CHUNKS: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum number of chunks for long queries (conservative: 5 chunks)"
+    )
+    MAX_CHUNKS_PROCESSING_TIME: int = Field(
+        default=15,
+        ge=5,
+        le=60,
+        description="Maximum processing time in seconds for chunked queries (conservative: 15s)"
+    )
+    CHUNK_SIZE: int = Field(
+        default=1200,
+        ge=500,
+        le=2000,
+        description="Target size for each chunk in characters (must be < MAX_QUERY_LENGTH)"
+    )
+    CHUNK_OVERLAP: int = Field(
+        default=200,
+        ge=0,
+        le=500,
+        description="Overlap between chunks to preserve context (chars)"
+    )
+
+    # Authentication Configuration
+    AUTH_MODE: Literal["no_auth", "api_key"] = Field(
+        default="no_auth",
+        description=(
+            "Authentication mode for REST API. "
+            "Options: 'no_auth' (local development only), 'api_key' (production deployment). "
+            "MCP mode does not use HTTP authentication (secured via file permissions)."
+        )
+    )
+    AIDEFEND_API_KEY: Optional[str] = Field(
+        default=None,
+        description=(
+            "API Key for authentication when AUTH_MODE='api_key'. "
+            "Generate using: python scripts/generate_api_key.py. "
+            "Required when AUTH_MODE='api_key', ignored when AUTH_MODE='no_auth'."
+        )
     )
 
     # CORS Configuration
@@ -219,6 +286,109 @@ class Settings(BaseSettings):
         if v is None:
             return None
         return v.resolve()
+
+    @field_validator("API_HOST")
+    @classmethod
+    def validate_api_host_with_auth(cls, v: str, info) -> str:
+        """
+        Validate API host binding with authentication mode.
+
+        Security Policy: Binding to 0.0.0.0 (all interfaces) requires authentication.
+        This prevents accidental exposure of unauthenticated service to network.
+        """
+        # Get auth mode from already-validated fields
+        auth_mode = info.data.get("AUTH_MODE", "no_auth")
+
+        # Check if binding to external interfaces (0.0.0.0 or empty string)
+        is_external_binding = v in ["0.0.0.0", ""]
+
+        if is_external_binding and auth_mode == "no_auth":
+            raise ValueError(
+                "\n" + "=" * 70 + "\n"
+                "SECURITY ERROR: Cannot bind to external IP without authentication!\n\n"
+                f"  Current settings:\n"
+                f"    - API_HOST: {v} (exposes service to network)\n"
+                f"    - AUTH_MODE: {auth_mode} (no authentication required)\n\n"
+                f"  This configuration exposes your service WITHOUT authentication.\n\n"
+                f"  Please choose one of the following:\n"
+                f"    1. Bind to localhost only:\n"
+                f"         Set API_HOST=127.0.0.1 in .env\n"
+                f"    2. Enable authentication:\n"
+                f"         Set AUTH_MODE=api_key in .env\n"
+                f"         Set AIDEFEND_API_KEY=<your-secret-key>\n"
+                f"         (Generate key: python scripts/generate_api_key.py)\n\n"
+                f"  See SECURITY.md for deployment best practices.\n"
+                + "=" * 70
+            )
+
+        return v
+
+    @field_validator("AIDEFEND_API_KEY")
+    @classmethod
+    def validate_api_key_requirement(cls, v: Optional[str], info) -> Optional[str]:
+        """
+        Validate API key presence when api_key mode is enabled.
+
+        Security Policy: api_key mode requires a configured API key.
+        """
+        auth_mode = info.data.get("AUTH_MODE", "no_auth")
+
+        if auth_mode == "api_key":
+            if not v or len(v.strip()) == 0:
+                raise ValueError(
+                    "\n" + "=" * 70 + "\n"
+                    "CONFIGURATION ERROR: API Key required for api_key mode!\n\n"
+                    f"  Current settings:\n"
+                    f"    - AUTH_MODE: {auth_mode} (requires authentication)\n"
+                    f"    - AIDEFEND_API_KEY: <not set>\n\n"
+                    f"  Please set AIDEFEND_API_KEY in .env:\n\n"
+                    f"  1. Generate a secure API key:\n"
+                    f"       python scripts/generate_api_key.py\n\n"
+                    f"  2. Add to .env file:\n"
+                    f"       AIDEFEND_API_KEY=<generated-key>\n\n"
+                    f"  See SECURITY.md for API key management best practices.\n"
+                    + "=" * 70
+                )
+
+        return v
+
+    @field_validator("CORS_ORIGINS")
+    @classmethod
+    def validate_cors_with_auth(cls, v: List[str], info) -> List[str]:
+        """
+        Validate CORS configuration with authentication mode.
+
+        Warning: Permissive CORS in api_key mode may expose API keys via browser requests.
+        """
+        auth_mode = info.data.get("AUTH_MODE", "no_auth")
+
+        if auth_mode == "api_key":
+            # Check for wildcard origins
+            has_wildcard = any(
+                origin == "*" or
+                origin.startswith("http://*") or
+                origin.startswith("https://*") or
+                origin == "http://*" or
+                origin == "https://*"
+                for origin in v
+            )
+
+            if has_wildcard:
+                logger.warning(
+                    "\n" + "=" * 70 + "\n"
+                    "SECURITY WARNING: Permissive CORS with authentication enabled!\n\n"
+                    f"  Current settings:\n"
+                    f"    - AUTH_MODE: {auth_mode} (authentication required)\n"
+                    f"    - CORS_ORIGINS: {v} (allows broad access)\n\n"
+                    f"  Recommendation:\n"
+                    f"    Restrict CORS_ORIGINS to specific domains in production:\n"
+                    f"      CORS_ORIGINS=[\"https://your-domain.com\"]\n\n"
+                    f"  This prevents unauthorized websites from making requests\n"
+                    f"  with users' API keys via browser.\n"
+                    + "=" * 70
+                )
+
+        return v
 
     @property
     def github_repo_api_url(self) -> str:

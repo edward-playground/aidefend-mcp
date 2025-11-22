@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError
+from app.security import InputValidationError, sanitize_technique_id
 from app.core import query_engine
 from app.exceptions import QueryEngineNotInitializedError
 
@@ -123,18 +123,24 @@ def _calculate_complexity_score(technique_doc: Dict[str, Any]) -> int:
     if technique_type == 'technique' and '.' not in source_id:
         score += 20
 
-    # Pillar complexity
-    pillar = technique_doc.get('pillar', '').lower()
-    if 'infrastructure' in pillar:
+    # Pillar complexity (parse JSON array)
+    pillar_raw = technique_doc.get('pillar', '')
+    pillars = _parse_json_field(pillar_raw)
+    pillar_lower = [p.lower() for p in pillars] if isinstance(pillars, list) else []
+
+    if 'infra' in pillar_lower or 'infrastructure' in pillar_lower:
         score += 15
-    elif 'model' in pillar:
+    elif 'model' in pillar_lower:
         score += 5
 
-    # Phase complexity
-    phase = technique_doc.get('phase', '').lower()
-    if 'building' in phase:
+    # Phase complexity (parse JSON array)
+    phase_raw = technique_doc.get('phase', '')
+    phases = _parse_json_field(phase_raw)
+    phase_lower = [p.lower() for p in phases] if isinstance(phases, list) else []
+
+    if 'building' in phase_lower:
         score += 10
-    elif 'deployment' in phase:
+    elif 'deployment' in phase_lower or 'validation' in phase_lower:
         score += 5
 
     # Implementation strategies count
@@ -176,16 +182,22 @@ def _calculate_cost_score(technique_doc: Dict[str, Any]) -> int:
     if opensource_tools and len(opensource_tools) > 0 and not commercial_tools:
         score -= 10  # Opensource only = lower cost
 
-    # Phase cost
-    phase = technique_doc.get('phase', '').lower()
-    if 'building' in phase:
+    # Phase cost (parse JSON array)
+    phase_raw = technique_doc.get('phase', '')
+    phases = _parse_json_field(phase_raw)
+    phase_lower = [p.lower() for p in phases] if isinstance(phases, list) else []
+
+    if 'building' in phase_lower:
         score += 10  # Upfront design investment
 
-    # Pillar cost
-    pillar = technique_doc.get('pillar', '').lower()
-    if 'infrastructure' in pillar:
+    # Pillar cost (parse JSON array)
+    pillar_raw = technique_doc.get('pillar', '')
+    pillars = _parse_json_field(pillar_raw)
+    pillar_lower = [p.lower() for p in pillars] if isinstance(pillars, list) else []
+
+    if 'infra' in pillar_lower or 'infrastructure' in pillar_lower:
         score += 15  # Infrastructure is expensive
-    elif 'model' in pillar:
+    elif 'model' in pillar_lower:
         score += 5
 
     # Normalize to 0-100
@@ -324,8 +336,11 @@ async def compare_techniques(
         for technique_id in technique_ids:
             logger.debug(f"Fetching technique: {technique_id}")
 
+            # Sanitize technique_id to prevent filter injection
+            sanitized_id = sanitize_technique_id(technique_id)
+
             docs = await asyncio.to_thread(
-                lambda tid=technique_id: table.search()
+                lambda tid=sanitized_id: table.search()
                 .where(f"source_id = '{tid}'")
                 .limit(1)
                 .to_pandas()
