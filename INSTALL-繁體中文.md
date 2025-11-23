@@ -13,12 +13,13 @@
 ## 📋 目錄
 
 1. [你需要準備什麼（前置需求）](#你需要準備什麼前置需求)
-2. [方法 1: 使用腳本快速開始（最簡單）](#方法-1-使用腳本快速開始最簡單)
-3. [方法 2: Docker 安裝（建議用於正式環境）](#方法-2-docker-安裝建議用於正式環境)
-4. [方法 3: 手動安裝](#方法-3-手動安裝)
-5. [驗證一切正常運作](#驗證一切正常運作)
-6. [疑難排解常見問題](#疑難排解常見問題)
-7. [下一步](#下一步)
+2. [🚀 MCP 模式設定（Claude Desktop）- 自動化](#-mcp-模式設定claude-desktop--自動化)
+3. [方法 1: 使用腳本快速開始（最簡單）](#方法-1-使用腳本快速開始最簡單)
+4. [方法 2: Docker 安裝（建議用於正式環境）](#方法-2-docker-安裝建議用於正式環境)
+5. [方法 3: 手動安裝](#方法-3-手動安裝)
+6. [驗證一切正常運作](#驗證一切正常運作)
+7. [疑難排解常見問題](#疑難排解常見問題)
+8. [下一步](#下一步)
 
 ---
 
@@ -112,6 +113,146 @@ docker-compose --version
 
 ---
 
+## 🚀 MCP 模式設定（Claude Desktop）- 自動化
+
+**適用於：想要在 Claude Desktop 中使用 AIDEFEND 的使用者**
+
+這個自動化設定只需 2 分鐘即可完成 Claude Desktop 與 AIDEFEND MCP 工具的整合。
+
+### MCP 模式的前置需求
+
+1. **Claude Desktop 已安裝** - 下載位置：https://claude.ai/download
+2. **Python 3.9+** - 檢查：`python --version`
+3. **Git** - 檢查：`git --version`
+
+### 步驟 1：下載 AIDEFEND
+
+```bash
+git clone https://github.com/edward-playground/aidefend-mcp.git
+cd aidefend-mcp
+```
+
+### 步驟 2：安裝相依套件
+
+```bash
+pip install -r requirements.txt
+```
+
+**這會安裝：**
+- FastAPI、Uvicorn（API 伺服器）
+- LanceDB（向量資料庫）
+- FastEmbed（嵌入模型 - ONNX，約 100MB 下載）
+- 其他 Python 相依套件
+
+**時間：** 首次安裝約 1-2 分鐘
+
+### 步驟 3：執行自動化設定
+
+```bash
+python scripts/setup_mcp.py
+```
+
+**這個腳本會：**
+- ✅ 自動偵測 Python 路徑
+- ✅ 自動偵測 AIDEFEND 專案路徑
+- ✅ 自動偵測 Claude Desktop 設定檔位置
+- ✅ **安全合併**配置（保留所有現有的 MCP 工具）
+- ✅ 建立現有設定的備份
+- ✅ 寫入前驗證所有路徑
+
+**範例輸出：**
+```
+════════════════════════════════════════════════════════════════
+  AIDEFEND MCP - Claude Desktop 自動設定工具
+════════════════════════════════════════════════════════════════
+
+🔍 正在偵測系統路徑...
+
+✓ Python 路徑: C:/Python313/python.exe
+✓ MCP 專案路徑: c:/Users/you/aidefend-mcp
+✓ Claude 設定檔: C:/Users/you/AppData/Roaming/Claude/claude_desktop_config.json
+
+────────────────────────────────────────────────────────────────
+
+✅ 保留現有的 2 個 MCP 工具：
+   • filesystem
+   • git
+
+✅ 將新增 AIDEFEND 工具
+
+────────────────────────────────────────────────────────────────
+
+確認要寫入配置嗎？(y/n): y
+
+✅ 備份已建立: claude_desktop_config.json.backup.20250122_143022
+✅ 配置已成功寫入！
+✅ 所有 2 個現有工具保持不變
+
+════════════════════════════════════════════════════════════════
+  🎉 安裝完成！
+════════════════════════════════════════════════════════════════
+
+📌 下一步：
+
+  1. 完全關閉 Claude Desktop：
+     - Windows: 工作列右鍵點擊 Claude → Exit
+     - macOS: 按 Cmd+Q 完全退出（不只是關閉視窗）
+
+  2. 重新開啟 Claude Desktop
+
+  3. 開始使用 AIDEFEND！
+     試試問 Claude：「有哪些技術可以防禦 prompt injection？」
+```
+
+### 步驟 4：重啟 Claude Desktop
+
+**重要：** 你必須**完全退出** Claude Desktop（不只是關閉視窗），然後重新開啟。
+
+**Windows：**
+- 工作列右鍵點擊 Claude 圖示 → Exit
+
+**macOS：**
+- 按 `Cmd+Q`（或 Claude 選單 → 結束）
+
+**驗證工具已載入：**
+- 開啟 Claude Desktop
+- 工具應該會出現在可用工具面板中
+- 問 Claude：「有哪些 AIDEFEND 工具可用？」
+
+### 替代方案：手動模式選項
+
+設定腳本支援多種模式：
+
+```bash
+# 互動模式（預設）- 會詢問確認
+python scripts/setup_mcp.py
+
+# 自動模式 - 不詢問確認
+python scripts/setup_mcp.py --auto
+
+# 試運行 - 預覽但不寫入
+python scripts/setup_mcp.py --dry-run
+
+# 顯示說明
+python scripts/setup_mcp.py --help
+```
+
+### 反安裝 MCP 模式
+
+若要從 Claude Desktop 移除 AIDEFEND（但保留專案檔案）：
+
+```bash
+python scripts/uninstall_mcp.py
+```
+
+這會：
+- ✅ 從 Claude 設定檔移除 AIDEFEND
+- ✅ 保留所有其他 MCP 工具
+- ✅ 移除前建立備份
+- ✅ 保留你的本地專案檔案
+
+---
+
 ## 方法 1: 使用腳本快速開始（最簡單）
 
 **建議對象：** 第一次使用的人、本地開發
@@ -140,25 +281,18 @@ dir # Windows
 
 ---
 
-### 步驟 2: 執行啟動腳本
+### 步驟 2: 啟動服務
 
-**在 Windows 上：**
-```cmd
-scripts\start.bat
-```
-
-**在 macOS/Linux 上：**
+**在任何平台上（Windows/macOS/Linux）：**
 ```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
+python __main__.py
 ```
 
-**這個腳本會自動做什麼：**
-1. ✅ 檢查 Python 是否已安裝
-2. ✅ 建立 virtual environment（隔離的 Python 環境）
-3. ✅ 安裝所有必要的 Python 套件
-4. ✅ 建立設定檔（`.env`）
-5. ✅ 啟動服務
+**首次執行時會自動：**
+1. ✅ 從 GitHub 自動同步 AIDEFEND framework（5-15 分鐘）
+2. ✅ 解析並索引所有安全技術
+3. ✅ 在 http://localhost:8000 啟動 REST API 伺服器
+4. ✅ 服務準備就緒，可以開始查詢
 
 **預期輸出：**
 ```
@@ -943,17 +1077,6 @@ python -m pip install -r requirements.txt
 
 ---
 
-### ❌ 問題：執行 scripts\start.bat 時出現 ... was unexpected at this time. 錯誤
-
-**意思：** 這是 Windows 命令提示字元 (cmd.exe) 的語法解析錯誤。這通常是因為 start.bat 檔案中包含了不可見的特殊字元（例如從網頁複製貼上時帶入的）或錯誤的檔案編碼。
-
-**解決方案：**
-
-1. **首選方案：** 確保您是從 GitHub **直接 git clone** 下載的，而不是從網頁複製貼上 start.bat 檔案的內容。
-2. **備用方案（最可靠）：** **放棄使用 start.bat**，並**改用「方法 3: 手動安裝」**中的步驟。手動執行 `python -m venv venv`、`venv\Scripts\activate`、`pip install -r requirements.txt` 和 `C:/Python313/python.exe __main__.py` 可以 100% 繞過這個批次檔解析錯誤。
-
----
-
 ### ❌ 問題：「Address already in use」或「Port 8000 is already allocated」
 
 **意思：** 另一個程式正在使用 port 8000。
@@ -1080,15 +1203,14 @@ docker-compose logs aidefend-mcp
 
 ### ❌ 問題：「Permission denied」（Linux/macOS）
 
-**對於 start.sh：**
-```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
-```
-
 **對於 data 目錄：**
 ```bash
 chmod -R 755 data/
+```
+
+**對於主程式：**
+```bash
+chmod +x __main__.py
 ```
 
 ---

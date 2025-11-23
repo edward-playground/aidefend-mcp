@@ -13,12 +13,13 @@ This guide is designed for beginners. Every step is explained in detail. If you 
 ## 📋 Table of Contents
 
 1. [What You'll Need (Prerequisites)](#what-youll-need-prerequisites)
-2. [Method 1: Quick Start with Scripts (Easiest)](#method-1-quick-start-with-scripts-easiest)
-3. [Method 2: Docker Installation (Recommended for Production)](#method-2-docker-installation-recommended-for-production)
-4. [Method 3: Manual Installation (Most Control)](#method-3-manual-installation-most-control)
-5. [Verify Everything is Working](#verify-everything-is-working)
-6. [Troubleshooting Common Issues](#troubleshooting-common-issues)
-7. [Next Steps](#next-steps)
+2. [🚀 MCP Mode Setup (Claude Desktop) - Automated](#-mcp-mode-setup-claude-desktop---automated)
+3. [Method 1: Quick Start with Scripts (Easiest)](#method-1-quick-start-with-scripts-easiest)
+4. [Method 2: Docker Installation (Recommended for Production)](#method-2-docker-installation-recommended-for-production)
+5. [Method 3: Manual Installation (Most Control)](#method-3-manual-installation-most-control)
+6. [Verify Everything is Working](#verify-everything-is-working)
+7. [Troubleshooting Common Issues](#troubleshooting-common-issues)
+8. [Next Steps](#next-steps)
 
 ---
 
@@ -112,6 +113,146 @@ docker-compose --version
 
 ---
 
+## 🚀 MCP Mode Setup (Claude Desktop) - Automated
+
+**For users who want to use AIDEFEND with Claude Desktop**
+
+This automated setup configures Claude Desktop to use AIDEFEND MCP tools in just 2 minutes.
+
+### Prerequisites for MCP Mode
+
+1. **Claude Desktop installed** - Download from: https://claude.ai/download
+2. **Python 3.9+** - Check: `python --version`
+3. **Git** - Check: `git --version`
+
+### Step 1: Download AIDEFEND
+
+```bash
+git clone https://github.com/edward-playground/aidefend-mcp.git
+cd aidefend-mcp
+```
+
+### Step 2: Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+**What this installs:**
+- FastAPI, Uvicorn (API server)
+- LanceDB (vector database)
+- FastEmbed (embedding model - ONNX, ~100MB download)
+- Other Python dependencies
+
+**Time:** 1-2 minutes on first install
+
+### Step 3: Run Automated Setup
+
+```bash
+python scripts/setup_mcp.py
+```
+
+**What this script does:**
+- ✅ Auto-detects your Python path
+- ✅ Auto-detects AIDEFEND project path
+- ✅ Auto-detects Claude Desktop config location
+- ✅ **Safely merges** configuration (preserves all existing MCP tools)
+- ✅ Creates backup of existing config
+- ✅ Validates all paths before writing
+
+**Example output:**
+```
+════════════════════════════════════════════════════════════════
+  AIDEFEND MCP - Claude Desktop Setup Tool
+════════════════════════════════════════════════════════════════
+
+🔍 Detecting system paths...
+
+✓ Python path: C:/Python313/python.exe
+✓ MCP project path: c:/Users/you/aidefend-mcp
+✓ Claude config: C:/Users/you/AppData/Roaming/Claude/claude_desktop_config.json
+
+────────────────────────────────────────────────────────────────
+
+✅ Preserving 2 existing MCP tool(s):
+   • filesystem
+   • git
+
+✅ Will add AIDEFEND tool
+
+────────────────────────────────────────────────────────────────
+
+Write configuration? (y/n): y
+
+✅ Backup created: claude_desktop_config.json.backup.20250122_143022
+✅ Configuration written successfully!
+✅ All 2 existing tool(s) preserved
+
+════════════════════════════════════════════════════════════════
+  🎉 Installation Complete!
+════════════════════════════════════════════════════════════════
+
+📌 Next steps:
+
+  1. Completely quit Claude Desktop:
+     - Windows: Right-click Claude in taskbar → Exit
+     - macOS: Press Cmd+Q to quit (not just close window)
+
+  2. Restart Claude Desktop
+
+  3. Start using AIDEFEND!
+     Try asking: "What techniques defend against prompt injection?"
+```
+
+### Step 4: Restart Claude Desktop
+
+**IMPORTANT:** You must **completely quit** Claude Desktop (not just close the window) and restart it.
+
+**Windows:**
+- Right-click Claude icon in system tray → Exit
+
+**macOS:**
+- Press `Cmd+Q` (or Claude menu → Quit)
+
+**Verify tools loaded:**
+- Open Claude Desktop
+- Tools should appear in the available tools panel
+- Ask Claude: "What AIDEFEND tools are available?"
+
+### Alternative: Manual Mode Options
+
+The setup script supports several modes:
+
+```bash
+# Interactive mode (default) - asks for confirmation
+python scripts/setup_mcp.py
+
+# Automatic mode - no confirmations
+python scripts/setup_mcp.py --auto
+
+# Dry run - preview without writing
+python scripts/setup_mcp.py --dry-run
+
+# Show help
+python scripts/setup_mcp.py --help
+```
+
+### Uninstalling MCP Mode
+
+To remove AIDEFEND from Claude Desktop (while keeping the project files):
+
+```bash
+python scripts/uninstall_mcp.py
+```
+
+This will:
+- ✅ Remove AIDEFEND from Claude config
+- ✅ Preserve all other MCP tools
+- ✅ Create backup before removal
+- ✅ Keep your local project files untouched
+
+---
+
 ## Method 1: Quick Start with Scripts (Easiest)
 
 **Recommended for:** First-time users, local development
@@ -140,25 +281,18 @@ dir # Windows
 
 ---
 
-### Step 2: Run the Start Script
+### Step 2: Start the Service
 
-**On Windows:**
-```cmd
-scripts\start.bat
-```
-
-**On macOS/Linux:**
+**On any platform (Windows/macOS/Linux):**
 ```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
+python __main__.py
 ```
 
-**What this script does automatically:**
-1. ✅ Checks Python is installed
-2. ✅ Creates a virtual environment (isolated Python environment)
-3. ✅ Installs all required Python packages
-4. ✅ Creates configuration file (`.env`)
-5. ✅ Starts the service
+**What happens on first run:**
+1. ✅ Automatically syncs AIDEFEND framework from GitHub (5-15 minutes)
+2. ✅ Parses and indexes all security techniques
+3. ✅ Starts the REST API server on http://localhost:8000
+4. ✅ Service is ready for queries
 
 **Expected output:**
 ```
@@ -944,17 +1078,6 @@ python -m pip install -r requirements.txt
 
 ---
 
-### ❌ Issue: Running scripts\start.bat shows "... was unexpected at this time." error
-
-**Meaning:** This is a Windows Command Prompt (cmd.exe) syntax parsing error. This usually happens when the start.bat file contains invisible special characters (e.g., from copying/pasting from a web page) or incorrect file encoding.
-
-**Solutions:**
-
-1. **Preferred solution:** Ensure you downloaded via **git clone** directly from GitHub, rather than copying/pasting the start.bat file content from a web page.
-2. **Alternative solution (most reliable):** **Abandon using start.bat** and **use "Method 3: Manual Installation"** steps instead. Manually run `python -m venv venv`, `venv\Scripts\activate`, `pip install -r requirements.txt`, and `C:/Python313/python.exe __main__.py` to 100% bypass this batch file parsing error.
-
----
-
 ### ❌ Issue: "Address already in use" or "Port 8000 is already allocated"
 
 **Meaning:** Another program is using port 8000.
@@ -1078,15 +1201,14 @@ docker-compose logs aidefend-mcp
 
 ### ❌ Issue: "Permission denied" (Linux/macOS)
 
-**For start.sh:**
-```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
-```
-
 **For data directory:**
 ```bash
 chmod -R 755 data/
+```
+
+**For main script:**
+```bash
+chmod +x __main__.py
 ```
 
 ---
