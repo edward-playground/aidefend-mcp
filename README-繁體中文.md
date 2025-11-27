@@ -293,7 +293,8 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 | 模式 | 適合用於 | 快速開始 |
 |------|---------|---------|
-| **🔌 MCP** | Claude Desktop 用戶 | `python scripts/install.py` |
+| **🖥️ Claude Desktop** | 桌面應用程式使用者 | `python scripts/install.py` |
+| **💻 Claude Code** | VSCode 使用者 | `python scripts/install.py --client code` |
 | **🌐 REST API** | HTTP 整合、CI/CD | `python __main__.py` |
 | **🐳 Docker** | 正式部署 | `docker-compose up -d` |
 

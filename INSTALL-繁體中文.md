@@ -328,6 +328,69 @@ python scripts/uninstall_mcp.py
 - ✅ 移除前建立備份
 - ✅ 保留你的本地專案檔案
 
+---
+
+## 🔌 Claude Code 設定（VSCode 擴充）
+
+**適用於：想要在 Claude Code (VSCode 擴充) 中使用 AIDEFEND 的使用者**
+
+Claude Code 使用不同於 Claude Desktop 的設定格式（`.mcp.json`）。
+
+### 快速設定
+
+```bash
+# 只安裝給 Claude Code
+python scripts/install.py --client code
+
+# 或同時安裝給 Claude Desktop 和 Claude Code
+python scripts/install.py --client both
+```
+
+**這個指令會：**
+- ✅ 安裝所有依賴（與 Claude Desktop 相同）
+- ✅ 在專案根目錄建立 `.mcp.json`
+- ✅ **安全合併**現有的 `.mcp.json`（保留其他 servers）
+- ✅ 可以 commit 到 git（與團隊分享）
+
+### 安裝後步驟
+
+1. **重新載入 VSCode 視窗**：
+   - 按 `Ctrl+Shift+P`（Windows/Linux）或 `Cmd+Shift+P`（macOS）
+   - 輸入 "Reload Window" 並按 Enter
+
+2. **驗證 AIDEFEND 可用**：
+   - 在 MCP 工具面板中尋找 `aidefend`
+   - 嘗試透過 `/` 斜線命令使用 AIDEFEND 工具
+
+### Claude Code vs Claude Desktop
+
+| 項目 | Claude Desktop | Claude Code |
+|------|----------------|-------------|
+| **設定檔** | `claude_desktop_config.json` | `.mcp.json`（專案根目錄） |
+| **位置** | 使用者設定目錄 | 專案目錄 |
+| **版本控制** | 不分享 | 可 commit 到 git |
+| **團隊分享** | 每位使用者手動設定 | 自動（透過 git） |
+| **客戶端存取** | 僅限桌面應用程式 | 僅限 VSCode |
+
+### .mcp.json 範例
+
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+      "command": "C:/Python313/python.exe",
+      "args": [
+        "C:/Users/you/aidefend-mcp/__main__.py",
+        "--mcp"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
+---
+
 ### 安裝問題疑難排解
 
 #### Python/Node.js 版本錯誤

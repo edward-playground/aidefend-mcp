@@ -328,6 +328,69 @@ This will:
 - ✅ Create backup before removal
 - ✅ Keep your local project files untouched
 
+---
+
+## 🔌 Claude Code Setup (VSCode Extension)
+
+**For users who want to use AIDEFEND with Claude Code (VSCode extension)**
+
+Claude Code uses a different configuration format (`.mcp.json`) than Claude Desktop.
+
+### Quick Setup
+
+```bash
+# Install for Claude Code only
+python scripts/install.py --client code
+
+# Or install for BOTH Claude Desktop and Claude Code
+python scripts/install.py --client both
+```
+
+**What this does:**
+- ✅ Installs all dependencies (same as Claude Desktop)
+- ✅ Creates `.mcp.json` in project root
+- ✅ **Safely merges** with existing `.mcp.json` (preserves other servers)
+- ✅ Ready to commit to git (shareable with team)
+
+### After Installation
+
+1. **Reload VSCode window**:
+   - Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS)
+   - Type "Reload Window" and press Enter
+
+2. **Verify AIDEFEND is available**:
+   - Look for `aidefend` in MCP tools panel
+   - Try using AIDEFEND tools via `/` slash commands
+
+### Claude Code vs Claude Desktop
+
+| Aspect | Claude Desktop | Claude Code |
+|--------|----------------|-------------|
+| **Config file** | `claude_desktop_config.json` | `.mcp.json` (project root) |
+| **Location** | User config directory | Project directory |
+| **Version control** | Not shared | Can be committed to git |
+| **Team sharing** | Manual setup per user | Automatic (via git) |
+| **Client access** | Desktop app only | VSCode only |
+
+### Example .mcp.json
+
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+      "command": "C:/Python313/python.exe",
+      "args": [
+        "C:/Users/you/aidefend-mcp/__main__.py",
+        "--mcp"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
+---
+
 ### Troubleshooting Installation Issues
 
 #### Python/Node.js version errors

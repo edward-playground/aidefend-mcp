@@ -294,7 +294,8 @@ Both modes share the same core logic, ensuring consistent results.
 
 | Mode | Best For | Quick Start |
 |------|----------|-------------|
-| **🔌 MCP** | Claude Desktop users | `python scripts/install.py` |
+| **🖥️ Claude Desktop** | Desktop app users | `python scripts/install.py` |
+| **💻 Claude Code** | VSCode users | `python scripts/install.py --client code` |
 | **🌐 REST API** | HTTP integration, CI/CD | `python __main__.py` |
 | **🐳 Docker** | Production deployment | `docker-compose up -d` |
 
