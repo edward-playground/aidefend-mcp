@@ -5,15 +5,18 @@ This script provides a complete, automated installation of AIDEFEND MCP service:
 1. Checks system requirements (Python 3.9+, Node.js 18+)
 2. Installs Python dependencies
 3. Installs Node.js dependencies
-4. Configures Claude Desktop (MCP mode) with safe config merging
+4. Configures MCP clients (Claude Desktop and/or Claude Code) with safe config merging
 
 Usage:
-    python scripts/install.py              # Interactive installation (recommended)
-    python scripts/install.py --auto       # Fully automated (no prompts)
-    python scripts/install.py --no-mcp     # Skip MCP configuration
-    python scripts/install.py --dry-run    # Preview without making changes
-    python scripts/install.py --check      # Check prerequisites only (no install)
-    python scripts/install.py --help       # Show this help
+    python scripts/install.py                      # Interactive installation (Claude Desktop)
+    python scripts/install.py --client desktop     # Configure Claude Desktop only
+    python scripts/install.py --client code        # Configure Claude Code (VSCode) only
+    python scripts/install.py --client both        # Configure both clients
+    python scripts/install.py --auto               # Fully automated (no prompts)
+    python scripts/install.py --no-mcp             # Skip MCP configuration
+    python scripts/install.py --dry-run            # Preview without making changes
+    python scripts/install.py --check              # Check prerequisites only (no install)
+    python scripts/install.py --help               # Show this help
 """
 
 import sys
@@ -69,32 +72,54 @@ def check_python_version() -> Tuple[bool, str]:
 
 def check_node_version() -> Tuple[bool, str]:
     """
-    Check if Node.js is installed and version meets requirements (18+).
+    Check if Node.js AND npm are installed and versions meet requirements (18+).
 
     Returns:
         (is_valid, version_string or error_message)
     """
     try:
-        result = subprocess.run(
+        # Check Node.js
+        node_result = subprocess.run(
             ['node', '--version'],
             capture_output=True,
             text=True,
             timeout=5
         )
 
-        if result.returncode != 0:
+        if node_result.returncode != 0:
             return False, "Node.js command failed"
 
-        version_str = result.stdout.strip()
-        # Parse version (e.g., "v18.17.0" -> 18)
-        if version_str.startswith('v'):
-            major_version = int(version_str[1:].split('.')[0])
-            if major_version >= 18:
-                return True, version_str
-            else:
-                return False, f"{version_str} (requires v18+)"
+        node_version = node_result.stdout.strip()
 
-        return False, version_str
+        # Parse version (e.g., "v18.17.0" -> 18)
+        if node_version.startswith('v'):
+            major_version = int(node_version[1:].split('.')[0])
+            if major_version < 18:
+                return False, f"{node_version} (requires v18+)"
+        else:
+            return False, node_version
+
+        # Check npm (Windows uses npm.cmd, Unix uses npm)
+        npm_cmd = 'npm.cmd' if sys.platform == 'win32' else 'npm'
+
+        try:
+            npm_result = subprocess.run(
+                [npm_cmd, '--version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if npm_result.returncode != 0:
+                return False, f"npm command failed (Node.js {node_version} found but npm not working)"
+
+            npm_version = npm_result.stdout.strip()
+
+            # Both node and npm are OK
+            return True, f"{node_version}, npm {npm_version}"
+
+        except FileNotFoundError:
+            return False, f"npm not found (Node.js {node_version} found but npm is missing)"
 
     except FileNotFoundError:
         return False, "Node.js not found"
@@ -228,9 +253,12 @@ def install_node_dependencies(verbose: bool = True) -> bool:
         print(f"   Using: {package_json}")
         print("   This may take 1-2 minutes...")
 
+    # Windows uses npm.cmd, Unix uses npm
+    npm_cmd = 'npm.cmd' if sys.platform == 'win32' else 'npm'
+
     try:
         result = subprocess.run(
-            ['npm', 'install'],
+            [npm_cmd, 'install'],
             cwd=str(project_root),
             capture_output=not verbose,
             text=True,
@@ -263,8 +291,10 @@ def install_node_dependencies(verbose: bool = True) -> bool:
         print("💡 Try running manually: npm install")
         return False
     except FileNotFoundError:
-        print("❌ npm command not found. Please install Node.js first.")
-        print("💡 Download from: https://nodejs.org/")
+        print("❌ npm command not found.")
+        print("💡 This should not happen if prerequisites check passed.")
+        print("   Please ensure npm is in your PATH and try again.")
+        print("   Download Node.js from: https://nodejs.org/")
         return False
     except Exception as e:
         print(f"❌ Failed to install Node.js dependencies: {e}")
@@ -463,6 +493,106 @@ def configure_mcp(auto: bool = False, dry_run: bool = False) -> bool:
     return True
 
 
+def configure_claude_code(auto: bool = False, dry_run: bool = False) -> bool:
+    """
+    Configure Claude Code (VSCode extension) for MCP mode.
+
+    Creates or updates .mcp.json in project root.
+
+    Returns:
+        True if successful
+    """
+    print("\nConfiguring Claude Code for MCP mode...")
+
+    project_root = Path(__file__).parent.parent
+    mcp_json_path = project_root / '.mcp.json'
+    python_path = get_python_path()
+    mcp_path = get_mcp_path()
+
+    print(f"   Config file: {mcp_json_path}")
+    print(f"   Python: {python_path}")
+    print(f"   Project: {mcp_path}")
+
+    # Validate paths
+    if not validate_paths(python_path, mcp_path):
+        return False
+
+    # Create AIDEFEND config for Claude Code (.mcp.json format)
+    aidefend_config = {
+        "command": python_path,
+        "args": [f"{mcp_path}/__main__.py", "--mcp"],
+        "env": {}
+    }
+
+    # Safe merge if .mcp.json exists
+    if mcp_json_path.exists():
+        try:
+            with open(mcp_json_path, 'r', encoding='utf-8') as f:
+                existing_config = json.load(f)
+            if not isinstance(existing_config, dict):
+                existing_config = {}
+        except json.JSONDecodeError:
+            print("⚠️  Existing .mcp.json has invalid JSON, creating new config")
+            existing_config = {}
+    else:
+        existing_config = {}
+
+    # Ensure mcpServers exists
+    if 'mcpServers' not in existing_config:
+        existing_config['mcpServers'] = {}
+
+    # Get list of other servers before modification
+    other_servers = [
+        name for name in existing_config['mcpServers'].keys()
+        if name != 'aidefend'
+    ]
+
+    # Confirm if not auto mode
+    if not auto and not dry_run:
+        if mcp_json_path.exists():
+            print("\n⚠️  This will modify your .mcp.json configuration.")
+        else:
+            print("\n📝 This will create .mcp.json in your project root.")
+        response = input("   Continue? [Y/n]: ").strip().lower()
+        if response and response != 'y':
+            print("❌ Claude Code configuration cancelled")
+            return False
+
+    # Add/update AIDEFEND
+    existing_config['mcpServers']['aidefend'] = aidefend_config
+
+    # Show preserved servers
+    if other_servers:
+        print(f"✅ Preserving {len(other_servers)} existing MCP server(s):")
+        for server_name in other_servers:
+            print(f"   • {server_name}")
+
+    # Write .mcp.json
+    if dry_run:
+        print("\n[DRY RUN] Would write .mcp.json:")
+        print(json.dumps(existing_config, indent=2))
+        return True
+
+    try:
+        with open(mcp_json_path, 'w', encoding='utf-8') as f:
+            json.dump(existing_config, f, indent=2, ensure_ascii=False)
+        print(f"✅ Configuration saved to: {mcp_json_path}")
+
+        print("\n✅ Claude Code configuration completed successfully!")
+        print("\n📝 NOTE: .mcp.json created in project root")
+        print("   You can commit this file to share MCP config with your team")
+        print("\n⚠️  IMPORTANT: Reload VSCode window to apply changes")
+        print("   1. Press Ctrl+Shift+P (Windows/Linux) or Cmd+Shift+P (macOS)")
+        print("   2. Type 'Reload Window' and press Enter")
+        print("   3. Look for 'aidefend' in MCP tools")
+
+        return True
+
+    except Exception as e:
+        print(f"❌ Failed to write .mcp.json: {e}")
+        return False
+
+
 def main():
     """Main installation workflow."""
     parser = argparse.ArgumentParser(
@@ -478,6 +608,10 @@ def main():
                        help='Preview without making changes')
     parser.add_argument('--check', action='store_true',
                        help='Check prerequisites only (no installation)')
+    parser.add_argument('--client',
+                       choices=['desktop', 'code', 'both'],
+                       default='desktop',
+                       help='Target client: desktop (Claude Desktop), code (Claude Code/VSCode), both (default: desktop)')
 
     args = parser.parse_args()
 
@@ -584,10 +718,26 @@ def main():
 
     # Step 5: Configure MCP (optional)
     if not args.no_mcp:
-        print_step(5, 5, "Configuring Claude Desktop (MCP mode)")
-        if not configure_mcp(auto=args.auto, dry_run=args.dry_run):
-            print("⚠️  MCP configuration failed, but dependencies are installed")
-            print("   You can run MCP setup later: python scripts/install.py")
+        config_success = True
+
+        # Configure Claude Desktop
+        if args.client in ['desktop', 'both']:
+            print_step(5, 5, "Configuring Claude Desktop (MCP mode)")
+            if not configure_mcp(auto=args.auto, dry_run=args.dry_run):
+                print("⚠️  Claude Desktop configuration failed")
+                config_success = False
+
+        # Configure Claude Code
+        if args.client in ['code', 'both']:
+            step_label = "Configuring Claude Code (MCP mode)" if args.client == 'code' else "Additionally configuring Claude Code (MCP mode)"
+            print_step(5, 5, step_label)
+            if not configure_claude_code(auto=args.auto, dry_run=args.dry_run):
+                print("⚠️  Claude Code configuration failed")
+                config_success = False
+
+        if not config_success:
+            print("\n⚠️  Some configurations failed, but dependencies are installed")
+            print("   You can run setup again: python scripts/install.py --client <desktop|code|both>")
             return 1
     else:
         print_step(5, 5, "Skipping MCP configuration [--no-mcp]")
@@ -598,13 +748,29 @@ def main():
     if not args.dry_run:
         if not args.no_mcp:
             print("Next steps:")
-            print("  1. Restart Claude Desktop (close completely and reopen)")
-            print("  2. Look for 'aidefend' in MCP tools (🔌 icon)")
-            print("  3. Try: 'Search AIDEFEND for prompt injection defenses'")
+
+            # Instructions based on which client was configured
+            if args.client == 'desktop':
+                print("  1. Restart Claude Desktop (close completely and reopen)")
+                print("  2. Look for 'aidefend' in MCP tools (🔌 icon)")
+                print("  3. Try: 'Search AIDEFEND for prompt injection defenses'")
+            elif args.client == 'code':
+                print("  1. Reload VSCode window (Ctrl+Shift+P → 'Reload Window')")
+                print("  2. Look for 'aidefend' in MCP tools")
+                print("  3. Try using AIDEFEND tools via / commands")
+            elif args.client == 'both':
+                print("  Claude Desktop:")
+                print("    1. Restart Claude Desktop (close completely and reopen)")
+                print("    2. Look for 'aidefend' in MCP tools (🔌 icon)")
+                print("  Claude Code (VSCode):")
+                print("    1. Reload VSCode window (Ctrl+Shift+P → 'Reload Window')")
+                print("    2. Look for 'aidefend' in MCP tools")
         else:
             print("Dependencies installed successfully!")
-            print("\nTo configure Claude Desktop later:")
-            print("  python scripts/install.py")
+            print("\nTo configure clients later:")
+            print("  python scripts/install.py --client desktop    # Claude Desktop")
+            print("  python scripts/install.py --client code       # Claude Code (VSCode)")
+            print("  python scripts/install.py --client both       # Both clients")
             print("\nTo start REST API mode:")
             print("  python __main__.py")
     else:
