@@ -86,6 +86,33 @@ node --version
 
 ---
 
+#### 4. **Microsoft Visual C++ Redistributable** (Windows Only)
+
+**What is this?** A set of runtime libraries required by AI/ML libraries on Windows.
+
+**Who needs it?** Windows users only (macOS and Linux users can skip this)
+
+**When is it needed?** ONNX Runtime (used for embeddings) requires Visual C++ runtime DLLs on Windows.
+
+**Check if you have it:**
+- Open "Apps & features" in Windows Settings
+- Search for "Microsoft Visual C++ 2015-2022 Redistributable"
+
+**Don't have it?** The installation script will automatically detect and guide you to install it if missing.
+
+**Manual download:** https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+**Installation tips:**
+- Download and run the installer
+- Accept the license agreement and install
+- Restart your computer (recommended)
+
+**Why is this needed?** Python AI/ML libraries like ONNX Runtime use native C++ code for performance. These libraries require Visual C++ runtime DLLs to function on Windows.
+
+**Good news:** The automated installation script (`python scripts/install.py`) will automatically detect if this is missing and provide clear instructions. You don't need to manually check!
+
+---
+
 ### 🐳 Optional: Docker (for containerized deployment)
 
 **What is Docker?** A tool that packages the service and all its dependencies into a "container" - think of it like a portable, isolated environment.
