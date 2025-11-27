@@ -174,7 +174,7 @@ python __main__.py
 # ✅ 完成！訪問 http://localhost:8000/docs
 ```
 
-**若要使用 MCP 模式（Claude Desktop）：**執行 `python scripts/setup_mcp.py` 自動設定，詳見 [INSTALL-繁體中文.md](INSTALL-繁體中文.md)。
+**若要使用 MCP 模式（Claude Desktop）：**執行 `python scripts/install.py` 一鍵安裝，詳見 [INSTALL-繁體中文.md](INSTALL-繁體中文.md)。
 
 **立即試用：**
 
@@ -307,6 +307,9 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 ```bash
 # 單一指令 - 自動安裝所有依賴並設定 Claude Desktop
 python scripts/install.py
+
+# macOS/Linux 使用者：如果 python 指向 Python 2，請使用 python3
+python3 scripts/install.py
 ```
 
 **這個腳本會自動：**

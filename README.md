@@ -175,7 +175,7 @@ python __main__.py
 # ✅ Done! Access at http://localhost:8000/docs
 ```
 
-**For MCP mode (Claude Desktop):** Run `python scripts/setup_mcp.py` to auto-configure, then see [INSTALL.md](INSTALL.md).
+**For MCP mode (Claude Desktop):** Run `python scripts/install.py` for one-click installation, then see [INSTALL.md](INSTALL.md).
 
 **Try it now:**
 
@@ -308,6 +308,9 @@ Both modes share the same core logic, ensuring consistent results.
 ```bash
 # Single command - installs everything and configures Claude Desktop
 python scripts/install.py
+
+# macOS/Linux users: Use python3 if python points to Python 2
+python3 scripts/install.py
 ```
 
 **What this script does:**

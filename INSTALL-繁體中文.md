@@ -133,10 +133,49 @@ git clone https://github.com/edward-playground/aidefend-mcp.git
 cd aidefend-mcp
 ```
 
-### 步驟 2：一鍵安裝
+**💡 提示：** macOS/Linux 使用者，如果 `python` 指向 Python 2，請使用 `python3`：
+```bash
+python3 --version  # 檢查是否需要使用 python3
+```
+
+### 步驟 2：（可選但建議）建立虛擬環境
+
+使用虛擬環境可避免與其他 Python 專案的依賴衝突：
 
 ```bash
+# 建立虛擬環境
+python -m venv venv
+
+# 啟動虛擬環境
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# 您應該會在終端機提示符看到 (venv)
+```
+
+**為什麼使用 venv？**
+- 隔離 AIDEFEND 的依賴，不影響其他 Python 專案
+- 避免版本衝突（例如其他專案使用不同版本的 Pydantic）
+- 易於移除（只需刪除 `venv` 資料夾）
+
+**注意：** 如果使用 venv，每次執行 AIDEFEND 前都要記得啟動它。
+
+### 步驟 3：一鍵安裝
+
+**建議先檢查前置需求：**
+```bash
+python scripts/install.py --check
+```
+
+**然後安裝：**
+```bash
 python scripts/install.py
+```
+
+**Linux/macOS 使用者：** 如有需要請使用 `python3`：
+```bash
+python3 scripts/install.py --check
+python3 scripts/install.py
 ```
 
 **這個腳本會：**
@@ -207,7 +246,7 @@ python scripts/install.py
   3. 試試：「搜尋 AIDEFEND 中關於 prompt injection 的防禦手法」
 ```
 
-### 步驟 3：重啟 Claude Desktop
+### 步驟 4：重啟 Claude Desktop
 
 **重要：** 你必須**完全退出** Claude Desktop（不只是關閉視窗），然後重新開啟。
 
@@ -222,11 +261,34 @@ python scripts/install.py
 - 工具應該會出現在可用工具面板中
 - 問 Claude：「有哪些 AIDEFEND 工具可用？」
 
+### 步驟 5：首次使用 - 模型下載
+
+⚠️ **重要：** **首次使用**時，AIDEFEND 會自動下載約 400MB 的 embedding 模型（`multilingual-e5-base`）。
+
+**預期情況：**
+- **下載時間：** 2-5 分鐘（取決於網路速度）
+- **儲存空間：** 約 500MB（模型 + 知識庫）
+- **存放位置：** `~/.cache/fastembed/`（macOS/Linux）或 `%USERPROFILE%\.cache\fastembed\`（Windows）
+- **僅此一次：** 後續使用會立即回應
+
+**如果 Claude 第一次查詢時很慢：**
+- 正在背景下載模型
+- 如有需要可檢查 MCP 伺服器日誌
+- 等待幾分鐘後再試
+
+**離線使用：**
+- 首次下載後，AIDEFEND 可完全離線運作
+- 不會對外發送任何 API 請求
+- 所有處理皆為 100% 本地運算
+
 ### 替代方案：安裝選項
 
 安裝腳本支援多種模式：
 
 ```bash
+# 僅檢查前置需求（不安裝）
+python scripts/install.py --check
+
 # 互動模式（預設）- 會詢問確認
 python scripts/install.py
 
@@ -243,6 +305,15 @@ python scripts/install.py --dry-run
 python scripts/install.py --help
 ```
 
+**建議工作流程：**
+```bash
+# 1. 先檢查前置需求
+python scripts/install.py --check
+
+# 2. 若一切正常，執行安裝
+python scripts/install.py
+```
+
 ### 反安裝 MCP 模式
 
 若要從 Claude Desktop 移除 AIDEFEND（但保留專案檔案）：
@@ -256,6 +327,129 @@ python scripts/uninstall_mcp.py
 - ✅ 保留所有其他 MCP 工具
 - ✅ 移除前建立備份
 - ✅ 保留你的本地專案檔案
+
+### 安裝問題疑難排解
+
+#### Python/Node.js 版本錯誤
+
+**問題：** `python --version` 顯示 Python 2.x 或找不到命令
+
+**macOS/Linux 解決方案：**
+```bash
+# 改用 python3
+python3 --version
+python3 scripts/install.py
+```
+
+**Windows 解決方案：**
+```bash
+# 從 https://www.python.org/downloads/ 安裝 Python 3.9+
+# 安裝時確保勾選「Add Python to PATH」
+```
+
+#### `pip install` 失敗或逾時
+
+**問題：** 網路問題、防火牆或下載緩慢
+
+**解決方案 1 - 檢查網路：**
+```bash
+python scripts/install.py --check  # 驗證連線
+```
+
+**解決方案 2 - 中國大陸使用者：**
+```bash
+# 使用清華鏡像源
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+npm install --registry=https://registry.npmmirror.com
+```
+
+**解決方案 3 - 企業代理：**
+```bash
+pip install -r requirements.txt --proxy YOUR_PROXY_URL
+```
+
+**解決方案 4 - 升級 pip：**
+```bash
+python -m pip install --upgrade pip
+```
+
+#### `npm install` 失敗
+
+**問題：** npm 錯誤或權限問題
+
+**解決方案 1 - 清除快取：**
+```bash
+npm cache clean --force
+npm install
+```
+
+**解決方案 2 - 使用不同 registry：**
+```bash
+npm install --registry=https://registry.npmjs.org/
+```
+
+#### 未偵測到 Claude Desktop
+
+**問題：** 警告找不到 Claude Desktop
+
+**解決方案：**
+- 從 https://claude.ai/download 安裝 Claude Desktop
+- 設定檔仍會被建立，等你安裝後即可使用
+- 如果只想用 REST API 模式則不需要
+
+#### 依賴與其他專案衝突
+
+**問題：** 「版本衝突」或「無法安裝 pydantic 2.x」
+
+**解決方案 - 使用虛擬環境：**
+```bash
+# 建立隔離環境
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# 然後安裝
+python scripts/install.py
+```
+
+#### 第一次查詢非常慢
+
+**問題：** Claude 在第一次 AIDEFEND 查詢時卡住 2-5 分鐘
+
+**原因：** 正在下載約 400MB 的 embedding 模型（僅此一次）
+
+**解決方案：**
+- 等待模型下載完成（檢查網路連線）
+- 後續查詢會立即回應
+- 模型儲存位置：`~/.cache/fastembed/`（macOS/Linux）或 `%USERPROFILE%\.cache\fastembed\`（Windows）
+
+#### MCP 工具未顯示在 Claude Desktop
+
+**問題：** 重啟後看不到 AIDEFEND
+
+**檢查清單：**
+1. 是否完全退出 Claude Desktop？（不只是關閉視窗）
+   - Windows：工作列右鍵 → Exit
+   - macOS：Cmd+Q
+2. 檢查設定檔是否存在：
+   - Windows：`%APPDATA%\Claude\claude_desktop_config.json`
+   - macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`
+3. 檢查設定檔格式是否為有效 JSON（無尾隨逗號）
+4. 再次重啟 Claude Desktop
+5. 檢查 Claude Desktop 日誌是否有錯誤
+
+#### 仍有問題？
+
+```bash
+# 執行診斷檢查
+python scripts/install.py --check
+
+# 查看詳細日誌
+cat data/logs/aidefend_mcp.log  # macOS/Linux
+type data\logs\aidefend_mcp.log  # Windows
+```
+
+如需更多協助，請參閱下方完整疑難排解指南或在 GitHub 開啟 issue。
 
 ---
 
