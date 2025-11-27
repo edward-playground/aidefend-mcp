@@ -86,6 +86,33 @@ node --version
 
 ---
 
+#### 4. **Microsoft Visual C++ Redistributable**（僅 Windows）
+
+**這是什麼？** Windows 上 AI/ML 程式庫所需的一組執行階段程式庫。
+
+**誰需要它？** 僅 Windows 使用者（macOS 和 Linux 使用者可跳過此步驟）
+
+**何時需要？** ONNX Runtime（用於嵌入向量生成）在 Windows 上需要 Visual C++ runtime DLLs。
+
+**檢查你是否已安裝：**
+- 在 Windows 設定中開啟「應用程式與功能」
+- 搜尋「Microsoft Visual C++ 2015-2022 Redistributable」
+
+**還沒安裝？** 安裝腳本會自動檢測並引導你安裝（如果缺少的話）。
+
+**手動下載：** https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+**安裝提示：**
+- 下載並執行安裝程式
+- 接受授權合約並安裝
+- 重新啟動電腦（建議）
+
+**為什麼需要這個？** Python AI/ML 程式庫（如 ONNX Runtime）使用原生 C++ 程式碼以提升效能。這些程式庫需要 Visual C++ runtime DLLs 才能在 Windows 上運作。
+
+**好消息：** 自動化安裝腳本（`python scripts/install.py`）會自動檢測是否缺少此元件，並提供清楚的安裝指示。你不需要手動檢查！
+
+---
+
 ### 🐳 選配：Docker（用於容器化部署）
 
 **什麼是 Docker？** 一個將服務及其所有相依套件打包成「容器」的工具 - 可以想像成一個可攜帶的、隔離的環境。

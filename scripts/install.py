@@ -234,6 +234,30 @@ def install_python_dependencies(verbose: bool = True) -> bool:
         return False
 
 
+def verify_onnx_runtime() -> Tuple[bool, str]:
+    """
+    Verify that ONNX Runtime can be imported (checks for Visual C++ dependencies on Windows).
+
+    This is critical on Windows where ONNX Runtime requires Microsoft Visual C++ Redistributable.
+
+    Returns:
+        (is_valid, message)
+    """
+    try:
+        import onnxruntime
+        return True, f"ONNX Runtime {onnxruntime.__version__}"
+    except ImportError as e:
+        error_msg = str(e)
+
+        # Check if it's a DLL load error (missing Visual C++ Redistributable on Windows)
+        if "DLL load failed" in error_msg or "pybind11_state" in error_msg:
+            return False, "DLL_MISSING"
+        else:
+            return False, f"Import failed: {error_msg}"
+    except Exception as e:
+        return False, f"Unexpected error: {e}"
+
+
 def install_node_dependencies(verbose: bool = True) -> bool:
     """
     Install Node.js dependencies using npm.
@@ -675,7 +699,7 @@ def main():
         print("🔍 DRY RUN MODE - No changes will be made\n")
 
     # Step 1: Check Python version
-    print_step(1, 5, "Checking Python version")
+    print_step(1, 6, "Checking Python version")
     py_valid, py_version = check_python_version()
     print(f"   Python version: {py_version}")
 
@@ -686,7 +710,7 @@ def main():
     print("✅ Python version OK")
 
     # Step 2: Check Node.js
-    print_step(2, 5, "Checking Node.js version")
+    print_step(2, 6, "Checking Node.js version")
     node_valid, node_version = check_node_version()
     print(f"   Node.js version: {node_version}")
 
@@ -698,22 +722,53 @@ def main():
 
     # Step 3: Install Python dependencies
     if not args.dry_run:
-        print_step(3, 5, "Installing Python dependencies")
+        print_step(3, 6, "Installing Python dependencies")
         if not install_python_dependencies(verbose=True):
             print("❌ Failed to install Python dependencies")
             return 1
+
+        # Verify ONNX Runtime can be imported (critical for Windows)
+        print("\n   Verifying ONNX Runtime...")
+        onnx_valid, onnx_msg = verify_onnx_runtime()
+
+        if not onnx_valid:
+            if onnx_msg == "DLL_MISSING":
+                # Windows-specific DLL error - missing Visual C++ Redistributable
+                print("\n" + "=" * 70)
+                print("❌ ONNX Runtime DLL Error (Windows)")
+                print("=" * 70)
+                print("\n⚠️  ONNX Runtime requires Microsoft Visual C++ Redistributable")
+                print("   This is a one-time installation needed for AI/ML libraries on Windows.\n")
+                print("📥 Please install Visual C++ Redistributable:")
+                print("   1. Download: https://aka.ms/vs/17/release/vc_redist.x64.exe")
+                print("   2. Run the installer and follow the prompts")
+                print("   3. Restart your computer (recommended)")
+                print("   4. Run this installation script again\n")
+                print("💡 Alternative: The issue may resolve by reinstalling onnxruntime:")
+                print("   python -m pip uninstall onnxruntime -y")
+                print("   python -m pip install onnxruntime\n")
+                print("=" * 70)
+                return 1
+            else:
+                # Other import error
+                print(f"\n❌ ONNX Runtime verification failed: {onnx_msg}")
+                print("💡 This may affect embedding functionality.")
+                print("   Try: python -m pip install --upgrade onnxruntime")
+                return 1
+
+        print(f"   ✅ {onnx_msg}")
     else:
-        print_step(3, 5, "Installing Python dependencies [DRY RUN]")
+        print_step(3, 6, "Installing Python dependencies [DRY RUN]")
         print("   Would run: pip install -r requirements.txt")
 
     # Step 4: Install Node.js dependencies
     if not args.dry_run:
-        print_step(4, 5, "Installing Node.js dependencies")
+        print_step(4, 6, "Installing Node.js dependencies")
         if not install_node_dependencies(verbose=True):
             print("❌ Failed to install Node.js dependencies")
             return 1
     else:
-        print_step(4, 5, "Installing Node.js dependencies [DRY RUN]")
+        print_step(4, 6, "Installing Node.js dependencies [DRY RUN]")
         print("   Would run: npm install")
 
     # Step 5: Configure MCP (optional)
@@ -722,7 +777,7 @@ def main():
 
         # Configure Claude Desktop
         if args.client in ['desktop', 'both']:
-            print_step(5, 5, "Configuring Claude Desktop (MCP mode)")
+            print_step(5, 6, "Configuring Claude Desktop (MCP mode)")
             if not configure_mcp(auto=args.auto, dry_run=args.dry_run):
                 print("⚠️  Claude Desktop configuration failed")
                 config_success = False
@@ -730,7 +785,7 @@ def main():
         # Configure Claude Code
         if args.client in ['code', 'both']:
             step_label = "Configuring Claude Code (MCP mode)" if args.client == 'code' else "Additionally configuring Claude Code (MCP mode)"
-            print_step(5, 5, step_label)
+            print_step(5, 6, step_label)
             if not configure_claude_code(auto=args.auto, dry_run=args.dry_run):
                 print("⚠️  Claude Code configuration failed")
                 config_success = False
@@ -740,7 +795,42 @@ def main():
             print("   You can run setup again: python scripts/install.py --client <desktop|code|both>")
             return 1
     else:
-        print_step(5, 5, "Skipping MCP configuration [--no-mcp]")
+        print_step(5, 6, "Skipping MCP configuration [--no-mcp]")
+
+    # Step 6: Initial Database Sync (if MCP configured and not dry-run)
+    if not args.no_mcp and not args.dry_run:
+        print_step(6, 6, "Performing initial database sync")
+        print("   This is a one-time operation (30-60 seconds)")
+        print("   Downloading AIDEFEND content from GitHub and building vector database...")
+        print("")
+
+        try:
+            project_root = Path(__file__).parent.parent
+            result = subprocess.run(
+                [sys.executable, str(project_root / '__main__.py'), '--resync'],
+                cwd=str(project_root),
+                timeout=600  # 10 minutes timeout
+            )
+
+            if result.returncode == 0:
+                print("\n✅ Initial sync completed successfully")
+                print("   Database is ready - no cold start delays!")
+            else:
+                print("\n⚠️  Initial sync failed (non-critical)")
+                print("   The service will sync automatically on first use")
+                print("   You can manually sync later: python __main__.py --resync")
+
+        except subprocess.TimeoutExpired:
+            print("\n⚠️  Initial sync timed out (this is rare)")
+            print("   The service will sync automatically on first use")
+            print("   You can manually sync later: python __main__.py --resync")
+        except Exception as e:
+            print(f"\n⚠️  Initial sync error: {e}")
+            print("   The service will sync automatically on first use")
+            print("   You can manually sync later: python __main__.py --resync")
+    elif not args.no_mcp and args.dry_run:
+        print_step(6, 6, "Initial database sync [DRY RUN]")
+        print("   Would run: python __main__.py --resync")
 
     # Success
     print_banner("✅ Installation Complete!")
