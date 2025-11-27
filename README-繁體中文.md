@@ -293,7 +293,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 | 模式 | 適合用於 | 快速開始 |
 |------|---------|---------|
-| **🔌 MCP** | Claude Desktop 用戶 | `python scripts/setup_mcp.py` |
+| **🔌 MCP** | Claude Desktop 用戶 | `python scripts/install.py` |
 | **🌐 REST API** | HTTP 整合、CI/CD | `python __main__.py` |
 | **🐳 Docker** | 正式部署 | `docker-compose up -d` |
 
@@ -302,26 +302,22 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 <details open>
 <summary><h4>🔌 選項 A：MCP 模式（Claude Desktop）- 推薦</h4></summary>
 
-**🚀 自動化設定（2 分鐘完成）：**
+**🚀 一鍵安裝（2 分鐘完成）：**
 
 ```bash
-# 1. 安裝相依套件（如果還沒安裝）
-pip install -r requirements.txt
-
-# 2. 執行自動設定腳本
-python scripts/setup_mcp.py
-
-# 3. 重新啟動 Claude Desktop（完全關閉後再開啟）
+# 單一指令 - 自動安裝所有依賴並設定 Claude Desktop
+python scripts/install.py
 ```
 
 **這個腳本會自動：**
-- ✅ 偵測 Python 和專案路徑
-- ✅ 找到 Claude Desktop 設定檔
+- ✅ 檢查 Python 3.9+ 和 Node.js 18+ 版本
+- ✅ 自動安裝所有 Python 依賴
+- ✅ 自動安裝所有 Node.js 依賴
+- ✅ 自動偵測路徑並設定 Claude Desktop
 - ✅ **安全合併配置（保留所有現有的 MCP 工具）**
-- ✅ 建立備份
-- ✅ 驗證所有設定
+- ✅ 修改前自動建立備份
 
-**詳細說明：** 請參閱 [INSTALL-繁體中文.md 的 MCP 自動化設定章節](INSTALL-繁體中文.md#mcp-模式設定claude-desktop---自動化)。
+**詳細說明：** 請參閱 [INSTALL-繁體中文.md 的一鍵安裝章節](INSTALL-繁體中文.md#-mcp-模式設定claude-desktop---一鍵安裝)。
 
 <details>
 <summary><b>進階：手動設定（點擊展開）</b></summary>

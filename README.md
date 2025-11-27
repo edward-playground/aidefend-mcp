@@ -294,7 +294,7 @@ Both modes share the same core logic, ensuring consistent results.
 
 | Mode | Best For | Quick Start |
 |------|----------|-------------|
-| **🔌 MCP** | Claude Desktop users | `python scripts/setup_mcp.py` |
+| **🔌 MCP** | Claude Desktop users | `python scripts/install.py` |
 | **🌐 REST API** | HTTP integration, CI/CD | `python __main__.py` |
 | **🐳 Docker** | Production deployment | `docker-compose up -d` |
 
@@ -303,26 +303,22 @@ Both modes share the same core logic, ensuring consistent results.
 <details open>
 <summary><h4>🔌 Option A: MCP Mode (Claude Desktop) - Recommended</h4></summary>
 
-**🚀 Automated Setup (2 minutes):**
+**🚀 One-Click Installation (2 minutes):**
 
 ```bash
-# 1. Install dependencies (if not already done)
-pip install -r requirements.txt
-
-# 2. Run automated setup script
-python scripts/setup_mcp.py
-
-# 3. Restart Claude Desktop (completely close and reopen)
+# Single command - installs everything and configures Claude Desktop
+python scripts/install.py
 ```
 
 **What this script does:**
-- ✅ Auto-detects Python and project paths
-- ✅ Finds Claude Desktop config file
+- ✅ Checks Python 3.9+ and Node.js 18+ versions
+- ✅ Installs all Python dependencies automatically
+- ✅ Installs all Node.js dependencies automatically
+- ✅ Auto-detects paths and configures Claude Desktop
 - ✅ **Safely merges configuration (preserves existing MCP tools)**
-- ✅ Creates backup
-- ✅ Validates all settings
+- ✅ Creates backup before any changes
 
-**For details:** See [MCP Automated Setup in INSTALL.md](INSTALL.md#mcp-mode-setup-claude-desktop---automated).
+**For details:** See [One-Click Installation in INSTALL.md](INSTALL.md#-mcp-mode-setup-claude-desktop---one-click-installation).
 
 <details>
 <summary><b>Advanced: Manual Setup (click to expand)</b></summary>

@@ -113,17 +113,18 @@ docker-compose --version
 
 ---
 
-## 🚀 MCP 模式設定（Claude Desktop）- 自動化
+## 🚀 MCP 模式設定（Claude Desktop）- 一鍵安裝
 
 **適用於：想要在 Claude Desktop 中使用 AIDEFEND 的使用者**
 
-這個自動化設定只需 2 分鐘即可完成 Claude Desktop 與 AIDEFEND MCP 工具的整合。
+這個一鍵安裝腳本會自動安裝所有依賴並設定 Claude Desktop，只需 2 分鐘。
 
-### MCP 模式的前置需求
+### 前置需求
 
 1. **Claude Desktop 已安裝** - 下載位置：https://claude.ai/download
 2. **Python 3.9+** - 檢查：`python --version`
-3. **Git** - 檢查：`git --version`
+3. **Node.js 18+** - 檢查：`node --version`（下載：https://nodejs.org/）
+4. **Git** - 檢查：`git --version`
 
 ### 步驟 1：下載 AIDEFEND
 
@@ -132,29 +133,17 @@ git clone https://github.com/edward-playground/aidefend-mcp.git
 cd aidefend-mcp
 ```
 
-### 步驟 2：安裝相依套件
+### 步驟 2：一鍵安裝
 
 ```bash
-pip install -r requirements.txt
-```
-
-**這會安裝：**
-- FastAPI、Uvicorn（API 伺服器）
-- LanceDB（向量資料庫）
-- FastEmbed（嵌入模型 - ONNX，約 100MB 下載）
-- 其他 Python 相依套件
-
-**時間：** 首次安裝約 1-2 分鐘
-
-### 步驟 3：執行自動化設定
-
-```bash
-python scripts/setup_mcp.py
+python scripts/install.py
 ```
 
 **這個腳本會：**
-- ✅ 自動偵測 Python 路徑
-- ✅ 自動偵測 AIDEFEND 專案路徑
+- ✅ 檢查 Python 3.9+ 和 Node.js 18+ 版本
+- ✅ 自動安裝所有 Python 依賴（pip install -r requirements.txt）
+- ✅ 自動安裝所有 Node.js 依賴（npm install）
+- ✅ 自動偵測 Python 路徑和專案路徑
 - ✅ 自動偵測 Claude Desktop 設定檔位置
 - ✅ **安全合併**配置（保留所有現有的 MCP 工具）
 - ✅ 建立現有設定的備份
@@ -162,49 +151,63 @@ python scripts/setup_mcp.py
 
 **範例輸出：**
 ```
-════════════════════════════════════════════════════════════════
-  AIDEFEND MCP - Claude Desktop 自動設定工具
-════════════════════════════════════════════════════════════════
+======================================================================
+  AIDEFEND MCP - 一鍵安裝
+======================================================================
 
-🔍 正在偵測系統路徑...
+[步驟 1/5] 檢查 Python 版本
+----------------------------------------------------------------------
+   Python 版本: 3.13.1
+✅ Python 版本 OK
 
-✓ Python 路徑: C:/Python313/python.exe
-✓ MCP 專案路徑: c:/Users/you/aidefend-mcp
-✓ Claude 設定檔: C:/Users/you/AppData/Roaming/Claude/claude_desktop_config.json
+[步驟 2/5] 檢查 Node.js 版本
+----------------------------------------------------------------------
+   Node.js 版本: v20.11.0
+✅ Node.js 版本 OK
 
-────────────────────────────────────────────────────────────────
+[步驟 3/5] 安裝 Python 依賴
+----------------------------------------------------------------------
+正在安裝 Python 依賴...
+   使用: c:\Users\you\aidefend-mcp\requirements.txt
+✅ Python 依賴安裝成功
 
+[步驟 4/5] 安裝 Node.js 依賴
+----------------------------------------------------------------------
+正在安裝 Node.js 依賴...
+   使用: c:\Users\you\aidefend-mcp\package.json
+✅ Node.js 依賴安裝成功
+
+[步驟 5/5] 設定 Claude Desktop（MCP 模式）
+----------------------------------------------------------------------
+正在設定 Claude Desktop MCP 模式...
+   設定檔: C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
+   Python: C:/Python313/python.exe
+   專案: c:/Users/you/aidefend-mcp
+
+✅ 備份已建立: claude_desktop_config.json.backup.20250126_143022
 ✅ 保留現有的 2 個 MCP 工具：
    • filesystem
    • git
+✅ 設定檔已儲存: C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
 
-✅ 將新增 AIDEFEND 工具
+✅ MCP 設定完成！
 
-────────────────────────────────────────────────────────────────
+⚠️  重要：重新啟動 Claude Desktop 以套用變更
+   1. 完全關閉 Claude Desktop
+   2. 重新開啟 Claude Desktop
+   3. 在 MCP 工具清單中尋找 'aidefend'（🔌 圖示）
 
-確認要寫入配置嗎？(y/n): y
+======================================================================
+  ✅ 安裝完成！
+======================================================================
 
-✅ 備份已建立: claude_desktop_config.json.backup.20250122_143022
-✅ 配置已成功寫入！
-✅ 所有 2 個現有工具保持不變
-
-════════════════════════════════════════════════════════════════
-  🎉 安裝完成！
-════════════════════════════════════════════════════════════════
-
-📌 下一步：
-
-  1. 完全關閉 Claude Desktop：
-     - Windows: 工作列右鍵點擊 Claude → Exit
-     - macOS: 按 Cmd+Q 完全退出（不只是關閉視窗）
-
-  2. 重新開啟 Claude Desktop
-
-  3. 開始使用 AIDEFEND！
-     試試問 Claude：「有哪些技術可以防禦 prompt injection？」
+下一步：
+  1. 重新啟動 Claude Desktop（完全關閉後再開啟）
+  2. 在 MCP 工具中尋找 'aidefend'（🔌 圖示）
+  3. 試試：「搜尋 AIDEFEND 中關於 prompt injection 的防禦手法」
 ```
 
-### 步驟 4：重啟 Claude Desktop
+### 步驟 3：重啟 Claude Desktop
 
 **重要：** 你必須**完全退出** Claude Desktop（不只是關閉視窗），然後重新開啟。
 
@@ -219,22 +222,25 @@ python scripts/setup_mcp.py
 - 工具應該會出現在可用工具面板中
 - 問 Claude：「有哪些 AIDEFEND 工具可用？」
 
-### 替代方案：手動模式選項
+### 替代方案：安裝選項
 
-設定腳本支援多種模式：
+安裝腳本支援多種模式：
 
 ```bash
 # 互動模式（預設）- 會詢問確認
-python scripts/setup_mcp.py
+python scripts/install.py
 
 # 自動模式 - 不詢問確認
-python scripts/setup_mcp.py --auto
+python scripts/install.py --auto
 
-# 試運行 - 預覽但不寫入
-python scripts/setup_mcp.py --dry-run
+# 跳過 MCP 設定 - 僅安裝依賴
+python scripts/install.py --no-mcp
+
+# 試運行 - 預覽但不進行變更
+python scripts/install.py --dry-run
 
 # 顯示說明
-python scripts/setup_mcp.py --help
+python scripts/install.py --help
 ```
 
 ### 反安裝 MCP 模式
