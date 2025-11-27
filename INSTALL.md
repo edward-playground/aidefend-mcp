@@ -113,17 +113,18 @@ docker-compose --version
 
 ---
 
-## 🚀 MCP Mode Setup (Claude Desktop) - Automated
+## 🚀 MCP Mode Setup (Claude Desktop) - One-Click Installation
 
 **For users who want to use AIDEFEND with Claude Desktop**
 
-This automated setup configures Claude Desktop to use AIDEFEND MCP tools in just 2 minutes.
+This one-click installation installs all dependencies and configures Claude Desktop in just 2 minutes.
 
-### Prerequisites for MCP Mode
+### Prerequisites
 
 1. **Claude Desktop installed** - Download from: https://claude.ai/download
 2. **Python 3.9+** - Check: `python --version`
-3. **Git** - Check: `git --version`
+3. **Node.js 18+** - Check: `node --version` (Download from: https://nodejs.org/)
+4. **Git** - Check: `git --version`
 
 ### Step 1: Download AIDEFEND
 
@@ -132,29 +133,17 @@ git clone https://github.com/edward-playground/aidefend-mcp.git
 cd aidefend-mcp
 ```
 
-### Step 2: Install Dependencies
+### Step 2: One-Click Installation
 
 ```bash
-pip install -r requirements.txt
-```
-
-**What this installs:**
-- FastAPI, Uvicorn (API server)
-- LanceDB (vector database)
-- FastEmbed (embedding model - ONNX, ~100MB download)
-- Other Python dependencies
-
-**Time:** 1-2 minutes on first install
-
-### Step 3: Run Automated Setup
-
-```bash
-python scripts/setup_mcp.py
+python scripts/install.py
 ```
 
 **What this script does:**
-- ✅ Auto-detects your Python path
-- ✅ Auto-detects AIDEFEND project path
+- ✅ Checks Python 3.9+ and Node.js 18+ versions
+- ✅ Installs all Python dependencies (pip install -r requirements.txt)
+- ✅ Installs all Node.js dependencies (npm install)
+- ✅ Auto-detects your Python path and project path
 - ✅ Auto-detects Claude Desktop config location
 - ✅ **Safely merges** configuration (preserves all existing MCP tools)
 - ✅ Creates backup of existing config
@@ -162,49 +151,63 @@ python scripts/setup_mcp.py
 
 **Example output:**
 ```
-════════════════════════════════════════════════════════════════
-  AIDEFEND MCP - Claude Desktop Setup Tool
-════════════════════════════════════════════════════════════════
+======================================================================
+  AIDEFEND MCP - One-Click Installation
+======================================================================
 
-🔍 Detecting system paths...
+[Step 1/5] Checking Python version
+----------------------------------------------------------------------
+   Python version: 3.13.1
+✅ Python version OK
 
-✓ Python path: C:/Python313/python.exe
-✓ MCP project path: c:/Users/you/aidefend-mcp
-✓ Claude config: C:/Users/you/AppData/Roaming/Claude/claude_desktop_config.json
+[Step 2/5] Checking Node.js version
+----------------------------------------------------------------------
+   Node.js version: v20.11.0
+✅ Node.js version OK
 
-────────────────────────────────────────────────────────────────
+[Step 3/5] Installing Python dependencies
+----------------------------------------------------------------------
+Installing Python dependencies...
+   Using: c:\Users\you\aidefend-mcp\requirements.txt
+✅ Python dependencies installed successfully
 
+[Step 4/5] Installing Node.js dependencies
+----------------------------------------------------------------------
+Installing Node.js dependencies...
+   Using: c:\Users\you\aidefend-mcp\package.json
+✅ Node.js dependencies installed successfully
+
+[Step 5/5] Configuring Claude Desktop (MCP mode)
+----------------------------------------------------------------------
+Configuring Claude Desktop for MCP mode...
+   Config file: C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
+   Python: C:/Python313/python.exe
+   Project: c:/Users/you/aidefend-mcp
+
+✅ Backup created: claude_desktop_config.json.backup.20250126_143022
 ✅ Preserving 2 existing MCP tool(s):
    • filesystem
    • git
+✅ Configuration saved to: C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
 
-✅ Will add AIDEFEND tool
+✅ MCP configuration completed successfully!
 
-────────────────────────────────────────────────────────────────
+⚠️  IMPORTANT: Restart Claude Desktop to apply changes
+   1. Completely close Claude Desktop
+   2. Reopen Claude Desktop
+   3. Look for 'aidefend' in MCP tools list (🔌 icon)
 
-Write configuration? (y/n): y
+======================================================================
+  ✅ Installation Complete!
+======================================================================
 
-✅ Backup created: claude_desktop_config.json.backup.20250122_143022
-✅ Configuration written successfully!
-✅ All 2 existing tool(s) preserved
-
-════════════════════════════════════════════════════════════════
-  🎉 Installation Complete!
-════════════════════════════════════════════════════════════════
-
-📌 Next steps:
-
-  1. Completely quit Claude Desktop:
-     - Windows: Right-click Claude in taskbar → Exit
-     - macOS: Press Cmd+Q to quit (not just close window)
-
-  2. Restart Claude Desktop
-
-  3. Start using AIDEFEND!
-     Try asking: "What techniques defend against prompt injection?"
+Next steps:
+  1. Restart Claude Desktop (close completely and reopen)
+  2. Look for 'aidefend' in MCP tools (🔌 icon)
+  3. Try: 'Search AIDEFEND for prompt injection defenses'
 ```
 
-### Step 4: Restart Claude Desktop
+### Step 3: Restart Claude Desktop
 
 **IMPORTANT:** You must **completely quit** Claude Desktop (not just close the window) and restart it.
 
@@ -219,22 +222,25 @@ Write configuration? (y/n): y
 - Tools should appear in the available tools panel
 - Ask Claude: "What AIDEFEND tools are available?"
 
-### Alternative: Manual Mode Options
+### Alternative: Installation Options
 
-The setup script supports several modes:
+The installation script supports several modes:
 
 ```bash
 # Interactive mode (default) - asks for confirmation
-python scripts/setup_mcp.py
+python scripts/install.py
 
 # Automatic mode - no confirmations
-python scripts/setup_mcp.py --auto
+python scripts/install.py --auto
 
-# Dry run - preview without writing
-python scripts/setup_mcp.py --dry-run
+# Skip MCP configuration - only install dependencies
+python scripts/install.py --no-mcp
+
+# Dry run - preview without making changes
+python scripts/install.py --dry-run
 
 # Show help
-python scripts/setup_mcp.py --help
+python scripts/install.py --help
 ```
 
 ### Uninstalling MCP Mode
