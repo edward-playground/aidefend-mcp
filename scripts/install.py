@@ -12,6 +12,7 @@ Usage:
     python scripts/install.py --auto       # Fully automated (no prompts)
     python scripts/install.py --no-mcp     # Skip MCP configuration
     python scripts/install.py --dry-run    # Preview without making changes
+    python scripts/install.py --check      # Check prerequisites only (no install)
     python scripts/install.py --help       # Show this help
 """
 
@@ -101,6 +102,55 @@ def check_node_version() -> Tuple[bool, str]:
         return False, str(e)
 
 
+def check_claude_desktop_installed() -> Tuple[bool, str]:
+    """
+    Check if Claude Desktop is likely installed.
+
+    Returns:
+        (is_installed, installation_path or error_message)
+    """
+    if sys.platform == "win32":
+        import os
+        # Check common installation locations
+        locations = [
+            Path(os.environ.get('LOCALAPPDATA', '')) / 'Programs' / 'Claude' / 'Claude.exe',
+            Path(os.environ.get('APPDATA', '')) / 'Claude' / 'Claude.exe',
+        ]
+        for loc in locations:
+            if loc.exists():
+                return True, str(loc)
+        return False, "Not found in standard locations"
+
+    elif sys.platform == "darwin":
+        claude_app = Path('/Applications/Claude.app')
+        if claude_app.exists():
+            return True, str(claude_app)
+        return False, "Not found in /Applications"
+
+    else:  # Linux
+        # On Linux, check if config directory exists (less reliable)
+        config_path = get_claude_config_path()
+        if config_path.parent.exists():
+            return True, "Config directory exists"
+        return False, "Config directory not found"
+
+
+def check_internet_connectivity() -> bool:
+    """
+    Check if internet connection is available.
+
+    Returns:
+        True if internet is available
+    """
+    try:
+        import socket
+        # Try to connect to Google DNS
+        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        return True
+    except OSError:
+        return False
+
+
 def install_python_dependencies(verbose: bool = True) -> bool:
     """
     Install Python dependencies from requirements.txt.
@@ -117,6 +167,7 @@ def install_python_dependencies(verbose: bool = True) -> bool:
     if verbose:
         print("Installing Python dependencies...")
         print(f"   Using: {requirements_file}")
+        print("   This may take 2-5 minutes...")
 
     try:
         result = subprocess.run(
@@ -134,10 +185,24 @@ def install_python_dependencies(verbose: bool = True) -> bool:
             print(f"❌ pip install failed with code {result.returncode}")
             if result.stderr:
                 print(f"   Error: {result.stderr}")
+
+            # Provide helpful hints
+            print("\n💡 Troubleshooting hints:")
+            if not check_internet_connectivity():
+                print("   • No internet connection detected")
+                print("   • Check your network connection")
+                print("   • If behind firewall/proxy, use: pip install -r requirements.txt --proxy YOUR_PROXY")
+            else:
+                print("   • Try upgrading pip: python -m pip install --upgrade pip")
+                print("   • For China users: pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple")
+                print("   • Check logs above for specific package errors")
+
             return False
 
     except subprocess.TimeoutExpired:
         print("❌ pip install timed out (10 minutes)")
+        print("💡 This usually means slow network or large packages")
+        print("   Try running manually: python -m pip install -r requirements.txt")
         return False
     except Exception as e:
         print(f"❌ Failed to install Python dependencies: {e}")
@@ -161,6 +226,7 @@ def install_node_dependencies(verbose: bool = True) -> bool:
     if verbose:
         print("Installing Node.js dependencies...")
         print(f"   Using: {package_json}")
+        print("   This may take 1-2 minutes...")
 
     try:
         result = subprocess.run(
@@ -179,13 +245,26 @@ def install_node_dependencies(verbose: bool = True) -> bool:
             print(f"❌ npm install failed with code {result.returncode}")
             if result.stderr:
                 print(f"   Error: {result.stderr}")
+
+            # Provide helpful hints
+            print("\n💡 Troubleshooting hints:")
+            if not check_internet_connectivity():
+                print("   • No internet connection detected")
+                print("   • Check your network connection")
+            else:
+                print("   • Try: npm install --verbose (for detailed logs)")
+                print("   • For China users: npm install --registry=https://registry.npmmirror.com")
+                print("   • Try clearing cache: npm cache clean --force")
+
             return False
 
     except subprocess.TimeoutExpired:
         print("❌ npm install timed out (5 minutes)")
+        print("💡 Try running manually: npm install")
         return False
     except FileNotFoundError:
         print("❌ npm command not found. Please install Node.js first.")
+        print("💡 Download from: https://nodejs.org/")
         return False
     except Exception as e:
         print(f"❌ Failed to install Node.js dependencies: {e}")
@@ -327,6 +406,14 @@ def configure_mcp(auto: bool = False, dry_run: bool = False) -> bool:
     """
     print("\nConfiguring Claude Desktop for MCP mode...")
 
+    # Check if Claude Desktop is installed (warning only, not blocking)
+    claude_installed, claude_info = check_claude_desktop_installed()
+    if not claude_installed:
+        print(f"\n⚠️  Warning: Claude Desktop may not be installed")
+        print(f"   {claude_info}")
+        print(f"   Download from: https://claude.ai/download")
+        print(f"   Configuration will still be created for when you install it.\n")
+
     # Get paths
     config_path = get_claude_config_path()
     python_path = get_python_path()
@@ -389,8 +476,64 @@ def main():
                        help='Skip MCP configuration')
     parser.add_argument('--dry-run', action='store_true',
                        help='Preview without making changes')
+    parser.add_argument('--check', action='store_true',
+                       help='Check prerequisites only (no installation)')
 
     args = parser.parse_args()
+
+    # Check mode - only verify prerequisites
+    if args.check:
+        print_banner("AIDEFEND MCP - Prerequisites Check")
+
+        all_ok = True
+
+        # Check Python
+        print("[1/4] Checking Python version...")
+        py_valid, py_version = check_python_version()
+        if py_valid:
+            print(f"   ✅ Python {py_version} (OK)")
+        else:
+            print(f"   ❌ Python {py_version} - Need 3.9+")
+            print(f"      Download: https://www.python.org/downloads/")
+            all_ok = False
+
+        # Check Node.js
+        print("\n[2/4] Checking Node.js version...")
+        node_valid, node_version = check_node_version()
+        if node_valid:
+            print(f"   ✅ Node.js {node_version} (OK)")
+        else:
+            print(f"   ❌ {node_version}")
+            print(f"      Download: https://nodejs.org/")
+            all_ok = False
+
+        # Check Claude Desktop
+        print("\n[3/4] Checking Claude Desktop...")
+        claude_installed, claude_info = check_claude_desktop_installed()
+        if claude_installed:
+            print(f"   ✅ Found: {claude_info}")
+        else:
+            print(f"   ⚠️  {claude_info}")
+            print(f"      Download: https://claude.ai/download")
+            print(f"      (Not required for REST API mode)")
+
+        # Check Internet
+        print("\n[4/4] Checking internet connectivity...")
+        if check_internet_connectivity():
+            print(f"   ✅ Internet connection available")
+        else:
+            print(f"   ⚠️  No internet detected")
+            print(f"      Required for downloading dependencies")
+
+        print("\n" + "=" * 70)
+        if all_ok:
+            print("✅ All prerequisites met! Ready to install.")
+            print("\nRun: python scripts/install.py")
+        else:
+            print("❌ Some prerequisites missing. Please install them first.")
+        print("=" * 70)
+
+        return 0 if all_ok else 1
 
     print_banner("AIDEFEND MCP - One-Click Installation")
 

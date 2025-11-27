@@ -133,10 +133,49 @@ git clone https://github.com/edward-playground/aidefend-mcp.git
 cd aidefend-mcp
 ```
 
-### Step 2: One-Click Installation
+**💡 Tip:** For macOS/Linux users, use `python3` if `python` points to Python 2:
+```bash
+python3 --version  # Check if you need python3 instead of python
+```
+
+### Step 2: (Optional but Recommended) Create Virtual Environment
+
+Using a virtual environment prevents dependency conflicts with other Python projects:
 
 ```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate it
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# You should see (venv) in your terminal prompt
+```
+
+**Why use venv?**
+- Isolates AIDEFEND dependencies from other Python projects
+- Prevents version conflicts (e.g., if another project uses different Pydantic version)
+- Easy to remove (just delete the `venv` folder)
+
+**Note:** If you use venv, remember to activate it every time you run AIDEFEND.
+
+### Step 3: One-Click Installation
+
+**Check prerequisites first (recommended):**
+```bash
+python scripts/install.py --check
+```
+
+**Then install:**
+```bash
 python scripts/install.py
+```
+
+**Linux/macOS users:** Use `python3` if needed:
+```bash
+python3 scripts/install.py --check
+python3 scripts/install.py
 ```
 
 **What this script does:**
@@ -207,7 +246,7 @@ Next steps:
   3. Try: 'Search AIDEFEND for prompt injection defenses'
 ```
 
-### Step 3: Restart Claude Desktop
+### Step 4: Restart Claude Desktop
 
 **IMPORTANT:** You must **completely quit** Claude Desktop (not just close the window) and restart it.
 
@@ -222,11 +261,34 @@ Next steps:
 - Tools should appear in the available tools panel
 - Ask Claude: "What AIDEFEND tools are available?"
 
+### Step 5: First Use - Model Download
+
+⚠️ **IMPORTANT:** On **first use**, AIDEFEND will automatically download a ~400MB embedding model (`multilingual-e5-base`).
+
+**What to expect:**
+- **Download time:** 2-5 minutes (depending on internet speed)
+- **Storage:** ~500MB total (model + knowledge base)
+- **Location:** `~/.cache/fastembed/` (macOS/Linux) or `%USERPROFILE%\.cache\fastembed\` (Windows)
+- **One-time only:** Subsequent uses are instant
+
+**If Claude seems slow on first query:**
+- It's downloading the model in the background
+- Check the MCP server logs if needed
+- Wait a few minutes and try again
+
+**For offline use:**
+- After first download, AIDEFEND works completely offline
+- No external API calls are ever made
+- All processing is 100% local
+
 ### Alternative: Installation Options
 
 The installation script supports several modes:
 
 ```bash
+# Check prerequisites only (no installation)
+python scripts/install.py --check
+
 # Interactive mode (default) - asks for confirmation
 python scripts/install.py
 
@@ -243,6 +305,15 @@ python scripts/install.py --dry-run
 python scripts/install.py --help
 ```
 
+**Recommended workflow:**
+```bash
+# 1. Check prerequisites first
+python scripts/install.py --check
+
+# 2. If all OK, install
+python scripts/install.py
+```
+
 ### Uninstalling MCP Mode
 
 To remove AIDEFEND from Claude Desktop (while keeping the project files):
@@ -256,6 +327,129 @@ This will:
 - ✅ Preserve all other MCP tools
 - ✅ Create backup before removal
 - ✅ Keep your local project files untouched
+
+### Troubleshooting Installation Issues
+
+#### Python/Node.js version errors
+
+**Problem:** `python --version` shows Python 2.x or command not found
+
+**Solution for macOS/Linux:**
+```bash
+# Use python3 instead
+python3 --version
+python3 scripts/install.py
+```
+
+**Solution for Windows:**
+```bash
+# Install Python 3.9+ from https://www.python.org/downloads/
+# Make sure "Add Python to PATH" is checked during installation
+```
+
+#### `pip install` fails or times out
+
+**Problem:** Network issues, firewall, or slow downloads
+
+**Solution 1 - Check internet:**
+```bash
+python scripts/install.py --check  # Verify connectivity
+```
+
+**Solution 2 - For China users:**
+```bash
+# Use Tsinghua mirror
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+npm install --registry=https://registry.npmmirror.com
+```
+
+**Solution 3 - Behind corporate proxy:**
+```bash
+pip install -r requirements.txt --proxy YOUR_PROXY_URL
+```
+
+**Solution 4 - Upgrade pip:**
+```bash
+python -m pip install --upgrade pip
+```
+
+#### `npm install` fails
+
+**Problem:** npm errors or permission issues
+
+**Solution 1 - Clear cache:**
+```bash
+npm cache clean --force
+npm install
+```
+
+**Solution 2 - Use different registry:**
+```bash
+npm install --registry=https://registry.npmjs.org/
+```
+
+#### Claude Desktop not detected
+
+**Problem:** Warning that Claude Desktop not found
+
+**Solution:**
+- Install Claude Desktop from https://claude.ai/download
+- The config will still be created for when you install it
+- Not needed if you only want REST API mode
+
+#### Dependencies conflict with other projects
+
+**Problem:** "Version conflict" or "Cannot install pydantic 2.x"
+
+**Solution - Use virtual environment:**
+```bash
+# Create isolated environment
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# Then install
+python scripts/install.py
+```
+
+#### First query is very slow
+
+**Problem:** Claude hangs for 2-5 minutes on first AIDEFEND query
+
+**Cause:** Downloading ~400MB embedding model (one-time only)
+
+**Solution:**
+- Wait for model download to complete (check internet connection)
+- Subsequent queries will be instant
+- Model stored at: `~/.cache/fastembed/` (macOS/Linux) or `%USERPROFILE%\.cache\fastembed\` (Windows)
+
+#### MCP tools not showing in Claude Desktop
+
+**Problem:** AIDEFEND not visible after restart
+
+**Checklist:**
+1. Did you completely quit Claude Desktop? (not just close window)
+   - Windows: Right-click tray icon → Exit
+   - macOS: Cmd+Q
+2. Check config file exists:
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+3. Check config format is valid JSON (no trailing commas)
+4. Try restarting Claude Desktop again
+5. Check Claude Desktop logs for errors
+
+#### Still having issues?
+
+```bash
+# Run diagnostic check
+python scripts/install.py --check
+
+# View detailed logs
+cat data/logs/aidefend_mcp.log  # macOS/Linux
+type data\logs\aidefend_mcp.log  # Windows
+```
+
+For more help, see the full troubleshooting guide below or open an issue on GitHub.
 
 ---
 
