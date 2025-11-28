@@ -1401,6 +1401,20 @@ def main():
 
         if node_success:
             print("✅ Node.js installed successfully")
+            
+            # Refresh PATH for current process so we can use node immediately
+            import os
+            if sys.platform == "win32":
+                # Standard Node.js install path on Windows
+                node_path = Path("C:/Program Files/nodejs")
+                if node_path.exists():
+                    os.environ["PATH"] = str(node_path) + os.pathsep + os.environ["PATH"]
+                    print(f"   🔄 Refreshed PATH to include: {node_path}")
+            elif sys.platform == "darwin":
+                # Standard paths on macOS (pkg installer usually links to /usr/local/bin)
+                # No action usually needed as /usr/local/bin is in PATH, but we can check
+                pass
+                
         elif node_result == "SHOW_MANUAL":
             # Show manual installation instructions
             print("\n" + "=" * 70)
