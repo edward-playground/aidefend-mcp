@@ -20,6 +20,7 @@ Usage:
 """
 
 import sys
+import os
 import json
 import shutil
 import subprocess
@@ -351,8 +352,8 @@ def install_nodejs_auto() -> Tuple[bool, str]:
         print(f"\n   Starting installer...")
 
         try:
-            # Windows: Run MSI installer
-            subprocess.Popen([installer_path])
+            # Windows: Run MSI installer using os.startfile (handles file associations)
+            os.startfile(str(installer_path))
             print(f"   ✅ Installer launched successfully")
             print(f"\n   ⏳ Please complete the installation wizard")
             print(f"   💡 After installation completes, you may need to:")
@@ -391,7 +392,7 @@ def install_nodejs_auto() -> Tuple[bool, str]:
 
         try:
             # macOS: Open .pkg installer
-            subprocess.run(['open', installer_path], check=True)
+            subprocess.run(['open', str(installer_path)], check=True)
             print(f"   ✅ Installer launched successfully")
             print(f"\n   ⏳ Please complete the installation wizard")
 
