@@ -58,8 +58,8 @@
 #### ✅ AIDEFEND MCP 方式：智慧 Vector Search
 
 ```
-1. 安裝一次（5 分鐘）
-   pip install -r requirements.txt && python __main__.py
+1. 安裝一次（2 分鐘）
+   python scripts/install.py
 
 2. 問問題（透過 Claude Desktop 或 API）
 
@@ -272,32 +272,20 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 ## 快速開始
 
-### 步驟 1：安裝（兩種模式共用）
+### 步驟 1：Clone Repository
 
-1. **Clone repository**
-   ```bash
-   git clone https://github.com/edward-playground/aidefend-mcp.git
-   cd aidefend-mcp
-   ```
+```bash
+git clone https://github.com/edward-playground/aidefend-mcp.git
+cd aidefend-mcp
+```
 
-2. **安裝相依套件**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **設定環境變數**
-   ```bash
-   cp .env.example .env
-   # 如有需要請編輯 .env（選配）
-   ```
-
-### 步驟 2：選擇你的模式
+### 步驟 2：選擇模式並安裝
 
 | 模式 | 適合用於 | 快速開始 |
 |------|---------|---------|
 | **🖥️ Claude Desktop** | 桌面應用程式使用者 | `python scripts/install.py` |
 | **💻 Claude Code** | VSCode 使用者 | `python scripts/install.py --client code` |
-| **🌐 REST API** | HTTP 整合、CI/CD | `python __main__.py` |
+| **🌐 REST API** | HTTP 整合、CI/CD | `python scripts/install.py --no-mcp` |
 | **🐳 Docker** | 正式部署 | `docker-compose up -d` |
 
 ---
@@ -338,6 +326,15 @@ python3 scripts/install.py
 
 <details>
 <summary><h4>🌐 選項 B：REST API 模式（HTTP 整合）</h4></summary>
+
+**安裝相依套件：**
+```bash
+# 安裝相依套件但不設定 MCP
+python scripts/install.py --no-mcp
+
+# macOS/Linux 使用者：如果 python 指向 Python 2，請使用 python3
+python3 scripts/install.py --no-mcp
+```
 
 **啟動服務：**
 ```bash
