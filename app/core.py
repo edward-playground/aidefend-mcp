@@ -34,18 +34,19 @@ def _register_custom_embedding_models():
             return
 
         # Register intfloat/multilingual-e5-base (768-dim, 512 tokens, 100+ languages)
-        logger.info("Registering custom model: intfloat/multilingual-e5-base")
+        # Using Qdrant's pre-quantized Int8 version for 75% size reduction (1.1GB → 280MB)
+        logger.info("Registering custom model: intfloat/multilingual-e5-base (Quantized Int8)")
         TextEmbedding.add_custom_model(
             model="intfloat/multilingual-e5-base",
             pooling=PoolingType.MEAN,
             normalization=True,
-            sources=ModelSource(hf="intfloat/multilingual-e5-base"),
+            sources=ModelSource(hf="Qdrant/multilingual-e5-base-onnx"),
             dim=768,
-            model_file="onnx/model.onnx",
-            description="Microsoft multilingual E5 base model - 768 dimensions, 512 tokens, 100+ languages",
+            model_file="model.onnx",
+            description="Multilingual E5 Base (Quantized Int8 version) - 768 dimensions, 512 tokens, 100+ languages",
             license="MIT",
-            size_in_gb=0.27,
-            additional_files=["onnx/model_optimized.onnx"]
+            size_in_gb=0.28,
+            additional_files=[]
         )
 
         # Register intfloat/multilingual-e5-small (384-dim, 512 tokens, 100+ languages)
