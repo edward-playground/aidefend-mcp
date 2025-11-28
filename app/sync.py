@@ -869,8 +869,8 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
                 """Generate embeddings with progress logging (runs in thread)."""
                 import sys
                 embeddings_list = []
-                # Update every 10 items (real-time: every 10-20 seconds at ~1-2 sec/item)
-                progress_interval = 10
+                # Update every 15 items (~3% for 549 docs, real-time: every 15-30 seconds)
+                progress_interval = 15
 
                 # Generate embeddings
                 embeddings_generator = model.embed(texts_to_embed, batch_size=32)
@@ -878,15 +878,12 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
                 for idx, embedding in enumerate(embeddings_generator):
                     embeddings_list.append(embedding)
 
-                    # Log progress every interval
+                    # Display progress every interval (console only, no duplicate logging)
                     if (idx + 1) % progress_interval == 0 or (idx + 1) == total_to_embed:
                         progress_pct = (idx + 1) / total_to_embed * 100
                         progress_msg = f"   Progress: {idx + 1}/{total_to_embed} ({progress_pct:.1f}%) - {total_to_embed - (idx + 1)} remaining"
 
-                        # Log to file
-                        logger.info(progress_msg)
-
-                        # Also print to console for real-time feedback
+                        # Print to console for real-time feedback (no duplicate logger output)
                         print(progress_msg, file=sys.stderr, flush=True)
 
                 return embeddings_list
