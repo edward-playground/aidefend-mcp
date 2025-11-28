@@ -118,7 +118,7 @@ All Python dependencies are listed in [`requirements.txt`](requirements.txt). To
 | Package | Version | Purpose | License |
 |---------|---------|---------|---------|
 | **mcp** | 1.21.0 | Model Context Protocol SDK for Claude Desktop integration | MIT |
-| **pywin32** | 306 | Windows platform APIs (Windows only, required by MCP SDK) | PSF License |
+| **pywin32** | 311 | Windows platform APIs (Windows only, required by MCP SDK) | PSF License |
 
 **Why needed**:
 - **mcp**: Enables native integration with Claude Desktop as an MCP server
