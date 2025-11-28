@@ -744,10 +744,16 @@ def verify_critical_dependencies() -> Tuple[bool, List[str]]:
         'rapidfuzz': 'Fuzzy string matching',
     }
 
+    # Windows-specific dependencies
+    if sys.platform == 'win32':
+        critical_imports['pywin32'] = 'Windows platform APIs (required by MCP SDK on Windows)'
+
     errors = []
     for package, description in critical_imports.items():
         try:
-            __import__(package)
+            # pywin32 has a different import name
+            import_name = 'win32api' if package == 'pywin32' else package
+            __import__(import_name)
         except ImportError as e:
             errors.append(f"   ❌ {package}: {description}\n      Error: {e}")
 

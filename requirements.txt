@@ -23,6 +23,9 @@ fastembed==0.7.3
 # MCP (Model Context Protocol) SDK
 mcp==1.21.0
 
+# Windows-specific: MCP SDK requires pywin32 for Windows platform APIs
+pywin32==306; sys_platform == 'win32'
+
 # HTTP client
 httpx==0.28.1
 
