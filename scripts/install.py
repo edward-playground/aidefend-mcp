@@ -838,12 +838,15 @@ def verify_onnx_runtime() -> Tuple[bool, str]:
         return False, f"Unexpected error: {e}"
 
 
-def verify_critical_dependencies() -> Tuple[bool, List[str]]:
+def verify_critical_dependencies(show_progress: bool = False) -> Tuple[bool, List[str]]:
     """
     Verify all critical dependencies can be imported.
 
     This catches missing dependencies that are implicitly required but may not be
     in requirements.txt (e.g., pandas required by LanceDB's .to_pandas() method).
+
+    Args:
+        show_progress: If True, show inline progress for each verification
 
     Returns:
         (all_valid, list of error messages)
@@ -864,13 +867,24 @@ def verify_critical_dependencies() -> Tuple[bool, List[str]]:
         critical_imports['pywin32'] = 'Windows platform APIs (required by MCP SDK on Windows)'
 
     errors = []
-    for package, description in critical_imports.items():
+    total = len(critical_imports)
+    for idx, (package, description) in enumerate(critical_imports.items(), 1):
+        if show_progress:
+            # Show inline progress on same line
+            sys.stdout.write(f"\r   Verifying dependencies... ({idx}/{total}) {package}")
+            sys.stdout.flush()
+
         try:
             # pywin32 has a different import name
             import_name = 'win32api' if package == 'pywin32' else package
             __import__(import_name)
         except ImportError as e:
             errors.append(f"   ❌ {package}: {description}\n      Error: {e}")
+
+    if show_progress:
+        # Clear the progress line and print completion
+        sys.stdout.write("\r   " + " " * 60 + "\r")  # Clear line
+        sys.stdout.flush()
 
     return len(errors) == 0, errors
 
@@ -1108,7 +1122,9 @@ def configure_mcp(auto: bool = False, dry_run: bool = False) -> bool:
     # Confirm if not auto mode
     if not auto and not dry_run:
         print("\n⚠️  This will modify your Claude Desktop configuration.")
-        response = input("   Continue? [Y/n]: ").strip().lower()
+        print("   This will only add AIDEFEND to your MCP services.")
+        print("   Your existing MCP services will not be affected.")
+        response = input("\n   Continue? [Y/n]: ").strip().lower()
         if response and response != 'y':
             print("❌ MCP configuration cancelled")
             return False
@@ -1192,9 +1208,11 @@ def configure_claude_code(auto: bool = False, dry_run: bool = False) -> bool:
     if not auto and not dry_run:
         if mcp_json_path.exists():
             print("\n⚠️  This will modify your .mcp.json configuration.")
+            print("   This will only add AIDEFEND to your MCP services.")
+            print("   Your existing MCP services will not be affected.")
         else:
             print("\n📝 This will create .mcp.json in your project root.")
-        response = input("   Continue? [Y/n]: ").strip().lower()
+        response = input("\n   Continue? [Y/n]: ").strip().lower()
         if response and response != 'y':
             print("❌ Claude Code configuration cancelled")
             return False
@@ -1491,7 +1509,7 @@ def main():
 
         # Verify all critical dependencies (catches implicit requirements like pandas)
         print("\n   Verifying all critical dependencies...")
-        deps_valid, dep_errors = verify_critical_dependencies()
+        deps_valid, dep_errors = verify_critical_dependencies(show_progress=True)
 
         if not deps_valid:
             print("\n" + "=" * 70)
