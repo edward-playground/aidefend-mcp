@@ -267,7 +267,9 @@ Both modes share the same core logic, ensuring consistent results.
   - Verify: `node --version`
 - **Docker** (optional, for containerized deployment)
 - **2GB RAM** minimum (4GB recommended)
-- **500MB disk space** for models and data
+- **3-4GB disk space**
+  - Service itself: ~200-700MB (code + knowledge base + logs)
+  - Dependencies: ~1.7-2.3GB (ONNX model + Python/Node packages)
 
 ## Quick Start
 

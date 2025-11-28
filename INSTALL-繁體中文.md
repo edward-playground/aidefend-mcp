@@ -137,7 +137,21 @@ docker-compose --version
 ### 💻 系統需求
 
 - **RAM**: 最低 2GB，建議 4GB
-- **磁碟空間**: 500MB 可用空間（用於 ML models 和 AIDEFEND 內容）
+- **磁碟空間**: **3-4GB 可用空間**（詳細分解如下）
+
+  **AIDEFEND 服務本身 (~200-700MB):**
+  - 原始碼: ~10MB
+  - 向量資料庫（知識庫）: ~100-500MB（隨 AIDEFEND 框架更新而增長）
+  - 原始內容快取: ~50-100MB
+  - 日誌檔案: ~10-50MB
+
+  **外部相依套件 (~1.7-2.3GB):**
+  - ONNX 嵌入模型（HuggingFace 快取）: ~1.1GB
+  - Python 套件（pip）: ~500MB-1GB（FastAPI、LanceDB、NumPy 等）
+  - Node.js 套件（npm）: ~100-200MB（Acorn 解析器）
+
+  **總計: 最低 2-3GB，資料庫增長後最多 4GB**
+
 - **網路**: 初次下載時需要（設定後可離線運作）
 
 ---
@@ -292,11 +306,11 @@ python3 scripts/install.py
 
 ### 步驟 5：首次使用 - 模型下載
 
-⚠️ **重要：** **首次使用**時，AIDEFEND 會自動下載約 400MB 的 embedding 模型（`multilingual-e5-base`）。
+⚠️ **重要：** **首次使用**時，AIDEFEND 會自動下載約 1.1GB 的 embedding 模型（`multilingual-e5-base`）。
 
 **預期情況：**
-- **下載時間：** 2-5 分鐘（取決於網路速度）
-- **儲存空間：** 約 500MB（模型 + 知識庫）
+- **下載時間：** 5-15 分鐘（取決於網路速度）
+- **儲存空間：** 總共約 3-4GB（模型 + 相依套件 + 知識庫 - 詳細分解請見上方系統需求）
 - **存放位置：** `~/.cache/fastembed/`（macOS/Linux）或 `%USERPROFILE%\.cache\fastembed\`（Windows）
 - **僅此一次：** 後續使用會立即回應
 

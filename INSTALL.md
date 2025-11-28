@@ -137,7 +137,21 @@ docker-compose --version
 ### 💻 System Requirements
 
 - **RAM**: 2GB minimum, 4GB recommended
-- **Disk Space**: 500MB free (for ML models and AIDEFEND content)
+- **Disk Space**: **3-4GB free** (breakdown below)
+
+  **AIDEFEND Service itself (~200-700MB):**
+  - Source code: ~10MB
+  - Vector database (knowledge base): ~100-500MB (grows as AIDEFEND framework updates)
+  - Raw content cache: ~50-100MB
+  - Logs: ~10-50MB
+
+  **Dependencies (~1.7-2.3GB):**
+  - ONNX embedding model (HuggingFace cache): ~1.1GB
+  - Python packages (pip): ~500MB-1GB (FastAPI, LanceDB, NumPy, etc.)
+  - Node.js packages (npm): ~100-200MB (Acorn parser)
+
+  **Total: 2-3GB minimum, up to 4GB with database growth**
+
 - **Internet**: Required for initial download (service works offline after setup)
 
 ---
@@ -292,11 +306,11 @@ Next steps:
 
 ### Step 5: First Use - Model Download
 
-⚠️ **IMPORTANT:** On **first use**, AIDEFEND will automatically download a ~400MB embedding model (`multilingual-e5-base`).
+⚠️ **IMPORTANT:** On **first use**, AIDEFEND will automatically download a ~1.1GB embedding model (`multilingual-e5-base`).
 
 **What to expect:**
-- **Download time:** 2-5 minutes (depending on internet speed)
-- **Storage:** ~500MB total (model + knowledge base)
+- **Download time:** 5-15 minutes (depending on internet speed)
+- **Storage:** ~3-4GB total (model + dependencies + knowledge base - see System Requirements above for breakdown)
 - **Location:** `~/.cache/fastembed/` (macOS/Linux) or `%USERPROFILE%\.cache\fastembed\` (Windows)
 - **One-time only:** Subsequent uses are instant
 
