@@ -75,12 +75,29 @@ node --version
 
 **Expected output:** `v18.x.x` or higher (e.g., `v22.18.0`)
 
-**Don't have it?** Download from: https://nodejs.org/
+**Don't have it?**
 
-**Installation tips:**
-- **Windows**: Use the installer from nodejs.org
-- **macOS**: Use the installer or `brew install node`
-- **Linux**: `sudo apt install nodejs` or `sudo yum install nodejs`
+✨ **NEW: Semi-Automated Installation!** The installation script can now automatically download and install Node.js LTS for you:
+- Detects if Node.js >= 18 is installed
+- Fetches latest LTS version info from nodejs.org API
+- Downloads installer from Node.js official site (~30-35MB)
+- Offers automatic installation with standard installer UI
+- **Windows/macOS**: Launches installer, waits for completion, verifies installation
+- **Linux**: Provides distro-specific package manager commands
+- Fallback to manual instructions if needed
+
+**How it works:**
+1. Run `python scripts/install.py`
+2. If Node.js is missing or version < 18, you'll see installation options:
+   - **[1] Automatic installation** (recommended for Windows/macOS) - downloads and installs for you
+   - **[2] Show manual instructions** - if you prefer manual control or on Linux
+   - **[3] Skip** - proceed without installing (will fail later)
+3. Choose option 1 for hassle-free installation!
+
+**Manual installation (if you prefer):**
+- **Windows**: Download from https://nodejs.org/ (use LTS version)
+- **macOS**: Download from https://nodejs.org/ or `brew install node`
+- **Linux**: Use your package manager (commands shown in auto-installer)
 
 **Why is this needed?** AIDEFEND framework uses JavaScript ES6 template literals (backticks) which cannot be parsed with Python alone. The service uses Node.js subprocess to natively parse these files.
 
@@ -98,20 +115,28 @@ node --version
 - Open "Apps & features" in Windows Settings
 - Search for "Microsoft Visual C++ 2015-2022 Redistributable"
 
-**Don't have it?** The installation script will automatically detect and guide you to install it if missing.
+**Don't have it?**
 
-**Manual download:**
-- **Latest version (recommended):** https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+✨ **NEW: Semi-Automated Installation!** The installation script can now automatically download and install Visual C++ Redistributable for you:
+- Detects if already installed (checks Windows registry)
+- Downloads installer from Microsoft official site (~14MB)
+- Offers automatic installation with minimal user interaction
+- Shows UAC prompt for admin privileges (one-click approval)
+- Fallback to manual instructions if needed
+
+**How it works:**
+1. Run `python scripts/install.py`
+2. If Visual C++ is missing, you'll see installation options:
+   - **[1] Automatic installation** (recommended) - downloads and installs for you
+   - **[2] Show manual instructions** - if you prefer manual control
+   - **[3] Skip** - proceed without installing (will fail later)
+3. Choose option 1 for hassle-free installation!
+
+**Manual installation (if you prefer):**
+- **Latest version:** https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
 - **Direct download:** https://aka.ms/vs/17/release/vc_redist.x64.exe
 
-**Installation tips:**
-- Download and run the installer
-- Accept the license agreement and install
-- Restart your computer (recommended)
-
 **Why is this needed?** Python AI/ML libraries like ONNX Runtime use native C++ code for performance. These libraries require Visual C++ runtime DLLs to function on Windows.
-
-**Good news:** The automated installation script (`python scripts/install.py`) will automatically detect if this is missing and provide clear instructions. You don't need to manually check!
 
 ---
 

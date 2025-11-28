@@ -127,6 +127,303 @@ def check_node_version() -> Tuple[bool, str]:
         return False, str(e)
 
 
+def download_with_progress(url: str, target_path: Path, description: str = "Downloading") -> bool:
+    """
+    Download file with real-time progress bar.
+
+    Args:
+        url: URL to download from
+        target_path: Path to save file
+        description: Description to show in progress bar
+
+    Returns:
+        True if successful, False otherwise
+    """
+    import urllib.request
+
+    try:
+        print(f"   📥 {description} from {url}")
+        print(f"   💾 Saving to: {target_path}")
+
+        # Get file size
+        with urllib.request.urlopen(url) as response:
+            total_size = int(response.headers.get('content-length', 0))
+
+            # Download with progress
+            downloaded = 0
+            block_size = 8192
+            last_progress = -1
+
+            with open(target_path, 'wb') as f:
+                while True:
+                    buffer = response.read(block_size)
+                    if not buffer:
+                        break
+
+                    downloaded += len(buffer)
+                    f.write(buffer)
+
+                    # Show progress every 5%
+                    if total_size > 0:
+                        progress = int((downloaded / total_size) * 100)
+                        if progress >= last_progress + 5 or downloaded == total_size:
+                            # Create progress bar
+                            bar_width = 30
+                            filled = int(bar_width * downloaded / total_size)
+                            bar = '=' * filled + '>' + ' ' * (bar_width - filled - 1)
+                            mb_downloaded = downloaded / 1_048_576
+                            mb_total = total_size / 1_048_576
+                            print(f"\r   [{bar}] {progress}% ({mb_downloaded:.1f} MB / {mb_total:.1f} MB)", end='', flush=True)
+                            last_progress = progress
+
+            print()  # New line after progress bar
+            print(f"   ✅ Downloaded successfully ({total_size / 1_048_576:.1f} MB)")
+            return True
+
+    except Exception as e:
+        print(f"\n   ❌ Download failed: {e}")
+        return False
+
+
+def get_nodejs_lts_info() -> Tuple[bool, dict]:
+    """
+    Get latest Node.js LTS version info from nodejs.org API.
+
+    Returns:
+        (success, info_dict or error_message)
+        info_dict contains: version, lts_name, files
+    """
+    import urllib.request
+    import json
+
+    try:
+        # Fetch Node.js version index
+        url = "https://nodejs.org/dist/index.json"
+        with urllib.request.urlopen(url, timeout=10) as response:
+            versions = json.loads(response.read())
+
+        # Find latest LTS version
+        for version_info in versions:
+            if version_info.get('lts'):  # LTS versions have this field set
+                return True, {
+                    'version': version_info['version'],  # e.g., "v20.11.0"
+                    'lts_name': version_info['lts'],     # e.g., "Iron"
+                    'files': version_info.get('files', [])
+                }
+
+        return False, "No LTS version found"
+
+    except Exception as e:
+        return False, f"Failed to fetch LTS info: {e}"
+
+
+def download_nodejs_installer(version_info: dict, target_dir: Path = None) -> Tuple[bool, str]:
+    """
+    Download Node.js installer for current platform.
+
+    Args:
+        version_info: Version info dict from get_nodejs_lts_info()
+        target_dir: Directory to save installer (default: temp directory)
+
+    Returns:
+        (success, installer_path or error_message)
+    """
+    import tempfile
+
+    if target_dir is None:
+        target_dir = Path(tempfile.gettempdir())
+
+    version = version_info['version']  # e.g., "v20.11.0"
+    lts_name = version_info['lts_name']
+
+    # Determine installer filename based on platform
+    if sys.platform == "win32":
+        # Windows: .msi installer (x64)
+        filename = f"node-{version}-x64.msi"
+        installer_path = target_dir / filename
+        download_url = f"https://nodejs.org/dist/{version}/{filename}"
+    elif sys.platform == "darwin":
+        # macOS: .pkg installer
+        filename = f"node-{version}.pkg"
+        installer_path = target_dir / filename
+        download_url = f"https://nodejs.org/dist/{version}/{filename}"
+    else:
+        # Linux: suggest package manager instead
+        return False, "LINUX_USE_PACKAGE_MANAGER"
+
+    # Download with progress bar
+    print(f"\n📦 Downloading Node.js {version} LTS ({lts_name})...")
+    success = download_with_progress(download_url, installer_path, f"Node.js {version}")
+
+    if success:
+        return True, str(installer_path)
+    else:
+        return False, "Download failed"
+
+
+def install_nodejs_auto() -> Tuple[bool, str]:
+    """
+    Semi-automated Node.js installation with user permission.
+
+    This function:
+    1. Checks if Node.js >= 18 is installed
+    2. Asks user permission
+    3. Downloads latest LTS installer
+    4. Runs installer with appropriate UI for platform
+
+    Returns:
+        (success, message)
+    """
+    # Step 1: Check if already installed
+    node_valid, node_msg = check_node_version()
+    if node_valid:
+        return True, f"Already installed: {node_msg}"
+
+    # Step 2: Get latest LTS version info
+    print("\n   Checking latest Node.js LTS version...")
+    lts_success, lts_info = get_nodejs_lts_info()
+
+    if not lts_success:
+        print(f"   ❌ {lts_info}")
+        return False, "SHOW_MANUAL"
+
+    version = lts_info['version']
+    lts_name = lts_info['lts_name']
+
+    # Step 3: Ask user permission
+    print("\n" + "=" * 70)
+    print("Node.js Installation Required")
+    print("=" * 70)
+    print(f"\n⚠️  Node.js 18+ is required for parsing AIDEFEND JavaScript files")
+    print(f"   Current status: {node_msg}\n")
+    print(f"✅ Automatic installation will:")
+    print(f"   • Download Node.js {version} LTS ({lts_name}) from nodejs.org")
+
+    if sys.platform == "win32":
+        print(f"   • File size: ~30-35 MB (.msi installer)")
+        print(f"   • Install with standard Windows installer UI")
+        print(f"   • May show UAC prompt for admin privileges")
+    elif sys.platform == "darwin":
+        print(f"   • File size: ~30-35 MB (.pkg installer)")
+        print(f"   • Install with standard macOS installer UI")
+        print(f"   • May require admin password")
+    else:  # Linux
+        print(f"   • Recommend using your package manager (apt/yum/dnf)")
+        print(f"   • Automatic installation not available on Linux")
+
+    print(f"   • Will NOT restart your computer automatically\n")
+    print("Options:")
+    print("  [1] Automatic installation (recommended)")
+    print("  [2] Show manual installation instructions")
+    print("  [3] Skip (installation will fail later)")
+
+    while True:
+        choice = input("\nChoose option (1/2/3): ").strip()
+        if choice in ["1", "2", "3"]:
+            break
+        print("❌ Invalid choice. Please enter 1, 2, or 3.")
+
+    if choice == "2":
+        return False, "SHOW_MANUAL"
+    elif choice == "3":
+        return False, "User skipped installation"
+
+    # Linux: can't auto-install, show package manager instructions
+    if sys.platform not in ["win32", "darwin"]:
+        return False, "SHOW_MANUAL"
+
+    # Step 4: Download installer
+    download_success, download_result = download_nodejs_installer(lts_info)
+    if not download_success:
+        print(f"❌ {download_result}")
+        print("\nFalling back to manual installation instructions.")
+        return False, "SHOW_MANUAL"
+
+    installer_path = download_result
+
+    # Step 5: Run installer
+    print(f"\n🔧 Running Node.js installer...")
+
+    if sys.platform == "win32":
+        print("   ⚠️  Windows installer will open")
+        print("   📝 Follow the installation wizard:")
+        print("      1. Accept license agreement")
+        print("      2. Keep default installation path")
+        print("      3. Ensure 'Add to PATH' is checked")
+        print("      4. Click through to complete installation")
+        print(f"\n   Starting installer...")
+
+        try:
+            # Windows: Run MSI installer
+            subprocess.Popen([installer_path])
+            print(f"   ✅ Installer launched successfully")
+            print(f"\n   ⏳ Please complete the installation wizard")
+            print(f"   💡 After installation completes, you may need to:")
+            print(f"      • Restart this terminal/command prompt")
+            print(f"      • Run this installation script again")
+
+            # Wait for user confirmation
+            input("\n   Press Enter after installation completes...")
+
+            # Clean up installer
+            try:
+                Path(installer_path).unlink()
+            except:
+                pass
+
+            # Verify installation
+            print("\n   Verifying installation...")
+            node_valid_retry, node_msg_retry = check_node_version()
+
+            if node_valid_retry:
+                print(f"   ✅ {node_msg_retry}")
+                return True, "Installed successfully"
+            else:
+                print(f"   ⚠️  Installation verification: {node_msg_retry}")
+                print(f"   💡 You may need to restart your terminal and run this script again")
+                return False, "Installed but not yet in PATH (restart terminal)"
+
+        except Exception as e:
+            print(f"   ❌ Failed to launch installer: {e}")
+            return False, "SHOW_MANUAL"
+
+    elif sys.platform == "darwin":
+        print("   ⚠️  macOS installer will open")
+        print("   📝 Follow the installation wizard")
+        print(f"\n   Starting installer...")
+
+        try:
+            # macOS: Open .pkg installer
+            subprocess.run(['open', installer_path], check=True)
+            print(f"   ✅ Installer launched successfully")
+            print(f"\n   ⏳ Please complete the installation wizard")
+
+            input("\n   Press Enter after installation completes...")
+
+            # Clean up
+            try:
+                Path(installer_path).unlink()
+            except:
+                pass
+
+            # Verify
+            print("\n   Verifying installation...")
+            node_valid_retry, node_msg_retry = check_node_version()
+
+            if node_valid_retry:
+                print(f"   ✅ {node_msg_retry}")
+                return True, "Installed successfully"
+            else:
+                print(f"   ⚠️  Installation verification: {node_msg_retry}")
+                return False, "Installed but not yet in PATH (restart terminal)"
+
+        except Exception as e:
+            print(f"   ❌ Failed to launch installer: {e}")
+            return False, "SHOW_MANUAL"
+
+    return False, "Unknown platform"
+
+
 def check_claude_desktop_installed() -> Tuple[bool, str]:
     """
     Check if Claude Desktop is likely installed.
@@ -232,6 +529,174 @@ def install_python_dependencies(verbose: bool = True) -> bool:
     except Exception as e:
         print(f"❌ Failed to install Python dependencies: {e}")
         return False
+
+
+def is_vc_redist_installed() -> bool:
+    """
+    Check if Visual C++ Redistributable 2015-2022 is installed (Windows only).
+
+    Checks registry for VC++ 14.x runtime (covers 2015, 2017, 2019, 2022 versions).
+
+    Returns:
+        True if installed, False otherwise
+    """
+    if sys.platform != "win32":
+        return True  # Not Windows, not needed
+
+    try:
+        import winreg
+
+        # Check for x64 runtime (most common)
+        # Registry path: HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+                0,
+                winreg.KEY_READ
+            )
+            # Check if "Installed" value is 1
+            installed, _ = winreg.QueryValueEx(key, "Installed")
+            winreg.CloseKey(key)
+            return installed == 1
+        except FileNotFoundError:
+            return False
+    except ImportError:
+        # winreg not available (shouldn't happen on Windows, but handle it)
+        return False
+
+
+def download_vc_redist(target_dir: Path = None) -> Tuple[bool, str]:
+    """
+    Download Visual C++ Redistributable installer from Microsoft with progress bar.
+
+    Args:
+        target_dir: Directory to save installer (default: temp directory)
+
+    Returns:
+        (success, installer_path or error_message)
+    """
+    import tempfile
+
+    if target_dir is None:
+        target_dir = Path(tempfile.gettempdir())
+
+    installer_path = target_dir / "vc_redist.x64.exe"
+    download_url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+    print("\n📦 Downloading Visual C++ Redistributable...")
+    success = download_with_progress(download_url, installer_path, "Visual C++ Redistributable")
+
+    if success:
+        # Verify file size (should be ~13-15MB)
+        file_size = installer_path.stat().st_size
+        if file_size < 1_000_000:  # Less than 1MB is suspicious
+            return False, f"Downloaded file too small ({file_size} bytes), may be corrupted"
+        return True, str(installer_path)
+    else:
+        return False, "Download failed"
+
+
+def install_vc_redist_auto() -> Tuple[bool, str]:
+    """
+    Semi-automated Visual C++ Redistributable installation with user permission.
+
+    This function:
+    1. Checks if already installed (via registry)
+    2. Asks user permission
+    3. Downloads installer from Microsoft
+    4. Runs installer with /passive mode (shows progress, minimal UI)
+
+    Returns:
+        (success, message)
+    """
+    if sys.platform != "win32":
+        return True, "Not Windows, not needed"
+
+    # Step 1: Check if already installed
+    if is_vc_redist_installed():
+        return True, "Already installed"
+
+    # Step 2: Ask user permission
+    print("\n" + "=" * 70)
+    print("Visual C++ Redistributable Required")
+    print("=" * 70)
+    print("\n⚠️  ONNX Runtime requires Microsoft Visual C++ Redistributable 2015-2022")
+    print("   This is needed for AI/ML libraries to work on Windows.\n")
+    print("✅ Automatic installation will:")
+    print("   • Download vc_redist.x64.exe (~14MB) from Microsoft official site")
+    print("   • Install with minimal user interaction (shows progress bar)")
+    print("   • May show UAC (User Account Control) prompt for admin privileges")
+    print("   • Will NOT restart your computer automatically\n")
+    print("Options:")
+    print("  [1] Automatic installation (recommended)")
+    print("  [2] Show manual installation instructions")
+    print("  [3] Skip (installation will fail later)")
+
+    while True:
+        choice = input("\nChoose option (1/2/3): ").strip()
+        if choice in ["1", "2", "3"]:
+            break
+        print("❌ Invalid choice. Please enter 1, 2, or 3.")
+
+    if choice == "2":
+        # Show manual instructions (existing behavior)
+        return False, "SHOW_MANUAL"
+    elif choice == "3":
+        return False, "User skipped installation"
+
+    # Step 3: Download installer
+    success, result = download_vc_redist()
+    if not success:
+        print(f"❌ Download failed: {result}")
+        print("\nFalling back to manual installation instructions.")
+        return False, "SHOW_MANUAL"
+
+    installer_path = result
+
+    # Step 4: Run installer
+    print("\n🔧 Running installer...")
+    print("   ⚠️  UAC prompt will appear - please click 'Yes' to allow installation")
+    print("   📊 Progress bar will show installation status")
+
+    try:
+        result = subprocess.run(
+            [installer_path, "/install", "/passive", "/norestart"],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+
+        # Clean up installer
+        try:
+            Path(installer_path).unlink()
+        except:
+            pass  # Don't fail if cleanup fails
+
+        if result.returncode == 0:
+            print("   ✅ Installation completed successfully!")
+            return True, "Installed successfully"
+        elif result.returncode == 1638:
+            # Already installed (another version)
+            print("   ✅ Already installed (detected during installation)")
+            return True, "Already installed"
+        elif result.returncode == 3010:
+            # Success but reboot required
+            print("   ✅ Installation completed successfully!")
+            print("   ⚠️  Note: Restart recommended for changes to take full effect")
+            return True, "Installed (reboot recommended)"
+        else:
+            print(f"   ❌ Installation failed with exit code {result.returncode}")
+            if result.stderr:
+                print(f"   Error: {result.stderr}")
+            return False, "SHOW_MANUAL"
+
+    except subprocess.TimeoutExpired:
+        print("   ❌ Installation timed out after 5 minutes")
+        return False, "SHOW_MANUAL"
+    except Exception as e:
+        print(f"   ❌ Installation error: {e}")
+        return False, "SHOW_MANUAL"
 
 
 def verify_onnx_runtime() -> Tuple[bool, str]:
@@ -746,9 +1211,58 @@ def main():
     print(f"   Node.js version: {node_version}")
 
     if not node_valid:
-        print(f"❌ Node.js 18+ required")
-        print("   Please install Node.js: https://nodejs.org/")
-        return 1
+        # Try semi-automated installation
+        node_success, node_result = install_nodejs_auto()
+
+        if node_success:
+            print("✅ Node.js installed successfully")
+        elif node_result == "SHOW_MANUAL":
+            # Show manual installation instructions
+            print("\n" + "=" * 70)
+            print("❌ Node.js 18+ Required")
+            print("=" * 70)
+            print(f"\n⚠️  Current status: {node_version}")
+            print("   Node.js 18+ is required for parsing AIDEFEND JavaScript files.\n")
+
+            if sys.platform == "win32":
+                print("📥 Windows Installation:")
+                print("   1. Download Node.js LTS:")
+                print("      https://nodejs.org/")
+                print("   2. Run the installer (.msi)")
+                print("   3. Ensure 'Add to PATH' is checked")
+                print("   4. Restart your terminal")
+                print("   5. Run this installation script again")
+            elif sys.platform == "darwin":
+                print("📥 macOS Installation:")
+                print("   Option 1 - Official Installer:")
+                print("      https://nodejs.org/")
+                print("   Option 2 - Homebrew:")
+                print("      brew install node")
+            else:  # Linux
+                print("📥 Linux Installation:")
+                print("   Ubuntu/Debian:")
+                print("      curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -")
+                print("      sudo apt-get install -y nodejs")
+                print("   ")
+                print("   Fedora/RHEL:")
+                print("      curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash -")
+                print("      sudo dnf install -y nodejs")
+                print("   ")
+                print("   Or use your package manager:")
+                print("      • Arch: sudo pacman -S nodejs npm")
+                print("      • openSUSE: sudo zypper install nodejs npm")
+
+            print("\n💡 After installation, restart your terminal and run:")
+            print("   python scripts/install.py")
+            print("=" * 70)
+            return 1
+        else:
+            # User skipped installation
+            print(f"\n❌ Node.js installation {node_result}")
+            print("   Service cannot function without Node.js 18+")
+            print("   Please install manually and run this script again.")
+            return 1
+
     print("✅ Node.js version OK")
 
     # Step 3: Install Python dependencies
@@ -765,24 +1279,48 @@ def main():
         if not onnx_valid:
             if onnx_msg == "DLL_MISSING":
                 # Windows-specific DLL error - missing Visual C++ Redistributable
-                print("\n" + "=" * 70)
-                print("❌ ONNX Runtime DLL Error (Windows)")
-                print("=" * 70)
-                print("\n⚠️  ONNX Runtime requires Microsoft Visual C++ Redistributable")
-                print("   This is a one-time installation needed for AI/ML libraries on Windows.\n")
-                print("📥 Please install Visual C++ Redistributable (latest version):")
-                print("   • Latest version: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist")
-                print("   • Direct download: https://aka.ms/vs/17/release/vc_redist.x64.exe\n")
-                print("   Installation steps:")
-                print("   1. Download from either link above (use official page for latest)")
-                print("   2. Run the installer and follow the prompts")
-                print("   3. Restart your computer (recommended)")
-                print("   4. Run this installation script again\n")
-                print("💡 Alternative: The issue may resolve by reinstalling onnxruntime:")
-                print("   python -m pip uninstall onnxruntime -y")
-                print("   python -m pip install onnxruntime\n")
-                print("=" * 70)
-                return 1
+                # Try semi-automated installation
+                vc_success, vc_result = install_vc_redist_auto()
+
+                if vc_success:
+                    # Installation successful, retry ONNX Runtime import
+                    print("\n   Retrying ONNX Runtime import...")
+                    onnx_valid_retry, onnx_msg_retry = verify_onnx_runtime()
+
+                    if onnx_valid_retry:
+                        print(f"   ✅ {onnx_msg_retry}")
+                    else:
+                        # Still failing after VC++ install
+                        print(f"\n❌ ONNX Runtime still failing after VC++ installation: {onnx_msg_retry}")
+                        print("💡 Try reinstalling onnxruntime:")
+                        print("   python -m pip uninstall onnxruntime -y")
+                        print("   python -m pip install onnxruntime")
+                        return 1
+                elif vc_result == "SHOW_MANUAL":
+                    # User chose manual installation or auto-install failed
+                    print("\n" + "=" * 70)
+                    print("❌ ONNX Runtime DLL Error (Windows)")
+                    print("=" * 70)
+                    print("\n⚠️  ONNX Runtime requires Microsoft Visual C++ Redistributable")
+                    print("   This is a one-time installation needed for AI/ML libraries on Windows.\n")
+                    print("📥 Manual installation steps:")
+                    print("   1. Download Visual C++ Redistributable:")
+                    print("      • Latest: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist")
+                    print("      • Direct: https://aka.ms/vs/17/release/vc_redist.x64.exe")
+                    print("   2. Run the installer and follow the prompts")
+                    print("   3. Restart your computer (recommended)")
+                    print("   4. Run this installation script again\n")
+                    print("💡 Alternative: The issue may resolve by reinstalling onnxruntime:")
+                    print("   python -m pip uninstall onnxruntime -y")
+                    print("   python -m pip install onnxruntime\n")
+                    print("=" * 70)
+                    return 1
+                else:
+                    # User skipped
+                    print(f"\n❌ Visual C++ Redistributable installation {vc_result}")
+                    print("   ONNX Runtime will not work without it.")
+                    print("   Please install manually and run this script again.")
+                    return 1
             else:
                 # Other import error
                 print(f"\n❌ ONNX Runtime verification failed: {onnx_msg}")

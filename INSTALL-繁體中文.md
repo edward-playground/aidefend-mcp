@@ -75,12 +75,29 @@ node --version
 
 **預期輸出：** `v18.x.x` 或更高版本（例如 `v22.18.0`）
 
-**還沒安裝？** 請從這裡下載：https://nodejs.org/
+**還沒安裝？**
 
-**安裝提示：**
-- **Windows**: 使用 nodejs.org 的安裝程式
-- **macOS**: 使用安裝程式或 `brew install node`
-- **Linux**: `sudo apt install nodejs` 或 `sudo yum install nodejs`
+✨ **新功能：半自動安裝！** 安裝腳本現在可以自動下載並安裝 Node.js LTS：
+- 自動檢測是否已安裝 Node.js >= 18
+- 從 nodejs.org API 獲取最新 LTS 版本資訊
+- 從 Node.js 官方網站下載安裝程式（約 30-35MB）
+- 提供自動安裝選項，使用標準安裝介面
+- **Windows/macOS**: 啟動安裝程式，等待完成，驗證安裝
+- **Linux**: 提供針對各發行版的套件管理器指令
+- 如需要可退回手動安裝指示
+
+**運作方式：**
+1. 執行 `python scripts/install.py`
+2. 如果缺少 Node.js 或版本 < 18，你會看到安裝選項：
+   - **[1] 自動安裝**（推薦，適用 Windows/macOS）- 自動下載並安裝
+   - **[2] 顯示手動安裝指示** - 如果你偏好手動控制或在 Linux 上
+   - **[3] 跳過** - 繼續執行但不安裝（稍後會失敗）
+3. 選擇選項 1 即可輕鬆安裝！
+
+**手動安裝（如果你偏好）：**
+- **Windows**: 從 https://nodejs.org/ 下載（使用 LTS 版本）
+- **macOS**: 從 https://nodejs.org/ 下載或使用 `brew install node`
+- **Linux**: 使用套件管理器（自動安裝程式會顯示指令）
 
 **為什麼需要這個？** AIDEFEND framework 使用 JavaScript ES6 template literals（反引號），無法單獨用 Python 解析。本服務使用 Node.js subprocess 來原生解析這些檔案。
 
@@ -98,20 +115,28 @@ node --version
 - 在 Windows 設定中開啟「應用程式與功能」
 - 搜尋「Microsoft Visual C++ 2015-2022 Redistributable」
 
-**還沒安裝？** 安裝腳本會自動檢測並引導你安裝（如果缺少的話）。
+**還沒安裝？**
 
-**手動下載：**
-- **最新版本（推薦）：** https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+✨ **新功能：半自動安裝！** 安裝腳本現在可以自動下載並安裝 Visual C++ Redistributable：
+- 自動檢測是否已安裝（檢查 Windows registry）
+- 從 Microsoft 官方網站下載安裝程式（約 14MB）
+- 提供自動安裝選項，使用者互動最少
+- 顯示 UAC 提示要求管理員權限（一鍵批准）
+- 如需要可退回手動安裝指示
+
+**運作方式：**
+1. 執行 `python scripts/install.py`
+2. 如果缺少 Visual C++，你會看到安裝選項：
+   - **[1] 自動安裝**（推薦）- 自動下載並安裝
+   - **[2] 顯示手動安裝指示** - 如果你偏好手動控制
+   - **[3] 跳過** - 繼續執行但不安裝（稍後會失敗）
+3. 選擇選項 1 即可輕鬆安裝！
+
+**手動安裝（如果你偏好）：**
+- **最新版本：** https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
 - **直接下載：** https://aka.ms/vs/17/release/vc_redist.x64.exe
 
-**安裝提示：**
-- 下載並執行安裝程式
-- 接受授權合約並安裝
-- 重新啟動電腦（建議）
-
 **為什麼需要這個？** Python AI/ML 程式庫（如 ONNX Runtime）使用原生 C++ 程式碼以提升效能。這些程式庫需要 Visual C++ runtime DLLs 才能在 Windows 上運作。
-
-**好消息：** 自動化安裝腳本（`python scripts/install.py`）會自動檢測是否缺少此元件，並提供清楚的安裝指示。你不需要手動檢查！
 
 ---
 
