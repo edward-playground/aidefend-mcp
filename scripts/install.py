@@ -733,19 +733,14 @@ def install_vc_redist_auto() -> Tuple[bool, str]:
 
     # Step 2: Ask user permission
     print("\n" + "=" * 70)
-    print("Visual C++ Redistributable Required")
+    print("Windows System Component Required")
     print("=" * 70)
-    print("\n⚠️  ONNX Runtime requires Microsoft Visual C++ Redistributable 2015-2022")
-    print("   This is needed for AI/ML libraries to work on Windows.\n")
-    print("✅ Automatic installation will:")
-    print("   • Download vc_redist.x64.exe (~14MB) from Microsoft official site")
-    print("   • Install with minimal user interaction (shows progress bar)")
-    print("   • May show UAC (User Account Control) prompt for admin privileges")
-    print("   • Will NOT restart your computer automatically\n")
+    print("\n⚠️  This component is needed for AI functionality to work on Windows.")
+    print("   (Microsoft Visual C++ Runtime Library)\n")
     print("Options:")
-    print("  [1] Automatic installation (recommended)")
-    print("  [2] Show manual installation instructions")
-    print("  [3] Skip (installation will fail later)")
+    print("  [1] Install automatically (recommended, ~1-2 minutes)")
+    print("  [2] Show manual installation steps")
+    print("  [3] Skip (I already have it installed)")
 
     while True:
         choice = input("\nChoose option (1/2/3): ").strip()
