@@ -26,7 +26,7 @@ import subprocess
 import argparse
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
 # Fix Windows console encoding for Unicode characters (emojis)
 if sys.platform == "win32":
@@ -256,6 +256,37 @@ def verify_onnx_runtime() -> Tuple[bool, str]:
             return False, f"Import failed: {error_msg}"
     except Exception as e:
         return False, f"Unexpected error: {e}"
+
+
+def verify_critical_dependencies() -> Tuple[bool, List[str]]:
+    """
+    Verify all critical dependencies can be imported.
+
+    This catches missing dependencies that are implicitly required but may not be
+    in requirements.txt (e.g., pandas required by LanceDB's .to_pandas() method).
+
+    Returns:
+        (all_valid, list of error messages)
+    """
+    critical_imports = {
+        'pandas': 'Required by LanceDB for .to_pandas() conversions',
+        'fastapi': 'Core web framework',
+        'lancedb': 'Vector database',
+        'fastembed': 'Embedding generation',
+        'mcp': 'Model Context Protocol SDK',
+        'pydantic': 'Data validation',
+        'httpx': 'HTTP client',
+        'rapidfuzz': 'Fuzzy string matching',
+    }
+
+    errors = []
+    for package, description in critical_imports.items():
+        try:
+            __import__(package)
+        except ImportError as e:
+            errors.append(f"   ❌ {package}: {description}\n      Error: {e}")
+
+    return len(errors) == 0, errors
 
 
 def install_node_dependencies(verbose: bool = True) -> bool:
@@ -760,6 +791,26 @@ def main():
                 return 1
 
         print(f"   ✅ {onnx_msg}")
+
+        # Verify all critical dependencies (catches implicit requirements like pandas)
+        print("\n   Verifying all critical dependencies...")
+        deps_valid, dep_errors = verify_critical_dependencies()
+
+        if not deps_valid:
+            print("\n" + "=" * 70)
+            print("❌ Missing Critical Dependencies")
+            print("=" * 70)
+            print("\n⚠️  Some required dependencies are missing:\n")
+            for error in dep_errors:
+                print(error)
+            print("\n💡 This usually means requirements.txt is incomplete.")
+            print("   Please report this issue at: https://github.com/anthropics/aidefend-mcp/issues")
+            print("\n   Quick fix:")
+            print("   python -m pip install -r requirements.txt")
+            print("=" * 70)
+            return 1
+
+        print(f"   ✅ All critical dependencies verified")
     else:
         print_step(3, 6, "Installing Python dependencies [DRY RUN]")
         print("   Would run: pip install -r requirements.txt")
