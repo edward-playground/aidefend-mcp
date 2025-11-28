@@ -14,6 +14,9 @@ pydantic-settings==2.7.1
 # Vector database
 lancedb==0.25.3
 
+# Data processing (required by LanceDB for .to_pandas())
+pandas>=2.0.0
+
 # Embedding and ML (lightweight ONNX-based)
 fastembed==0.7.3
 
