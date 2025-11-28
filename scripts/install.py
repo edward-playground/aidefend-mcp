@@ -221,6 +221,7 @@ def get_nodejs_lts_info() -> Tuple[bool, dict]:
 def download_nodejs_installer(version_info: dict, target_dir: Path = None) -> Tuple[bool, str]:
     """
     Download Node.js installer for current platform.
+    Automatically detects architecture (x64, ARM64, x86).
 
     Args:
         version_info: Version info dict from get_nodejs_lts_info()
@@ -230,30 +231,49 @@ def download_nodejs_installer(version_info: dict, target_dir: Path = None) -> Tu
         (success, installer_path or error_message)
     """
     import tempfile
+    import platform
 
     if target_dir is None:
         target_dir = Path(tempfile.gettempdir())
 
     version = version_info['version']  # e.g., "v20.11.0"
     lts_name = version_info['lts_name']
+    
+    arch = platform.machine().lower()
 
-    # Determine installer filename based on platform
+    # Determine installer filename based on platform and architecture
     if sys.platform == "win32":
-        # Windows: .msi installer (x64)
-        filename = f"node-{version}-x64.msi"
+        # Windows: .msi installer
+        if arch in ["amd64", "x86_64"]:
+            arch_suffix = "x64"
+        elif arch in ["arm64", "aarch64"]:
+            arch_suffix = "arm64"
+        else:
+            arch_suffix = "x86"
+            
+        filename = f"node-{version}-{arch_suffix}.msi"
         installer_path = target_dir / filename
         download_url = f"https://nodejs.org/dist/{version}/{filename}"
+        
     elif sys.platform == "darwin":
         # macOS: .pkg installer
-        filename = f"node-{version}.pkg"
+        # Note: standard .pkg is universal or x64, but arm64 specific pkg exists for newer versions
+        if arch in ["arm64", "aarch64"]:
+             # Apple Silicon
+            filename = f"node-{version}-arm64.pkg"
+        else:
+            # Intel Mac
+            filename = f"node-{version}.pkg"
+            
         installer_path = target_dir / filename
         download_url = f"https://nodejs.org/dist/{version}/{filename}"
+        
     else:
         # Linux: suggest package manager instead
         return False, "LINUX_USE_PACKAGE_MANAGER"
 
     # Download with progress bar
-    print(f"\n📦 Downloading Node.js {version} LTS ({lts_name})...")
+    print(f"\n📦 Downloading Node.js {version} LTS ({lts_name}) for {sys.platform}...")
     success = download_with_progress(download_url, installer_path, f"Node.js {version}")
 
     if success:
@@ -645,9 +665,10 @@ def install_python_dependencies(verbose: bool = True) -> bool:
 def is_vc_redist_installed() -> bool:
     """
     Check if Visual C++ Redistributable 2015-2022 is installed (Windows only).
-
+    
     Checks registry for VC++ 14.x runtime (covers 2015, 2017, 2019, 2022 versions).
-
+    Supports x64, ARM64, and x86 architectures.
+    
     Returns:
         True if installed, False otherwise
     """
@@ -656,13 +677,25 @@ def is_vc_redist_installed() -> bool:
 
     try:
         import winreg
-
-        # Check for x64 runtime (most common)
-        # Registry path: HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64
+        import platform
+        
+        arch = platform.machine().lower()
+        
+        # Determine registry key based on architecture
+        # HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\{arch}
+        if arch in ["amd64", "x86_64"]:
+            runtime_arch = "x64"
+        elif arch in ["arm64", "aarch64"]:
+            runtime_arch = "arm64"
+        else:
+            runtime_arch = "x86"
+            
+        key_path = f"SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\{runtime_arch}"
+        
         try:
             key = winreg.OpenKey(
                 winreg.HKEY_LOCAL_MACHINE,
-                r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+                key_path,
                 0,
                 winreg.KEY_READ
             )
@@ -680,26 +713,44 @@ def is_vc_redist_installed() -> bool:
 def download_vc_redist(target_dir: Path = None) -> Tuple[bool, str]:
     """
     Download Visual C++ Redistributable installer from Microsoft with progress bar.
-
+    Automatically detects architecture (x64, ARM64, x86).
+    
     Args:
         target_dir: Directory to save installer (default: temp directory)
-
+        
     Returns:
         (success, installer_path or error_message)
     """
     import tempfile
-
+    import platform
+    
     if target_dir is None:
         target_dir = Path(tempfile.gettempdir())
+        
+    arch = platform.machine().lower()
+    
+    # Determine download URL and filename based on architecture
+    if arch in ["amd64", "x86_64"]:
+        filename = "vc_redist.x64.exe"
+        download_url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+        arch_name = "x64"
+    elif arch in ["arm64", "aarch64"]:
+        filename = "vc_redist.arm64.exe"
+        download_url = "https://aka.ms/vs/17/release/vc_redist.arm64.exe"
+        arch_name = "ARM64"
+    else:
+        # Fallback to x86 for 32-bit or unknown
+        filename = "vc_redist.x86.exe"
+        download_url = "https://aka.ms/vs/17/release/vc_redist.x86.exe"
+        arch_name = "x86"
 
-    installer_path = target_dir / "vc_redist.x64.exe"
-    download_url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+    installer_path = target_dir / filename
 
-    print("\n📦 Downloading Visual C++ Redistributable...")
-    success = download_with_progress(download_url, installer_path, "Visual C++ Redistributable")
+    print(f"\n📦 Downloading Visual C++ Redistributable ({arch_name})...")
+    success = download_with_progress(download_url, installer_path, f"Visual C++ Redistributable ({arch_name})")
 
     if success:
-        # Verify file size (should be ~13-15MB)
+        # Verify file size (should be ~13-25MB)
         file_size = installer_path.stat().st_size
         if file_size < 1_000_000:  # Less than 1MB is suspicious
             return False, f"Downloaded file too small ({file_size} bytes), may be corrupted"
