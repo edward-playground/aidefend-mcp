@@ -377,9 +377,44 @@ def install_nodejs_auto() -> Tuple[bool, str]:
                 print(f"   ✅ {node_msg_retry}")
                 return True, "Installed successfully"
             else:
+                # Node.js installed but not yet in PATH (needs environment refresh)
                 print(f"   ⚠️  Installation verification: {node_msg_retry}")
-                print(f"   💡 You may need to restart your terminal and run this script again")
-                return False, "Installed but not yet in PATH (restart terminal)"
+                print("\n" + "=" * 70)
+                print("✅ Node.js Installed Successfully")
+                print("=" * 70)
+                print("\n⚠️  IMPORTANT: Terminal environment needs refresh to load new PATH\n")
+                print("💡 Why? Node.js installer updated system PATH.")
+                print("   Current terminal session doesn't see the updated PATH.")
+                print("   Restarting the installation will use a fresh environment.\n")
+                print("Options:")
+                print("  [1] Auto-restart installation (recommended)")
+                print("  [2] Exit - I'll restart terminal manually\n")
+
+                while True:
+                    choice = input("Choose option (1/2): ").strip()
+                    if choice in ["1", "2"]:
+                        break
+                    print("❌ Invalid choice. Please enter 1 or 2.")
+
+                if choice == "1":
+                    # Auto-restart the installation script
+                    print("\n🔄 Restarting installation with fresh environment...")
+                    print(f"   Command: {' '.join(sys.argv)}\n")
+                    print("=" * 70 + "\n")
+
+                    # Re-run the same script with same arguments
+                    result = subprocess.run([sys.executable] + sys.argv)
+
+                    # Exit with same code as restarted process
+                    sys.exit(result.returncode)
+                else:  # choice == "2"
+                    # Exit gracefully
+                    print("\n📝 To continue installation:")
+                    print("   1. Close this terminal")
+                    print("   2. Open a new terminal")
+                    print("   3. Run: python scripts/install.py")
+                    print("\n" + "=" * 70)
+                    return False, "User chose to restart terminal manually"
 
         except Exception as e:
             print(f"   ❌ Failed to launch installer: {e}")
@@ -412,8 +447,44 @@ def install_nodejs_auto() -> Tuple[bool, str]:
                 print(f"   ✅ {node_msg_retry}")
                 return True, "Installed successfully"
             else:
+                # Node.js installed but not yet in PATH (needs environment refresh)
                 print(f"   ⚠️  Installation verification: {node_msg_retry}")
-                return False, "Installed but not yet in PATH (restart terminal)"
+                print("\n" + "=" * 70)
+                print("✅ Node.js Installed Successfully")
+                print("=" * 70)
+                print("\n⚠️  IMPORTANT: Terminal environment needs refresh to load new PATH\n")
+                print("💡 Why? Node.js installer updated system PATH.")
+                print("   Current terminal session doesn't see the updated PATH.")
+                print("   Restarting the installation will use a fresh environment.\n")
+                print("Options:")
+                print("  [1] Auto-restart installation (recommended)")
+                print("  [2] Exit - I'll restart terminal manually\n")
+
+                while True:
+                    choice = input("Choose option (1/2): ").strip()
+                    if choice in ["1", "2"]:
+                        break
+                    print("❌ Invalid choice. Please enter 1 or 2.")
+
+                if choice == "1":
+                    # Auto-restart the installation script
+                    print("\n🔄 Restarting installation with fresh environment...")
+                    print(f"   Command: {' '.join(sys.argv)}\n")
+                    print("=" * 70 + "\n")
+
+                    # Re-run the same script with same arguments
+                    result = subprocess.run([sys.executable] + sys.argv)
+
+                    # Exit with same code as restarted process
+                    sys.exit(result.returncode)
+                else:  # choice == "2"
+                    # Exit gracefully
+                    print("\n📝 To continue installation:")
+                    print("   1. Close this terminal")
+                    print("   2. Open a new terminal")
+                    print("   3. Run: python scripts/install.py")
+                    print("\n" + "=" * 70)
+                    return False, "User chose to restart terminal manually"
 
         except Exception as e:
             print(f"   ❌ Failed to launch installer: {e}")
