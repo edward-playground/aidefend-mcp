@@ -266,7 +266,9 @@ curl -X POST "http://localhost:8000/api/v1/query" \
   - 驗證：`node --version`
 - **Docker**（選配，用於容器化部署）
 - **2GB RAM** 最低需求（建議 4GB）
-- **500MB 磁碟空間** 用於 models 和資料
+- **3-4GB 磁碟空間**
+  - 服務本身: ~200-700MB（程式碼 + 知識庫 + 日誌）
+  - 外部相依套件: ~1.7-2.3GB（ONNX 模型 + Python/Node 套件）
 
 ## 快速開始
 

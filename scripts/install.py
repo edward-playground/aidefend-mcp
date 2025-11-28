@@ -803,8 +803,11 @@ def main():
     # Step 6: Initial Database Sync (if MCP configured and not dry-run)
     if not args.no_mcp and not args.dry_run:
         print_step(6, 6, "Performing initial database sync")
-        print("   This is a one-time operation (30-60 seconds)")
+        print("   This is a one-time operation (10-15 minutes)")
         print("   Downloading AIDEFEND content from GitHub and building vector database...")
+        print("   • Downloading files: ~1-2 minutes")
+        print("   • Generating embeddings for ~549 documents: ~10-15 minutes (CPU-based)")
+        print("   Please be patient - this ensures fast queries later!")
         print("")
 
         try:
