@@ -144,8 +144,13 @@ def main():
             print("", file=sys.stderr)
 
             if not sync_success:
+                from app.sync import get_last_sync_error
+                last_error = get_last_sync_error()
+                
                 print("=" * 60, file=sys.stderr)
                 print("❌ Initial sync failed!", file=sys.stderr)
+                if last_error:
+                    print(f"   Error: {last_error}", file=sys.stderr)
                 print("   Check data/logs/aidefend_mcp.log for details", file=sys.stderr)
                 print("=" * 60, file=sys.stderr)
                 sys.exit(1)

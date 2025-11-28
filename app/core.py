@@ -35,7 +35,7 @@ def _register_custom_embedding_models():
 
         # Register intfloat/multilingual-e5-base (768-dim, 512 tokens, 100+ languages)
         # Using Xenova's pre-quantized Int8 version for 75% size reduction (1.1GB → 280MB)
-        logger.info("Registering custom model: intfloat/multilingual-e5-base (Quantized Int8)")
+        logger.info("Registering custom model: Xenova/multilingual-e5-base (Quantized Int8)")
         TextEmbedding.add_custom_model(
             model="intfloat/multilingual-e5-base",
             pooling=PoolingType.MEAN,
