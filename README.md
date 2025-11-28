@@ -59,8 +59,8 @@ Problems:
 #### ✅ AIDEFEND MCP Way: Smart Vector Search
 
 ```
-1. Install once (5 minutes)
-   pip install -r requirements.txt && python __main__.py
+1. Install once (2 minutes)
+   python scripts/install.py
 
 2. Ask your question (via Claude Desktop or API)
 
@@ -273,32 +273,20 @@ Both modes share the same core logic, ensuring consistent results.
 
 ## Quick Start
 
-### Step 1: Installation (Common for Both Modes)
+### Step 1: Clone the Repository
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/edward-playground/aidefend-mcp.git
-   cd aidefend-mcp
-   ```
+```bash
+git clone https://github.com/edward-playground/aidefend-mcp.git
+cd aidefend-mcp
+```
 
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configure environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env if needed (optional)
-   ```
-
-### Step 2: Choose Your Mode
+### Step 2: Choose Your Mode & Install
 
 | Mode | Best For | Quick Start |
 |------|----------|-------------|
 | **🖥️ Claude Desktop** | Desktop app users | `python scripts/install.py` |
 | **💻 Claude Code** | VSCode users | `python scripts/install.py --client code` |
-| **🌐 REST API** | HTTP integration, CI/CD | `python __main__.py` |
+| **🌐 REST API** | HTTP integration, CI/CD | `python scripts/install.py --no-mcp` |
 | **🐳 Docker** | Production deployment | `docker-compose up -d` |
 
 ---
@@ -339,6 +327,15 @@ See detailed manual setup instructions in [INSTALL.md](INSTALL.md).
 
 <details>
 <summary><h4>🌐 Option B: REST API Mode (HTTP Integration)</h4></summary>
+
+**Install dependencies:**
+```bash
+# Install dependencies without MCP configuration
+python scripts/install.py --no-mcp
+
+# macOS/Linux users: Use python3 if python points to Python 2
+python3 scripts/install.py --no-mcp
+```
 
 **Start the service:**
 ```bash
