@@ -864,23 +864,34 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
             logger.info(f"🔄 Generating {total_to_embed} new embeddings...")
             logger.info(f"⏱️  Estimated time: {total_to_embed * 1.0 / 60:.1f}-{total_to_embed * 2.0 / 60:.1f} minutes (CPU-based, ~1-2 sec per document)")
 
-            embeddings_generator = await asyncio.to_thread(
-                model.embed,
-                texts_to_embed,
-                batch_size=32
-            )
+            # Helper function to run embedding generation with progress in thread
+            def generate_embeddings_with_progress():
+                """Generate embeddings with progress logging (runs in thread)."""
+                import sys
+                embeddings_list = []
+                progress_interval = max(10, total_to_embed // 10)  # Report every 10% or every 10 items
 
-            # Process embeddings with progress reporting
-            new_embeddings = []
-            progress_interval = max(10, total_to_embed // 10)  # Report every 10% or every 10 items, whichever is larger
+                # Generate embeddings
+                embeddings_generator = model.embed(texts_to_embed, batch_size=32)
 
-            for batch_idx, embedding in enumerate(embeddings_generator):
-                new_embeddings.append(embedding)
+                for idx, embedding in enumerate(embeddings_generator):
+                    embeddings_list.append(embedding)
 
-                # Log progress every interval
-                if (batch_idx + 1) % progress_interval == 0 or (batch_idx + 1) == total_to_embed:
-                    progress_pct = (batch_idx + 1) / total_to_embed * 100
-                    logger.info(f"   Progress: {batch_idx + 1}/{total_to_embed} ({progress_pct:.1f}%) - {total_to_embed - (batch_idx + 1)} remaining")
+                    # Log progress every interval
+                    if (idx + 1) % progress_interval == 0 or (idx + 1) == total_to_embed:
+                        progress_pct = (idx + 1) / total_to_embed * 100
+                        progress_msg = f"   Progress: {idx + 1}/{total_to_embed} ({progress_pct:.1f}%) - {total_to_embed - (idx + 1)} remaining"
+
+                        # Log to file
+                        logger.info(progress_msg)
+
+                        # Also print to console for real-time feedback
+                        print(progress_msg, file=sys.stderr, flush=True)
+
+                return embeddings_list
+
+            # Run embedding generation in thread with progress reporting
+            new_embeddings = await asyncio.to_thread(generate_embeddings_with_progress)
 
             # Store new embeddings in cache and fill placeholders
             for j, (orig_idx, content_hash, source_id) in enumerate(text_to_embed_indices):
