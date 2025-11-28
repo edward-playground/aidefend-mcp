@@ -267,9 +267,10 @@ Both modes share the same core logic, ensuring consistent results.
   - Verify: `node --version`
 - **Docker** (optional, for containerized deployment)
 - **2GB RAM** minimum (4GB recommended)
-- **3-4GB disk space**
+- **2-2.5GB disk space** (reduced from 3-4GB with Int8 quantized model)
   - Service itself: ~200-700MB (code + knowledge base + logs)
-  - Dependencies: ~1.7-2.3GB (ONNX model + Python/Node packages)
+  - Dependencies: ~880MB-1.48GB (ONNX model + Python/Node packages)
+  - **75% smaller embedding model**: Quantized Int8 version (280MB vs 1.1GB original)
 
 ## Quick Start
 
@@ -568,7 +569,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **AIDEFEND Framework**: [edward-playground/aidefense-framework](https://github.com/edward-playground/aidefense-framework)
 - **FastAPI**: Modern Python web framework
 - **LanceDB**: Vector database for semantic search
-- **FastEmbed**: ONNX-based embedding models
+- **FastEmbed**: ONNX-based embedding models (Quantized Int8 for 75% size reduction)
 - **Anthropic MCP**: Model Context Protocol
 
 ---

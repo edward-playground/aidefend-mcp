@@ -108,7 +108,8 @@ All Python dependencies are listed in [`requirements.txt`](requirements.txt). To
 - pandas: Implicit dependency of LanceDB for data conversion
 
 **Downloaded Models**:
-- `intfloat/multilingual-e5-base`: ~1.1GB ONNX model (stored in `~/.cache/fastembed/`)
+- `intfloat/multilingual-e5-base` (Quantized Int8): ~280MB ONNX model (stored in `~/.cache/fastembed/`)
+- Qdrant pre-quantized version for 75% size reduction vs original (1.1GB → 280MB)
 - Supports 100+ languages for multilingual semantic search
 
 ---
@@ -198,7 +199,7 @@ All Node.js dependencies are listed in [`package.json`](package.json). Total siz
 
 ### Disk Space Breakdown
 
-**Total: 3-4GB**
+**Total: 2-2.5GB** (reduced from 3-4GB with Int8 quantized model)
 
 1. **AIDEFEND Service** (~200-700MB):
    - Source code: ~10MB
@@ -206,8 +207,8 @@ All Node.js dependencies are listed in [`package.json`](package.json). Total siz
    - Raw content cache: ~50-100MB
    - Logs: ~10-50MB
 
-2. **External Dependencies** (~1.7-2.3GB):
-   - ONNX embedding model (HuggingFace cache): ~1.1GB
+2. **External Dependencies** (~880MB-1.48GB):
+   - ONNX embedding model (HuggingFace cache): ~280MB (Quantized Int8)
    - Python packages (pip): ~500MB-1GB
    - Node.js packages (npm): ~100-200MB
 
