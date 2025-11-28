@@ -870,11 +870,11 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
                 import sys
                 from datetime import datetime
                 embeddings_list = []
-                # Update every 15 items (~3% for 549 docs, real-time: every 15-30 seconds)
-                progress_interval = 15
+                # Update every 10 items (~1.8% for 549 docs, real-time: every 10-20 seconds)
+                progress_interval = 10
 
-                # Generate embeddings
-                embeddings_generator = model.embed(texts_to_embed, batch_size=32)
+                # Generate embeddings (batch_size matches progress_interval for aligned updates)
+                embeddings_generator = model.embed(texts_to_embed, batch_size=10)
 
                 for idx, embedding in enumerate(embeddings_generator):
                     embeddings_list.append(embedding)
