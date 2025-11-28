@@ -12,10 +12,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Get logger for config warnings
 logger = logging.getLogger(__name__)
 
+# Project root directory (parent of 'app' directory)
+# This ensures paths are resolved relative to project root, not cwd
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+
 
 class Settings(BaseSettings):
     """
     Application settings loaded from environment variables.
+
+    IMPORTANT: All paths are resolved relative to PROJECT_ROOT to ensure
+    consistent behavior regardless of where the service is launched from.
+    This is critical for Claude Desktop integration where cwd may vary.
     """
 
     # GitHub Repository Configuration
@@ -52,24 +60,25 @@ class Settings(BaseSettings):
     )
 
     # Local Storage Paths
+    # All paths resolved relative to PROJECT_ROOT for consistent behavior
     DATA_PATH: Path = Field(
-        default=Path("./data"),
+        default=PROJECT_ROOT / "data",
         description="Root data directory"
     )
     DB_PATH: Path = Field(
-        default=Path("./data/aidefend_kb.lancedb"),
+        default=PROJECT_ROOT / "data" / "aidefend_kb.lancedb",
         description="LanceDB database path"
     )
     RAW_PATH: Path = Field(
-        default=Path("./data/raw_content"),
+        default=PROJECT_ROOT / "data" / "raw_content",
         description="Directory for raw downloaded files"
     )
     VERSION_FILE: Path = Field(
-        default=Path("./data/local_version.json"),
+        default=PROJECT_ROOT / "data" / "local_version.json",
         description="File storing current sync version"
     )
     LOG_PATH: Optional[Path] = Field(
-        default=Path("./data/logs/aidefend_mcp.log"),
+        default=PROJECT_ROOT / "data" / "logs" / "aidefend_mcp.log",
         description="Log file path (None to disable file logging)"
     )
 
@@ -282,10 +291,18 @@ class Settings(BaseSettings):
     @field_validator("DATA_PATH", "DB_PATH", "RAW_PATH", "VERSION_FILE", "LOG_PATH")
     @classmethod
     def validate_paths(cls, v: Optional[Path]) -> Optional[Path]:
-        """Ensure paths are absolute and resolve them."""
+        """
+        Ensure paths are absolute.
+
+        Paths are already resolved relative to PROJECT_ROOT in defaults,
+        but this validator handles custom paths from environment variables.
+        """
         if v is None:
             return None
-        return v.resolve()
+        # If path is relative, resolve it relative to PROJECT_ROOT
+        if not v.is_absolute():
+            return (PROJECT_ROOT / v).resolve()
+        return v
 
     @field_validator("API_HOST")
     @classmethod
