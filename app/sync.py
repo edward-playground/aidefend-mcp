@@ -869,7 +869,8 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
                 """Generate embeddings with progress logging (runs in thread)."""
                 import sys
                 embeddings_list = []
-                progress_interval = max(10, total_to_embed // 10)  # Report every 10% or every 10 items
+                # Update every 10 items (real-time: every 10-20 seconds at ~1-2 sec/item)
+                progress_interval = 10
 
                 # Generate embeddings
                 embeddings_generator = model.embed(texts_to_embed, batch_size=32)
