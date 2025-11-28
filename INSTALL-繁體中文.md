@@ -446,7 +446,9 @@ python scripts/install.py --client both
 {
   "mcpServers": {
     "aidefend": {
-      "command": "C:/Python313/python.exe",
+  "mcpServers": {
+    "aidefend": {
+      "command": "C:/path/to/python.exe",
       "args": [
         "C:/Users/you/aidefend-mcp/__main__.py",
         "--mcp"
@@ -456,6 +458,8 @@ python scripts/install.py --client both
   }
 }
 ```
+
+> **注意：** 安裝腳本會自動偵測您的實際 Python 路徑並正確填入。上方的範例僅使用佔位符。
 
 ---
 
