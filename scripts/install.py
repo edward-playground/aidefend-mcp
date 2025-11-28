@@ -609,6 +609,9 @@ def install_vc_redist_auto() -> Tuple[bool, str]:
 
     Returns:
         (success, message)
+        - success=True, message="Already installed" → No action needed
+        - success=True, message="NEWLY_INSTALLED" → Just installed, needs Python restart
+        - success=False, message=reason → Installation failed
     """
     if sys.platform != "win32":
         return True, "Not Windows, not needed"
@@ -675,7 +678,8 @@ def install_vc_redist_auto() -> Tuple[bool, str]:
 
         if result.returncode == 0:
             print("   ✅ Installation completed successfully!")
-            return True, "Installed successfully"
+            print("   ⚠️  Python process needs to be restarted to load new DLLs")
+            return True, "NEWLY_INSTALLED"
         elif result.returncode == 1638:
             # Already installed (another version)
             print("   ✅ Already installed (detected during installation)")
@@ -684,7 +688,7 @@ def install_vc_redist_auto() -> Tuple[bool, str]:
             # Success but reboot required
             print("   ✅ Installation completed successfully!")
             print("   ⚠️  Note: Restart recommended for changes to take full effect")
-            return True, "Installed (reboot recommended)"
+            return True, "NEWLY_INSTALLED"
         else:
             print(f"   ❌ Installation failed with exit code {result.returncode}")
             if result.stderr:
@@ -1289,15 +1293,53 @@ def main():
                 vc_success, vc_result = install_vc_redist_auto()
 
                 if vc_success:
-                    # Installation successful, retry ONNX Runtime import
+                    # Check if VC++ was just installed (vs. already installed)
+                    if vc_result == "NEWLY_INSTALLED":
+                        # VC++ just installed - Python process needs restart to load DLLs
+                        print("\n" + "=" * 70)
+                        print("✅ Visual C++ Redistributable Installed Successfully")
+                        print("=" * 70)
+                        print("\n⚠️  IMPORTANT: Python needs to be restarted to load new DLLs\n")
+                        print("💡 Why? Windows DLLs are loaded when Python starts.")
+                        print("   The current Python process cannot load newly installed DLLs.")
+                        print("   Restarting ensures pywin32 and ONNX Runtime work correctly.\n")
+                        print("Options:")
+                        print("  [1] Auto-restart installation (recommended)")
+                        print("  [2] Exit now - I'll rerun manually\n")
+
+                        while True:
+                            choice = input("Choose option (1/2): ").strip()
+                            if choice in ["1", "2"]:
+                                break
+                            print("❌ Invalid choice. Please enter 1 or 2.")
+
+                        if choice == "1":
+                            # Auto-restart the installation script
+                            print("\n🔄 Restarting installation...")
+                            print(f"   Command: {' '.join(sys.argv)}\n")
+                            print("=" * 70 + "\n")
+
+                            # Re-run the same script with same arguments
+                            result = subprocess.run([sys.executable] + sys.argv)
+
+                            # Exit with same code as restarted process
+                            return result.returncode
+                        else:  # choice == "2"
+                            # Exit gracefully
+                            print("\n📝 To continue installation, run:")
+                            print(f"   python scripts/install.py")
+                            print("\n" + "=" * 70)
+                            return 0
+
+                    # VC++ was already installed, retry ONNX Runtime import
                     print("\n   Retrying ONNX Runtime import...")
                     onnx_valid_retry, onnx_msg_retry = verify_onnx_runtime()
 
                     if onnx_valid_retry:
                         print(f"   ✅ {onnx_msg_retry}")
                     else:
-                        # Still failing after VC++ install
-                        print(f"\n❌ ONNX Runtime still failing after VC++ installation: {onnx_msg_retry}")
+                        # Still failing after VC++ was already installed
+                        print(f"\n❌ ONNX Runtime still failing: {onnx_msg_retry}")
                         print("💡 Try reinstalling onnxruntime:")
                         print("   python -m pip uninstall onnxruntime -y")
                         print("   python -m pip install onnxruntime")
