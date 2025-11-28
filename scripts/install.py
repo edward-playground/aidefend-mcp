@@ -314,19 +314,16 @@ def install_nodejs_auto() -> Tuple[bool, str]:
     print(f"   • Will NOT restart your computer automatically\n")
     print("Options:")
     print("  [1] Automatic installation (recommended)")
-    print("  [2] Show manual installation instructions")
-    print("  [3] Skip (installation will fail later)")
+    print("  [2] Show manual installation instructions\n")
 
     while True:
-        choice = input("\nChoose option (1/2/3): ").strip()
-        if choice in ["1", "2", "3"]:
+        choice = input("Choose option (1/2): ").strip()
+        if choice in ["1", "2"]:
             break
-        print("❌ Invalid choice. Please enter 1, 2, or 3.")
+        print("❌ Invalid choice. Please enter 1 or 2.")
 
     if choice == "2":
         return False, "SHOW_MANUAL"
-    elif choice == "3":
-        return False, "User skipped installation"
 
     # Linux: can't auto-install, show package manager instructions
     if sys.platform not in ["win32", "darwin"]:
