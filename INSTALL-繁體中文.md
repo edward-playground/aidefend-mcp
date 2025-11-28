@@ -100,7 +100,9 @@ node --version
 
 **還沒安裝？** 安裝腳本會自動檢測並引導你安裝（如果缺少的話）。
 
-**手動下載：** https://aka.ms/vs/17/release/vc_redist.x64.exe
+**手動下載：**
+- **最新版本（推薦）：** https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+- **直接下載：** https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 **安裝提示：**
 - 下載並執行安裝程式

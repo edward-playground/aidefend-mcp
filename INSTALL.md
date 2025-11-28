@@ -100,7 +100,9 @@ node --version
 
 **Don't have it?** The installation script will automatically detect and guide you to install it if missing.
 
-**Manual download:** https://aka.ms/vs/17/release/vc_redist.x64.exe
+**Manual download:**
+- **Latest version (recommended):** https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+- **Direct download:** https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 **Installation tips:**
 - Download and run the installer
