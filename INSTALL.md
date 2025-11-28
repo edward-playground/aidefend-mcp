@@ -446,7 +446,9 @@ python scripts/install.py --client both
 {
   "mcpServers": {
     "aidefend": {
-      "command": "C:/Python313/python.exe",
+  "mcpServers": {
+    "aidefend": {
+      "command": "C:/path/to/python.exe",
       "args": [
         "C:/Users/you/aidefend-mcp/__main__.py",
         "--mcp"
@@ -456,6 +458,8 @@ python scripts/install.py --client both
   }
 }
 ```
+
+> **Note:** The installation script automatically detects your actual Python path and fills this in correctly. The example above uses a placeholder.
 
 ---
 
