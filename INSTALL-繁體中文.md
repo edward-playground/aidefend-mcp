@@ -302,7 +302,7 @@ python3 scripts/install.py
 ⚠️  重要：重新啟動 Claude Desktop 以套用變更
    1. 完全關閉 Claude Desktop
    2. 重新開啟 Claude Desktop
-   3. 在 MCP 工具清單中尋找 'aidefend'（🔌 圖示）
+   3. 在 MCP 工具清單中尋找 'aidefend'（Search and tools 圖示 ⚙️）
 
 ======================================================================
   ✅ 安裝完成！
@@ -310,7 +310,7 @@ python3 scripts/install.py
 
 下一步：
   1. 重新啟動 Claude Desktop（完全關閉後再開啟）
-  2. 在 MCP 工具中尋找 'aidefend'（🔌 圖示）
+  2. 在 MCP 工具中尋找 'aidefend'（Search and tools 圖示 ⚙️）
   3. 試試：「搜尋 AIDEFEND 中關於 prompt injection 的防禦手法」
 ```
 

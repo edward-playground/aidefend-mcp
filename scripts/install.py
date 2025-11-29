@@ -1618,7 +1618,7 @@ def main():
             # Instructions based on which client was configured
             if args.client == 'desktop':
                 print("  1. Restart Claude Desktop (close completely and reopen)")
-                print("  2. Look for 'aidefend' in MCP tools (🔌 icon)")
+                print("  2. Look for 'aidefend' in MCP tools (Search and tools icon ⚙️)")
                 print("  3. Try: 'Search AIDEFEND for prompt injection defenses'")
             elif args.client == 'code':
                 print("  1. Reload VSCode window (Ctrl+Shift+P → 'Reload Window')")
@@ -1627,7 +1627,7 @@ def main():
             elif args.client == 'both':
                 print("  Claude Desktop:")
                 print("    1. Restart Claude Desktop (close completely and reopen)")
-                print("    2. Look for 'aidefend' in MCP tools (🔌 icon)")
+                print("    2. Look for 'aidefend' in MCP tools (Search and tools icon ⚙️)")
                 print("  Claude Code (VSCode):")
                 print("    1. Reload VSCode window (Ctrl+Shift+P → 'Reload Window')")
                 print("    2. Look for 'aidefend' in MCP tools")

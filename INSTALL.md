@@ -302,7 +302,7 @@ Configuring Claude Desktop for MCP mode...
 ⚠️  IMPORTANT: Restart Claude Desktop to apply changes
    1. Completely close Claude Desktop
    2. Reopen Claude Desktop
-   3. Look for 'aidefend' in MCP tools list (🔌 icon)
+   3. Look for 'aidefend' in MCP tools list (Search and tools icon 🔍/⚙️)
 
 ======================================================================
   ✅ Installation Complete!
@@ -310,7 +310,7 @@ Configuring Claude Desktop for MCP mode...
 
 Next steps:
   1. Restart Claude Desktop (close completely and reopen)
-  2. Look for 'aidefend' in MCP tools (🔌 icon)
+  2. Look for 'aidefend' in MCP tools (Search and tools icon ⚙️)
   3. Try: 'Search AIDEFEND for prompt injection defenses'
 ```
 
