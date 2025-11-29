@@ -1676,7 +1676,7 @@ python __main__.py --api
 ```
 ❌ Embedding model upgrade detected!
    Database model: intfloat/multilingual-e5-small (384d)
-   Configured model: intfloat/multilingual-e5-base (768d)
+   Configured model: Xenova/multilingual-e5-base (768d)
 ```
 **解決方案：** 執行 `python __main__.py --resync`
 

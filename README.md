@@ -19,7 +19,7 @@ This service provides secure, private access to the AIDEFEND knowledge base with
 ## Features
 
 - **100% Private & Local**: All queries processed locally - your prompts never leave your infrastructure, works completely offline
-- **Multilingual Support**: Query in any language (Chinese, Japanese, Korean, etc.) and get relevant English results with `intfloat/multilingual-e5-base` (Microsoft, 100+ languages)
+- **Multilingual Support**: Query in any language (Chinese, Japanese, Korean, etc.) and get relevant English results with `Xenova/multilingual-e5-base` (Microsoft, 100+ languages)
 - **Cost Efficient**: 25x token reduction vs sending full framework - drastically lower LLM API costs
 - **Long Query Support**: Automatic chunking for long queries (up to 5000 chars) with intelligent sentence-boundary splitting
 - **Auto-Sync**: Automatically pulls latest AIDEFEND content from GitHub (hourly checks)
@@ -489,7 +489,7 @@ API_WORKERS=1                        # ⚠️ Must be 1 (multi-worker not suppor
 SYNC_INTERVAL_SECONDS=3600           # Auto-sync frequency (1 hour)
 
 # Embedding
-EMBEDDING_MODEL=intfloat/multilingual-e5-base
+EMBEDDING_MODEL=Xenova/multilingual-e5-base
 EMBEDDING_DIMENSION=768
 
 # Rate Limiting

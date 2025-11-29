@@ -743,17 +743,17 @@ def _register_custom_embedding_models_for_sync():
     try:
         from fastembed.common.model_description import PoolingType, ModelSource
 
-        # Check if multilingual-e5-base is already registered
+        # Check if Xenova/multilingual-e5-base is already registered
         supported = [m["model"] for m in TextEmbedding.list_supported_models()]
-        if "intfloat/multilingual-e5-base" in supported:
-            logger.debug("intfloat/multilingual-e5-base already supported natively")
+        if "Xenova/multilingual-e5-base" in supported:
+            logger.debug("Xenova/multilingual-e5-base already supported natively")
             return
 
-        # Register intfloat/multilingual-e5-base (768-dim, 512 tokens, 100+ languages)
+        # Register Xenova/multilingual-e5-base (768-dim, 512 tokens, 100+ languages)
         # Using Xenova's pre-quantized Int8 version for 75% size reduction (1.1GB → 280MB)
         logger.info("Registering custom model for sync: Xenova/multilingual-e5-base (Quantized Int8)")
         TextEmbedding.add_custom_model(
-            model="intfloat/multilingual-e5-base",
+            model="Xenova/multilingual-e5-base",
             pooling=PoolingType.MEAN,
             normalization=True,
             sources=ModelSource(hf="Xenova/multilingual-e5-base"),
@@ -789,7 +789,7 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
         # Register custom models before loading (for multilingual-e5-base support)
         _register_custom_embedding_models_for_sync()
 
-        logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
+        logger.info("Loading embedding model: Xenova/multilingual-e5-base (Quantized Int8)")
 
         # Load embedding model with timeout (prevents hanging on network issues)
         try:

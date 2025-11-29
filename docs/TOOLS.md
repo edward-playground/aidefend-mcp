@@ -61,7 +61,7 @@ You: "What's the status of the AIDEFEND service?"
 Claude: [Uses get_aidefend_status tool]
         AIDEFEND Service Status:
         - Total documents: 156
-        - Embedding model: intfloat/multilingual-e5-base
+        - Embedding model: Xenova/multilingual-e5-base
         - Last sync: 2 hours ago
         - Service ready: Yes
 ```
@@ -77,7 +77,7 @@ curl http://localhost:8000/api/v1/status
 {
   "service_ready": true,
   "total_documents": 156,
-  "embedding_model": "intfloat/multilingual-e5-base",
+  "embedding_model": "Xenova/multilingual-e5-base",
   "last_sync": "2025-01-18T10:30:00Z",
   "framework_version": "1.20251107"
 }

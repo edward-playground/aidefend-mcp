@@ -49,7 +49,10 @@ async def get_statistics() -> Dict[str, Any]:
     if version_info and "statistics" in version_info:
         logger.info("Using pre-computed statistics from version file (fast path)")
         statistics = version_info["statistics"]
-        statistics.setdefault("overview", {})["embedding_model"] = query_engine.active_embedding_model
+        model_name = query_engine.active_embedding_model
+        if model_name == "Xenova/multilingual-e5-base":
+            model_name = "Xenova/multilingual-e5-base (Quantized Int8)"
+        statistics.setdefault("overview", {})["embedding_model"] = model_name
         return statistics
 
     # Fallback: Calculate statistics from database (slow path)
@@ -186,7 +189,7 @@ async def get_statistics() -> Dict[str, Any]:
                 "total_subtechniques": type_counts.get('subtechnique', 0),
                 "total_strategies": type_counts.get('strategy', 0),
                 "last_synced": last_synced,
-                "embedding_model": query_engine.active_embedding_model,
+                "embedding_model": "Xenova/multilingual-e5-base (Quantized Int8)" if query_engine.active_embedding_model == "Xenova/multilingual-e5-base" else query_engine.active_embedding_model,
                 "database_path": str(settings.DB_PATH)
             },
             "by_tactic": dict(sorted(tactic_counts.items())),

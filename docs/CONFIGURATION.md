@@ -28,7 +28,7 @@ cp .env.example .env
 | `MAX_CHUNKS_PROCESSING_TIME` | `15` | Timeout for chunked queries in seconds |
 | `CHUNK_SIZE` | `1200` | Target size for each chunk in characters |
 | `CHUNK_OVERLAP` | `200` | Overlap between chunks to preserve context |
-| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | ONNX embedding model via FastEmbed |
+| `EMBEDDING_MODEL` | `Xenova/multilingual-e5-base` | ONNX embedding model via FastEmbed |
 | `EMBEDDING_DIMENSION` | `768` | Must match model dimension |
 | `API_WORKERS` | `1` | ⚠️ **Must be 1** - Multi-worker mode not supported |
 | `ENABLE_FUZZY_MATCHING` | `true` | Enable Tier 2 fuzzy matching for typo tolerance (100% local) |
@@ -144,9 +144,11 @@ Results (100% processed on your machine) ✅
 ### Default Model
 
 ```bash
-EMBEDDING_MODEL=intfloat/multilingual-e5-base
+EMBEDDING_MODEL=Xenova/multilingual-e5-base
 EMBEDDING_DIMENSION=768
 ```
+
+For advanced usage (changing models, custom ONNX models), see [Advanced Configuration](ADVANCED_CONFIGURATION.md).
 
 **Features:**
 - **Multilingual**: Supports 100+ languages

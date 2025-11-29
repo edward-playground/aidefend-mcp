@@ -623,6 +623,15 @@ def install_python_dependencies(verbose: bool = True) -> bool:
         print("   This may take 2-5 minutes...")
 
     try:
+        # Upgrade pip first
+        if verbose:
+            print("   ⬆️  Upgrading pip to latest version...")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
+            check=False,  # Don't fail if pip upgrade fails (non-critical)
+            capture_output=not verbose
+        )
+
         result = subprocess.run(
             [sys.executable, '-m', 'pip', 'install', '-r', str(requirements_file)],
             capture_output=not verbose,

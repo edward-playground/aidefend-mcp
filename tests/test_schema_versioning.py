@@ -17,13 +17,13 @@ def test_schema_version_mismatch_invalidates_cache(tmp_path):
     old_cache = {
         "cache_version": "1.0",
         "schema_version": "0.9",  # Old version (different from current)
-        "model_name": "intfloat/multilingual-e5-base",
+        "model_name": "Xenova/multilingual-e5-base",
         "model_dimension": 768,
         "embeddings": {
             "abc123": {
                 "source_id": "AID-TEST-001",
                 "content_hash": "abc123",
-                "model_name": "intfloat/multilingual-e5-base",
+                "model_name": "Xenova/multilingual-e5-base",
                 "embedding": [0.1] * 768,
                 "created_at": "2024-01-01T00:00:00"
             }
@@ -40,7 +40,7 @@ def test_schema_version_mismatch_invalidates_cache(tmp_path):
     # Load cache with current schema version
     cache = EmbeddingCache(
         cache_file=cache_file,
-        model_name="intfloat/multilingual-e5-base",
+        model_name="Xenova/multilingual-e5-base",
         dimension=768
     )
 
@@ -60,13 +60,13 @@ def test_schema_version_match_preserves_cache(tmp_path):
     current_cache = {
         "cache_version": "1.0",
         "schema_version": settings.CACHE_SCHEMA_VERSION,  # Current version
-        "model_name": "intfloat/multilingual-e5-base",
+        "model_name": "Xenova/multilingual-e5-base",
         "model_dimension": 768,
         "embeddings": {
             "abc123": {
                 "source_id": "AID-TEST-001",
                 "content_hash": "abc123",
-                "model_name": "intfloat/multilingual-e5-base",
+                "model_name": "Xenova/multilingual-e5-base",
                 "embedding": [0.1] * 768,
                 "created_at": "2024-01-01T00:00:00"
             }
@@ -83,7 +83,7 @@ def test_schema_version_match_preserves_cache(tmp_path):
     # Load cache
     cache = EmbeddingCache(
         cache_file=cache_file,
-        model_name="intfloat/multilingual-e5-base",
+        model_name="Xenova/multilingual-e5-base",
         dimension=768
     )
 
@@ -103,7 +103,7 @@ def test_cache_save_includes_schema_version(tmp_path):
     # Create new cache
     cache = EmbeddingCache(
         cache_file=cache_file,
-        model_name="intfloat/multilingual-e5-base",
+        model_name="Xenova/multilingual-e5-base",
         dimension=768
     )
 
@@ -133,7 +133,7 @@ def test_new_cache_has_schema_version(tmp_path):
     # Create new cache (file doesn't exist)
     cache = EmbeddingCache(
         cache_file=cache_file,
-        model_name="intfloat/multilingual-e5-base",
+        model_name="Xenova/multilingual-e5-base",
         dimension=768
     )
 
