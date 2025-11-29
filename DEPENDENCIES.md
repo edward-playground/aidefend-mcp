@@ -108,7 +108,7 @@ All Python dependencies are listed in [`requirements.txt`](requirements.txt). To
 - pandas: Implicit dependency of LanceDB for data conversion
 
 **Downloaded Models**:
-- `intfloat/multilingual-e5-base` (Quantized Int8): ~280MB ONNX model (stored in `~/.cache/fastembed/`)
+- `Xenova/multilingual-e5-base` (Quantized Int8): ~280MB ONNX model (stored in `~/.cache/fastembed/`)
 - Qdrant pre-quantized version for 75% size reduction vs original (1.1GB → 280MB)
 - Supports 100+ languages for multilingual semantic search
 

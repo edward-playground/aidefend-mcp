@@ -25,7 +25,7 @@ def compute_content_hash(text: str, model_name: str) -> str:
 
     Args:
         text: Document text content
-        model_name: Embedding model name (e.g., "intfloat/multilingual-e5-base")
+        model_name: Embedding model name (e.g., "Xenova/multilingual-e5-base")
 
     Returns:
         SHA-256 hash string

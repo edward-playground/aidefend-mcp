@@ -84,7 +84,7 @@ class Settings(BaseSettings):
 
     # Embedding Configuration
     EMBEDDING_MODEL: str = Field(
-        default="intfloat/multilingual-e5-base",
+        default="Xenova/multilingual-e5-base",
         description="FastEmbed model for embeddings (ONNX-based, multilingual support)"
     )
     EMBEDDING_DIMENSION: int = Field(

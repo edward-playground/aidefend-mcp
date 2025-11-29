@@ -61,7 +61,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 Claude：[使用 get_aidefend_status 工具]
         AIDEFEND 服務狀態：
         - 文件總數：156
-        - Embedding 模型：intfloat/multilingual-e5-base
+        - Embedding 模型：Xenova/multilingual-e5-base
         - 上次同步：2 小時前
         - 服務就緒：是
 ```
@@ -77,7 +77,7 @@ curl http://localhost:8000/api/v1/status
 {
   "service_ready": true,
   "total_documents": 156,
-  "embedding_model": "intfloat/multilingual-e5-base",
+  "embedding_model": "Xenova/multilingual-e5-base",
   "last_sync": "2025-01-18T10:30:00Z",
   "framework_version": "1.20251107"
 }

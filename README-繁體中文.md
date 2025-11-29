@@ -18,7 +18,7 @@
 ## 特色功能
 
 - **100% 隱私保護與本地化**：所有查詢都在本地端處理 - 你的 prompts 只留在你的環境裡，完全支援離線運作
-- **多語言支援**：使用任何語言（中文、日文、韓文等）查詢，都能取得相關的英文內容結果，採用 `intfloat/multilingual-e5-base`（Microsoft，支援 100+ 語言）
+- **多語言支援**：使用任何語言（中文、日文、韓文等）查詢，都能取得相關的英文內容結果，採用 `Xenova/multilingual-e5-base`（Microsoft，支援 100+ 語言）
 - **成本效益高**：相較於傳送完整 framework，token 用量減少 25 倍 - 大幅降低 LLM API 成本
 - **長查詢支援**：自動分塊處理長查詢（最長 5000 字元），聰明地保留句子邊界
 - **自動同步**：自動從 GitHub 下載最新的 AIDEFEND 內容（預設是每小時檢查一次）
@@ -488,7 +488,7 @@ API_WORKERS=1                        # ⚠️ 必須為 1（不支援多 worker�
 SYNC_INTERVAL_SECONDS=3600           # 自動同步頻率（1 小時）
 
 # Embedding
-EMBEDDING_MODEL=intfloat/multilingual-e5-base
+EMBEDDING_MODEL=Xenova/multilingual-e5-base
 EMBEDDING_DIMENSION=768
 
 # 流量限制

@@ -22,22 +22,22 @@ logger = get_logger(__name__)
 def _register_custom_embedding_models():
     """
     Register custom embedding models that are not natively supported by FastEmbed.
-    This allows using models like intfloat/multilingual-e5-base and intfloat/multilingual-e5-small.
+    This allows using models like Xenova/multilingual-e5-base and intfloat/multilingual-e5-small.
     """
     try:
         from fastembed.common.model_description import PoolingType, ModelSource
 
-        # Check if multilingual-e5-base is already registered
+        # Check if Xenova/multilingual-e5-base is already registered
         supported = [m["model"] for m in TextEmbedding.list_supported_models()]
-        if "intfloat/multilingual-e5-base" in supported:
-            logger.debug("intfloat/multilingual-e5-base already supported natively")
+        if "Xenova/multilingual-e5-base" in supported:
+            logger.debug("Xenova/multilingual-e5-base already supported natively")
             return
 
-        # Register intfloat/multilingual-e5-base (768-dim, 512 tokens, 100+ languages)
+        # Register Xenova/multilingual-e5-base (768-dim, 512 tokens, 100+ languages)
         # Using Xenova's pre-quantized Int8 version for 75% size reduction (1.1GB → 280MB)
         logger.info("Registering custom model: Xenova/multilingual-e5-base (Quantized Int8)")
         TextEmbedding.add_custom_model(
-            model="intfloat/multilingual-e5-base",
+            model="Xenova/multilingual-e5-base",
             pooling=PoolingType.MEAN,
             normalization=True,
             sources=ModelSource(hf="Xenova/multilingual-e5-base"),
@@ -65,7 +65,7 @@ _register_custom_embedding_models()
 # This allows us to automatically match the correct embedding model to the
 # stored LanceDB vectors even if the configured model has changed.
 KNOWN_EMBEDDING_MODELS: Dict[str, int] = {
-    "intfloat/multilingual-e5-base": 768,
+    "Xenova/multilingual-e5-base": 768,
     "intfloat/multilingual-e5-small": 384,
 }
 
@@ -273,7 +273,10 @@ class QueryEngine:
 
             # Load embedding model only if we don't already have the correct one cached
             if self._model is None or previous_model_name != resolved_model_name:
-                logger.info(f"Loading embedding model: {resolved_model_name}")
+                if resolved_model_name == "Xenova/multilingual-e5-base":
+                    logger.info("Loading embedding model: Xenova/multilingual-e5-base (Quantized Int8)")
+                else:
+                    logger.info(f"Loading embedding model: {resolved_model_name}")
 
                 # GPU acceleration: Try CUDA first, fallback to CPU if unavailable
                 # Requires: onnxruntime-gpu, CUDA Toolkit, cuDNN
