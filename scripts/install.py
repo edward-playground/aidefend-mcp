@@ -399,71 +399,42 @@ def install_nodejs_auto() -> Tuple[bool, str]:
             else:
                 # Node.js installed but not yet in PATH (needs environment refresh)
                 print(f"   ⚠️  Installation verification: {node_msg_retry}")
-                print("\n" + "=" * 70)
-                print("✅ Node.js Installed Successfully")
-                print("=" * 70)
-                print("\n⚠️  IMPORTANT: Terminal environment needs refresh to load new PATH\n")
-                print("💡 Why? Node.js installer updated system PATH.")
-                print("   Current terminal session doesn't see the updated PATH.")
-                print("   Restarting the installation will use a fresh environment.\n")
-                print("Options:")
-                print("  [1] Auto-restart installation (recommended)")
-                print("  [2] Exit - I'll restart terminal manually\n")
+                print("   🔄 Automatically refreshing environment variables...")
 
-                while True:
-                    choice = input("Choose option (1/2): ").strip()
-                    if choice in ["1", "2"]:
-                        break
-                    print("❌ Invalid choice. Please enter 1 or 2.")
+                # Try to refresh environment variables in current process (Windows)
+                try:
+                    import winreg
+                    # Read from system environment
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                      r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as key:
+                        system_path = winreg.QueryValueEx(key, "Path")[0]
 
-                if choice == "1":
-                    # Try to refresh environment variables in current process (Windows)
-                    print("\n🔄 Refreshing environment variables...")
+                    # Read from user environment
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+                        try:
+                            user_path = winreg.QueryValueEx(key, "Path")[0]
+                        except:
+                            user_path = ""
 
-                    try:
-                        import winreg
-                        # Read from system environment
-                        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                                          r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as key:
-                            system_path = winreg.QueryValueEx(key, "Path")[0]
+                    # Combine paths
+                    new_path = system_path + (";" + user_path if user_path else "")
+                    os.environ["PATH"] = new_path
 
-                        # Read from user environment
-                        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
-                            try:
-                                user_path = winreg.QueryValueEx(key, "Path")[0]
-                            except:
-                                user_path = ""
+                    print("   ✅ Environment variables refreshed")
+                except Exception as e:
+                    print(f"   ⚠️  Could not refresh automatically: {e}")
 
-                        # Combine paths
-                        new_path = system_path + (";" + user_path if user_path else "")
-                        os.environ["PATH"] = new_path
+                # Verify Node.js is now accessible
+                print("\n   Verifying Node.js after environment refresh...")
+                node_valid_final, node_msg_final = check_node_version()
 
-                        print("   ✅ Environment variables refreshed")
-                    except Exception as e:
-                        print(f"   ⚠️  Could not refresh automatically: {e}")
-                        print("   Continuing anyway...")
-
-                    # Verify Node.js is now accessible
-                    print("\n   Verifying Node.js after environment refresh...")
-                    node_valid_final, node_msg_final = check_node_version()
-
-                    if node_valid_final:
-                        print(f"   ✅ {node_msg_final}")
-                        print("   ✅ Continuing installation...\n")
-                        return True, "Installed successfully (after PATH refresh)"
-                    else:
-                        print(f"   ⚠️  Still not found: {node_msg_final}")
-                        print("\n   Manual terminal restart required.")
-                        print("   Please close this terminal and run the script again in a new terminal.")
-                        return False, "Environment refresh failed, manual terminal restart needed"
-                else:  # choice == "2"
-                    # Exit gracefully
-                    print("\n📝 To continue installation:")
-                    print("   1. Close this terminal")
-                    print("   2. Open a new terminal")
-                    print("   3. Run: python scripts/install.py")
-                    print("\n" + "=" * 70)
-                    return False, "User chose to restart terminal manually"
+                if node_valid_final:
+                    print(f"   ✅ {node_msg_final}")
+                    print("   ✅ Continuing installation...\n")
+                    return True, "Installed successfully (after PATH refresh)"
+                else:
+                    print(f"   ⚠️  Still not found: {node_msg_final}")
+                    return True, "RESTART_NEEDED"
 
         except Exception as e:
             print(f"   ❌ Failed to launch installer: {e}")
@@ -498,55 +469,27 @@ def install_nodejs_auto() -> Tuple[bool, str]:
             else:
                 # Node.js installed but not yet in PATH (needs environment refresh)
                 print(f"   ⚠️  Installation verification: {node_msg_retry}")
-                print("\n" + "=" * 70)
-                print("✅ Node.js Installed Successfully")
-                print("=" * 70)
-                print("\n⚠️  IMPORTANT: Terminal environment needs refresh to load new PATH\n")
-                print("💡 Why? Node.js installer updated system PATH.")
-                print("   Current terminal session doesn't see the updated PATH.")
-                print("   Restarting the installation will use a fresh environment.\n")
-                print("Options:")
-                print("  [1] Auto-restart installation (recommended)")
-                print("  [2] Exit - I'll restart terminal manually\n")
+                print("   🔄 Automatically refreshing environment variables...")
 
-                while True:
-                    choice = input("Choose option (1/2): ").strip()
-                    if choice in ["1", "2"]:
-                        break
-                    print("❌ Invalid choice. Please enter 1 or 2.")
+                # Try to refresh environment variables in current process (macOS)
+                # macOS: Update PATH from common locations
+                node_paths = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin"]
+                for path in node_paths:
+                    if path not in os.environ.get("PATH", ""):
+                        os.environ["PATH"] = path + ":" + os.environ.get("PATH", "")
+                print("   ✅ Added common Node.js paths to PATH")
 
-                if choice == "1":
-                    # Try to refresh environment variables in current process (macOS)
-                    print("\n🔄 Refreshing environment variables...")
+                # Verify Node.js is now accessible
+                print("\n   Verifying Node.js after environment refresh...")
+                node_valid_final, node_msg_final = check_node_version()
 
-                    # macOS: Update PATH from common locations
-                    node_paths = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin"]
-                    for path in node_paths:
-                        if path not in os.environ.get("PATH", ""):
-                            os.environ["PATH"] = path + ":" + os.environ.get("PATH", "")
-                    print("   ✅ Added common Node.js paths to PATH")
-
-                    # Verify Node.js is now accessible
-                    print("\n   Verifying Node.js after environment refresh...")
-                    node_valid_final, node_msg_final = check_node_version()
-
-                    if node_valid_final:
-                        print(f"   ✅ {node_msg_final}")
-                        print("   ✅ Continuing installation...\n")
-                        return True, "Installed successfully (after PATH refresh)"
-                    else:
-                        print(f"   ⚠️  Still not found: {node_msg_final}")
-                        print("\n   Manual terminal restart required.")
-                        print("   Please close this terminal and run the script again in a new terminal.")
-                        return False, "Environment refresh failed, manual terminal restart needed"
-                else:  # choice == "2"
-                    # Exit gracefully
-                    print("\n📝 To continue installation:")
-                    print("   1. Close this terminal")
-                    print("   2. Open a new terminal")
-                    print("   3. Run: python scripts/install.py")
-                    print("\n" + "=" * 70)
-                    return False, "User chose to restart terminal manually"
+                if node_valid_final:
+                    print(f"   ✅ {node_msg_final}")
+                    print("   ✅ Continuing installation...\n")
+                    return True, "Installed successfully (after PATH refresh)"
+                else:
+                    print(f"   ⚠️  Still not found: {node_msg_final}")
+                    return True, "RESTART_NEEDED"
 
         except Exception as e:
             print(f"   ❌ Failed to launch installer: {e}")
@@ -568,6 +511,7 @@ def check_claude_desktop_installed() -> Tuple[bool, str]:
         locations = [
             Path(os.environ.get('LOCALAPPDATA', '')) / 'Programs' / 'Claude' / 'Claude.exe',
             Path(os.environ.get('APPDATA', '')) / 'Claude' / 'Claude.exe',
+            Path(os.environ.get('LOCALAPPDATA', '')) / 'AnthropicClaude' / 'Claude.exe',
         ]
         for loc in locations:
             if loc.exists():
@@ -1409,6 +1353,14 @@ def main():
         node_success, node_result = install_nodejs_auto()
 
         if node_success:
+            if node_result == "RESTART_NEEDED":
+                print("\n🔄 Restarting installation to load Node.js...")
+                print(f"   Command: {' '.join(sys.argv)}\n")
+                print("=" * 70 + "\n")
+                # Re-run the same script with same arguments
+                result = subprocess.run([sys.executable] + sys.argv)
+                return result.returncode
+            
             print("✅ Node.js installed successfully")
             
             # Refresh PATH for current process so we can use node immediately
@@ -1497,37 +1449,20 @@ def main():
                         print("\n" + "=" * 70)
                         print("✅ Visual C++ Redistributable Installed Successfully")
                         print("=" * 70)
-                        print("\n⚠️  IMPORTANT: Python needs to be restarted to load new DLLs\n")
-                        print("💡 Why? Windows DLLs are loaded when Python starts.")
-                        print("   The current Python process cannot load newly installed DLLs.")
-                        print("   Restarting ensures pywin32 and ONNX Runtime work correctly.\n")
-                        print("Options:")
-                        print("  [1] Auto-restart installation (recommended)")
-                        print("  [2] Exit now - I'll rerun manually\n")
+                        print("\n⚠️  IMPORTANT: Python needs to be restarted to load new DLLs")
+                        
+                        print("   Restarting installation automatically...\n")
+                        print()
+                        # Auto-restart the installation script
+                        print("\n🔄 Restarting installation...")
+                        print(f"   Command: {' '.join(sys.argv)}\n")
+                        print("=" * 70 + "\n")
 
-                        while True:
-                            choice = input("Choose option (1/2): ").strip()
-                            if choice in ["1", "2"]:
-                                break
-                            print("❌ Invalid choice. Please enter 1 or 2.")
+                        # Re-run the same script with same arguments
+                        result = subprocess.run([sys.executable] + sys.argv)
 
-                        if choice == "1":
-                            # Auto-restart the installation script
-                            print("\n🔄 Restarting installation...")
-                            print(f"   Command: {' '.join(sys.argv)}\n")
-                            print("=" * 70 + "\n")
-
-                            # Re-run the same script with same arguments
-                            result = subprocess.run([sys.executable] + sys.argv)
-
-                            # Exit with same code as restarted process
-                            return result.returncode
-                        else:  # choice == "2"
-                            # Exit gracefully
-                            print("\n📝 To continue installation, run:")
-                            print(f"   python scripts/install.py")
-                            print("\n" + "=" * 70)
-                            return 0
+                        # Exit with same code as restarted process
+                        return result.returncode
 
                     # VC++ was already installed, retry ONNX Runtime import
                     print("\n   Retrying ONNX Runtime import...")
