@@ -197,10 +197,12 @@ async def get_statistics() -> Dict[str, Any]:
             "by_phase": dict(sorted(phase_counts.items())),
             "threat_framework_coverage": {
                 "owasp_llm_items_covered": len(owasp_items),
+                "owasp_llm_total_items": 10,
+                "owasp_llm_coverage_percentage": round((len(owasp_items) / 10) * 100, 1),
                 "mitre_atlas_items_covered": len(atlas_items),
                 "maestro_items_covered": len(maestro_items),
                 "techniques_with_threat_mappings": techniques_with_defenses,
-                "coverage_percentage": round(
+                "techniques_mapped_percentage": round(
                     (techniques_with_defenses / type_counts.get('technique', 1)) * 100, 1
                 ) if type_counts.get('technique', 0) > 0 else 0
             },

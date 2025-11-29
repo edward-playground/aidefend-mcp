@@ -207,8 +207,12 @@ curl http://localhost:8000/api/v1/statistics
   },
   "threat_framework_coverage": {
     "owasp_llm_items_covered": 10,
+    "owasp_llm_total_items": 10,
+    "owasp_llm_coverage_percentage": 100.0,
     "mitre_atlas_items_covered": 28,
-    "maestro_items_covered": 15
+    "maestro_items_covered": 15,
+    "techniques_with_threat_mappings": 40,
+    "techniques_mapped_percentage": 88.9
   },
   "tools_availability": {
     "techniques_with_opensource_tools": 34,
