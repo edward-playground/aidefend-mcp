@@ -5,6 +5,7 @@ Verifies parsing of AIDEFEND tactic files.
 
 from pathlib import Path
 import sys
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -63,10 +64,9 @@ def test_parse_files():
     print(f"Results: {success_count} success, {fail_count} failed")
 
     if fail_count > 0:
-        sys.exit(1)
-    else:
-        print("\nAll files parsed successfully!")
-        sys.exit(0)
+        pytest.fail(f"{fail_count} file(s) failed to parse")
+
+    print("\nAll files parsed successfully!")
 
 if __name__ == "__main__":
     test_parse_files()

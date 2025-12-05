@@ -96,6 +96,7 @@ CLAUDE_TEMP*.md
 CLAUDE_OUTPUT*.md
 UPGRADE*.md
 UPDATE*.md
+*UPDATE*REPORT*.md
 !CLAUDE.md
 
 # Test and verification scripts (keep these for documentation)

@@ -13,6 +13,9 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_basic_functionality():
     """Test basic functionality of the classify_threat module."""
     print("=" * 60)
