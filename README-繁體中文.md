@@ -129,7 +129,7 @@ LLM 得到精準、相關的資訊 → 更好的答案！
 
 ---
 
-### 🛠️ 不只是搜尋：19 個專業工具
+### 🛠️ 不只是搜尋：18 個專業工具
 
 **手動方式：** 只能問問題
 **AIDEFEND MCP：** 專業的 AI 安全分析平台
@@ -433,15 +433,14 @@ Claude：[自動使用 query_aidefend 工具]
 
 > **📖 完整 MCP 工具參考：** [docs/TOOLS-繁體中文.md](docs/TOOLS-繁體中文.md)
 
-## 可用工具（19 個工具）
+## 可用工具（18 個工具）
 
-AIDEFEND MCP Service 提供 **19 個專業工具**，用於 AI 安全分析：
+AIDEFEND MCP Service 提供 **18 個專業工具**，用於 AI 安全分析：
 
-### 基礎查詢工具（4 個工具）
+### 基礎查詢工具（3 個工具）
 - 🔍 **query_aidefend** - 搜尋 AIDEFEND 知識庫
-- ✅ **get_aidefend_status** - 檢查服務狀態
+- ✅ **get_aidefend_status** - 檢查服務狀態與 framework 版本
 - 🔄 **sync_aidefend** - 手動觸發同步
-- 📦 **get_framework_version** - 取得 framework 版本
 
 ### 技術分析工具（4 個工具）
 - 📊 **get_statistics** - 知識庫統計資訊
@@ -551,7 +550,7 @@ aidefend-mcp/
 │   ├── main.py              # FastAPI REST API
 │   ├── core.py              # QueryEngine（共享）
 │   ├── sync.py              # 背景同步
-│   └── tools/               # 19 個專業工具
+│   └── tools/               # 18 個專業工具
 ├── docs/                    # 文件
 │   ├── TOOLS-繁體中文.md    # 完整工具參考
 │   └── CONFIGURATION.md     # 設定指南

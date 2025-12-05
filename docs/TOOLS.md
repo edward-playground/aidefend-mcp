@@ -1,10 +1,10 @@
 # AIDEFEND MCP Tools - Complete Reference
 
-This document provides detailed documentation for all **19 MCP tools** available in the AIDEFEND MCP Service.
+This document provides detailed documentation for all **18 MCP tools** available in the AIDEFEND MCP Service.
 
 ## Tool Categories
 
-### Basic Query Tools (4 tools)
+### Basic Query Tools (3 tools)
 Essential tools for interacting with the AIDEFEND knowledge base.
 
 ### Professional Analysis Tools (15 tools)
@@ -49,9 +49,9 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 ### Tool 2: Get AIDEFEND Status
 
-**Purpose**: Check the current status of the AIDEFEND knowledge base including total indexed documents, embedding model info, and sync status.
+**Purpose**: Check the current status of the AIDEFEND knowledge base including framework version, total indexed documents, embedding model info, and sync status.
 
-**When to use**: Verifying service readiness, checking sync status, troubleshooting.
+**When to use**: Verifying service readiness, checking framework version, checking sync status, troubleshooting.
 
 #### MCP Mode Example (Claude Desktop):
 
@@ -125,46 +125,9 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 
 ---
 
-### Tool 4: Get Framework Version
-
-**Purpose**: Get the AIDEFEND framework version number and last update information.
-
-**When to use**: Checking if your knowledge base is up-to-date with the latest AIDEFEND release.
-
-**Version Format**: Semantic version (e.g., `1.20251107`) where the number indicates the framework's release date. Higher numbers = newer versions.
-
-#### MCP Mode Example (Claude Desktop):
-
-```
-You: "What version of AIDEFEND framework is currently loaded?"
-
-Claude: [Uses get_framework_version tool]
-        Current AIDEFEND Framework Version: 1.20251118
-        Last updated: 2025-11-18
-        This is the latest version.
-```
-
-#### REST API Example:
-
-```bash
-curl http://localhost:8000/api/v1/framework-version
-```
-
-**Response:**
-```json
-{
-  "version": "1.20251118",
-  "version_date": "2025-11-18",
-  "last_synced": "2025-11-18T14:30:00Z",
-  "is_latest": true
-}
-```
-
----
-
 ## Professional Analysis Tools (P0 Tools)
 
-### Tool 5: Get Statistics
+### Tool 4: Get Statistics
 
 **Purpose**: Get a comprehensive overview of the AIDEFEND knowledge base - total documents, coverage by tactic/pillar/phase, and threat framework coverage.
 
