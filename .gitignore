@@ -91,10 +91,12 @@ tmp/
 # VSCode Claude extension cache
 .claude/
 
-# Claude output files
-CLAUDE*.md
+# Claude temporary output files (but keep official CLAUDE.md)
+CLAUDE_TEMP*.md
+CLAUDE_OUTPUT*.md
 UPGRADE*.md
 UPDATE*.md
+!CLAUDE.md
 
 # Test and verification scripts (keep these for documentation)
 # tests/fixtures/test_example.js - Example file for parser testing
@@ -118,4 +120,6 @@ scripts/test_*.py
 *_private*
 credentials*.json
 secrets*.json
+
+# Windows command error artifacts
 nul

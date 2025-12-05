@@ -1,10 +1,10 @@
 # AIDEFEND MCP 工具 - 完整參考文檔
 
-本文檔提供 AIDEFEND MCP Service 中所有 **19 個 MCP 工具**的詳細文檔。
+本文檔提供 AIDEFEND MCP Service 中所有 **18 個 MCP 工具**的詳細文檔。
 
 ## 工具分類
 
-### 基礎查詢工具（4 個工具）
+### 基礎查詢工具（3 個工具）
 與 AIDEFEND 知識庫互動的必備工具。
 
 ### 專業分析工具（15 個工具）
@@ -49,9 +49,9 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 ### 工具 2：取得 AIDEFEND 狀態
 
-**用途**：檢查 AIDEFEND 知識庫的目前狀態，包含已索引的文件總數、embedding 模型資訊和同步狀態。
+**用途**：檢查 AIDEFEND 知識庫的目前狀態，包含 framework 版本、已索引的文件總數、embedding 模型資訊和同步狀態。
 
-**何時使用**：驗證服務就緒狀態、檢查同步狀態、疑難排解。
+**何時使用**：驗證服務就緒狀態、檢查 framework 版本、檢查同步狀態、疑難排解。
 
 #### MCP 模式範例（Claude Desktop）：
 
@@ -125,46 +125,9 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 
 ---
 
-### 工具 4：取得 Framework 版本
-
-**用途**：取得 AIDEFEND framework 版本號碼和最後更新資訊。
-
-**何時使用**：檢查您的知識庫是否為最新的 AIDEFEND 版本。
-
-**版本格式**：語意化版本（例如 `1.20251107`），數字表示 framework 的發布日期。數字越大 = 版本越新。
-
-#### MCP 模式範例（Claude Desktop）：
-
-```
-你：「目前載入的 AIDEFEND framework 版本是多少？」
-
-Claude：[使用 get_framework_version 工具]
-        目前 AIDEFEND Framework 版本：1.20251118
-        最後更新：2025-11-18
-        這是最新版本。
-```
-
-#### REST API 範例：
-
-```bash
-curl http://localhost:8000/api/v1/framework-version
-```
-
-**回應：**
-```json
-{
-  "version": "1.20251118",
-  "version_date": "2025-11-18",
-  "last_synced": "2025-11-18T14:30:00Z",
-  "is_latest": true
-}
-```
-
----
-
 ## 專業分析工具（P0 工具）
 
-### 工具 5：取得統計資訊
+### 工具 4：取得統計資訊
 
 **用途**：取得 AIDEFEND 知識庫的完整總覽 - 文件總數、依 tactic/pillar/phase 的涵蓋範圍，以及威脅 framework 涵蓋範圍。
 

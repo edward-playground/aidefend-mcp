@@ -434,15 +434,14 @@ Claude: [Automatically uses query_aidefend tool]
 
 > **📖 Complete MCP tool reference:** [docs/TOOLS.md](docs/TOOLS.md)
 
-## Available Tools (19 Tools)
+## Available Tools (18 Tools)
 
-The AIDEFEND MCP Service provides **19 specialized tools** for AI security analysis:
+The AIDEFEND MCP Service provides **18 specialized tools** for AI security analysis:
 
-### Basic Query Tools (4 tools)
+### Basic Query Tools (3 tools)
 - 🔍 **query_aidefend** - Search AIDEFEND knowledge base
-- ✅ **get_aidefend_status** - Check service status
+- ✅ **get_aidefend_status** - Check service status and framework version
 - 🔄 **sync_aidefend** - Manually trigger sync
-- 📦 **get_framework_version** - Get framework version
 
 ### Technique Analysis Tools (4 tools)
 - 📊 **get_statistics** - Knowledge base statistics
