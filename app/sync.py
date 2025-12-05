@@ -1216,7 +1216,7 @@ async def run_sync() -> bool:
             _last_sync_error = error_msg
             return False
 
-        logger.info(f"Successfully indexed {statistics['overview']['total_documents']} documents")
+        logger.info(f"Successfully indexed {total_docs} documents")
 
         # Reload query engine to use new database
         # THIS IS CRITICAL - sync is NOT successful if reload fails
