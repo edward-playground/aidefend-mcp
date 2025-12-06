@@ -1,6 +1,6 @@
-# AIDEFEND MCP 工具 - 完整參考文檔
+# AIDEFEND MCP 工具 - 完整參考文件
 
-本文檔提供 AIDEFEND MCP Service 中所有 **18 個 MCP 工具**的詳細文檔。
+本文件提供 AIDEFEND MCP Service 中所有 **18 個 MCP 工具**的詳細文件。
 
 ## 工具分類
 
@@ -193,7 +193,7 @@ curl http://localhost:8000/api/v1/statistics
 
 **用途**：驗證技術 ID 是否存在且格式正確。如果找不到 ID，提供模糊比對建議。
 
-**何時使用**：查詢特定技術前、檢查文檔中的 ID 是否有效、或尋找相似技術。
+**何時使用**：查詢特定技術前、檢查文件中的 ID 是否有效、或尋找相似技術。
 
 #### MCP 模式範例（Claude Desktop）：
 
@@ -630,7 +630,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
 
 **100% 本地處理** - 使用基於 tactic 對齊的本地啟發式比對，無外部 API 呼叫。
 
-**何時使用**：合規報告、稽核準備、治理文檔、或展示法規遵循。
+**何時使用**：合規報告、稽核準備、治理文件、或展示法規遵循。
 
 #### MCP 模式範例（Claude Desktop）：
 
@@ -1388,6 +1388,24 @@ Claude：[使用 compare_techniques 工具]
         | AID-D-001 | 75/100 | 50/100 | 40/100 |
         | AID-I-001 | 65/100 | 50/100 | 45/100 |
 
+### 評分邏輯 (情境感知)
+
+- **效能 (Effectiveness, 0-100)**:
+  - **預防加分 (Prevention Bonus, +25)**：預防性控制 (hardening, filters) 比偵測性控制得分更高。
+  - **資產重要性 (Asset Criticality, +15)**：保護關鍵資產（如模型權重或訓練資料）會有額外加分。
+  - **可驗證性 (Validation Ready, +10)**：如果技術是可驗證/可測試的，會獲得額外加分。
+  - **威脅覆蓋 (Threat Coverage)**：覆蓋每個 OWASP/ATLAS/MAESTRO 威脅都會獲得分數。
+
+- **複雜度 (Complexity, 0-100)**:
+  - **跨域摩擦 (Cross-Domain Friction)**：需要跨團隊協調（例如 DevOps + Data Science）的技術會有更高的複雜度。
+  - **人為規模 (Human Scale)**：流程繁重的技術（訓練、政策）會有更高的複雜度。
+  - **整合階段 (Integration Phase)**：「建置」階段的技術被評為比執行時部署更複雜。
+
+- **成本 (Cost, 0-100)**:
+  - **營運支出 vs 資本支出 (OpEx vs CapEx)**：「偵測」技術的營運支出分數（日誌、警報）高於「預防」（設定後不理）。
+  - **雲端成本 (Cloud Costs)**：雲原生技術包含預估的基礎設施成本。
+  - **工具成本 (Tooling)**：商業工具會增加成本；純開源會降低成本。
+
         ## 實作建議
 
         ### 快速成效
@@ -1604,7 +1622,7 @@ curl -X POST "http://localhost:8000/api/v1/generate-incident-playbook" \
 
 ## 額外資源
 
-- **API 文檔**：http://localhost:8000/docs（當服務執行時）
+- **API 文件**：http://localhost:8000/docs（當服務執行時）
 - **主要 README**：[README-繁體中文.md](../README-繁體中文.md)
 - **安裝指南**：[INSTALL-繁體中文.md](../INSTALL-繁體中文.md)
 - **設定指南**：[CONFIGURATION.md](CONFIGURATION.md)

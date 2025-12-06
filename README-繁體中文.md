@@ -26,7 +26,120 @@
 - **安全優先**：全面的輸入驗證、清理與安全 Header
 - **Docker 環境適用**：可輕鬆透過 Docker 和 docker-compose 部署
 - **Prod 環境適用**：包含健康檢查、流量限制、結構化日誌與監控
+- **智慧情境感知評分 (Smart Context-Aware Scoring)**：根據預防 vs 偵測、資產重要性、合規影響和實作準備度來優先排序防禦手法
 - **深度防禦**：多層安全機制（詳見 [SECURITY.md](./SECURITY.md)）
+
+
+
+## 快速開始
+
+### 步驟 1：Clone Repository
+
+```bash
+git clone https://github.com/edward-playground/aidefend-mcp.git
+cd aidefend-mcp
+```
+
+### 步驟 2：選擇模式並安裝
+
+| 模式 | 適合用於 | 快速開始 |
+|------|---------|---------|
+| **🖥️ Claude Desktop** | 桌面應用程式使用者 | `python scripts/install.py` |
+| **💻 Claude Code** | VSCode 使用者 | `python scripts/install.py --client code` |
+| **🌐 REST API** | HTTP 整合、CI/CD | `python scripts/install.py --no-mcp` |
+| **🐳 Docker** | 正式部署 | `docker-compose up -d` |
+
+---
+
+<details open>
+<summary><h4>🔌 選項 A：MCP 模式（Claude Desktop）- 推薦</h4></summary>
+
+**🚀 一鍵安裝（2 分鐘完成）：**
+
+```bash
+# 單一指令 - 自動安裝所有依賴並設定 Claude Desktop
+python scripts/install.py
+
+# macOS/Linux 使用者：如果 python 指向 Python 2，請使用 python3
+python3 scripts/install.py
+```
+
+**這個腳本會自動：**
+- ✅ 檢查 Python 3.9+ 和 Node.js 18+ 版本
+- ✅ 自動安裝所有 Python 依賴
+- ✅ 自動安裝所有 Node.js 依賴
+- ✅ 自動偵測路徑並設定 Claude Desktop
+- ✅ **安全合併配置（保留所有現有的 MCP 工具）**
+- ✅ 修改前自動建立備份
+
+**詳細說明：** 請參閱 [INSTALL-繁體中文.md 的一鍵安裝章節](INSTALL-繁體中文.md#-mcp-模式設定claude-desktop---一鍵安裝)。
+
+<details>
+<summary><b>進階：手動設定（點擊展開）</b></summary>
+
+詳細的手動設定說明請參閱 [INSTALL-繁體中文.md](INSTALL-繁體中文.md)。
+
+</details>
+
+</details>
+
+---
+
+<details>
+<summary><h4>🌐 選項 B：REST API 模式（HTTP 整合）</h4></summary>
+
+**安裝相依套件：**
+```bash
+# 安裝相依套件但不設定 MCP
+python scripts/install.py --no-mcp
+
+# macOS/Linux 使用者：如果 python 指向 Python 2，請使用 python3
+python3 scripts/install.py --no-mcp
+```
+
+**啟動服務：**
+```bash
+python __main__.py
+```
+
+**驗證是否正在執行：**
+```bash
+curl http://localhost:8000/health
+```
+
+**存取 API 文件：**
+開啟瀏覽器：http://localhost:8000/docs
+
+服務會在首次執行時自動與 GitHub 同步並索引 AIDEFEND framework。
+
+</details>
+
+---
+
+<details>
+<summary><h4>🐳 選項 C：Docker 部署（正式環境）</h4></summary>
+
+**啟動：**
+```bash
+docker-compose up -d
+```
+
+**檢查日誌：**
+```bash
+docker-compose logs -f
+```
+
+**注意：** MCP 模式需要直接執行 Python，無法在 Docker 中運行。
+
+**生產環境安全：**
+對於生產環境部署，強烈建議設定身分驗證：
+```bash
+# 在 docker-compose.yml 或 .env 中
+AUTH_MODE=api_key
+AIDEFEND_API_KEY=<your-secure-key>
+```
+
+</details>
 
 ## 💰 為什麼要使用這個 MCP / REST API Service？
 
@@ -158,46 +271,7 @@ get_threat_coverage(implemented_techniques=["AID-H-001"])
 
 ---
 
-### 🚀 5 分鐘開始使用
 
-```bash
-# 1. Clone
-git clone https://github.com/edward-playground/aidefend-mcp.git
-cd aidefend-mcp
-
-# 2. 安裝
-pip install -r requirements.txt
-
-# 3. 執行（REST API 模式 - 預設）
-python __main__.py
-
-# ✅ 完成！訪問 http://localhost:8000/docs
-```
-
-**若要使用 MCP 模式（Claude Desktop）：**執行 `python scripts/install.py` 一鍵安裝，詳見 [INSTALL-繁體中文.md](INSTALL-繁體中文.md)。
-
-**立即試用：**
-
-```bash
-# REST API
-curl -X POST "http://localhost:8000/api/v1/query" \
-  -H "Content-Type: application/json" \
-  -d '{"query_text": "prompt injection defense", "top_k": 5}'
-
-# MCP 模式（Claude Desktop）
-# 直接問 Claude：「如何防禦 prompt injection？」
-# Claude 會自動使用 AIDEFEND 工具！
-```
-
----
-
-**還在等什麼？**
-- ✅ 完全免費開源
-- ✅ 100% 本地端（隱私優先）
-- ✅ 零維護成本
-- ✅ 5 分鐘安裝
-
-**立即開始省錢並獲得更好的答案！** 🚀
 
 ## 架構
 
@@ -271,107 +345,6 @@ curl -X POST "http://localhost:8000/api/v1/query" \
   - 外部相依套件: ~880MB-1.48GB（ONNX 模型 + Python/Node 套件）
   - **模型減少 75%**: 量化 Int8 版本（280MB vs 原始 1.1GB）
 
-## 快速開始
-
-### 步驟 1：Clone Repository
-
-```bash
-git clone https://github.com/edward-playground/aidefend-mcp.git
-cd aidefend-mcp
-```
-
-### 步驟 2：選擇模式並安裝
-
-| 模式 | 適合用於 | 快速開始 |
-|------|---------|---------|
-| **🖥️ Claude Desktop** | 桌面應用程式使用者 | `python scripts/install.py` |
-| **💻 Claude Code** | VSCode 使用者 | `python scripts/install.py --client code` |
-| **🌐 REST API** | HTTP 整合、CI/CD | `python scripts/install.py --no-mcp` |
-| **🐳 Docker** | 正式部署 | `docker-compose up -d` |
-
----
-
-<details open>
-<summary><h4>🔌 選項 A：MCP 模式（Claude Desktop）- 推薦</h4></summary>
-
-**🚀 一鍵安裝（2 分鐘完成）：**
-
-```bash
-# 單一指令 - 自動安裝所有依賴並設定 Claude Desktop
-python scripts/install.py
-
-# macOS/Linux 使用者：如果 python 指向 Python 2，請使用 python3
-python3 scripts/install.py
-```
-
-**這個腳本會自動：**
-- ✅ 檢查 Python 3.9+ 和 Node.js 18+ 版本
-- ✅ 自動安裝所有 Python 依賴
-- ✅ 自動安裝所有 Node.js 依賴
-- ✅ 自動偵測路徑並設定 Claude Desktop
-- ✅ **安全合併配置（保留所有現有的 MCP 工具）**
-- ✅ 修改前自動建立備份
-
-**詳細說明：** 請參閱 [INSTALL-繁體中文.md 的一鍵安裝章節](INSTALL-繁體中文.md#-mcp-模式設定claude-desktop---一鍵安裝)。
-
-<details>
-<summary><b>進階：手動設定（點擊展開）</b></summary>
-
-詳細的手動設定說明請參閱 [INSTALL-繁體中文.md](INSTALL-繁體中文.md)。
-
-</details>
-
-</details>
-
----
-
-<details>
-<summary><h4>🌐 選項 B：REST API 模式（HTTP 整合）</h4></summary>
-
-**安裝相依套件：**
-```bash
-# 安裝相依套件但不設定 MCP
-python scripts/install.py --no-mcp
-
-# macOS/Linux 使用者：如果 python 指向 Python 2，請使用 python3
-python3 scripts/install.py --no-mcp
-```
-
-**啟動服務：**
-```bash
-python __main__.py
-```
-
-**驗證是否正在執行：**
-```bash
-curl http://localhost:8000/health
-```
-
-**存取 API 文件：**
-開啟瀏覽器：http://localhost:8000/docs
-
-服務會在首次執行時自動與 GitHub 同步並索引 AIDEFEND framework。
-
-</details>
-
----
-
-<details>
-<summary><h4>🐳 選項 C：Docker 部署（正式環境）</h4></summary>
-
-**啟動：**
-```bash
-docker-compose up -d
-```
-
-**檢查日誌：**
-```bash
-docker-compose logs -f
-```
-
-**注意：** MCP 模式需要直接執行 Python，無法在 Docker 中運行。
-
-</details>
 
 ## 使用方式
 
@@ -465,7 +438,7 @@ AIDEFEND MCP Service 提供 **18 個專業工具**，用於 AI 安全分析：
 - 📝 **get_quick_reference** - 產生檢查清單
 - 🚨 **generate_incident_playbook** - 事件應變手冊
 
-> **📖 完整工具文檔與範例：** [docs/TOOLS-繁體中文.md](docs/TOOLS-繁體中文.md)
+> **📖 完整工具文件與範例：** [docs/TOOLS-繁體中文.md](docs/TOOLS-繁體中文.md)
 
 ## 設定
 

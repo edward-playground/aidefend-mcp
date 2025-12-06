@@ -27,7 +27,120 @@ This service provides secure, private access to the AIDEFEND knowledge base with
 - **Security-First**: Comprehensive input validation, sanitization, and security headers
 - **Docker Ready**: Easy deployment with Docker and docker-compose
 - **Production Ready**: Health checks, rate limiting, structured logging, and monitoring
+- **Smart Context-Aware Scoring**: Prioritizes defenses based on prevention vs. detection, asset criticality, compliance impact, and implementation readiness
 - **Defense in Depth**: Multiple security layers (see [SECURITY.md](./SECURITY.md))
+
+
+
+## Quick Start
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/edward-playground/aidefend-mcp.git
+cd aidefend-mcp
+```
+
+### Step 2: Choose Your Mode & Install
+
+| Mode | Best For | Quick Start |
+|------|----------|-------------|
+| **🖥️ Claude Desktop** | Desktop app users | `python scripts/install.py` |
+| **💻 Claude Code** | VSCode users | `python scripts/install.py --client code` |
+| **🌐 REST API** | HTTP integration, CI/CD | `python scripts/install.py --no-mcp` |
+| **🐳 Docker** | Production deployment | `docker-compose up -d` |
+
+---
+
+<details open>
+<summary><h4>🔌 Option A: MCP Mode (Claude Desktop) - Recommended</h4></summary>
+
+**🚀 One-Click Installation (2 minutes):**
+
+```bash
+# Single command - installs everything and configures Claude Desktop
+python scripts/install.py
+
+# macOS/Linux users: Use python3 if python points to Python 2
+python3 scripts/install.py
+```
+
+**What this script does:**
+- ✅ Checks Python 3.9+ and Node.js 18+ versions
+- ✅ Installs all Python dependencies automatically
+- ✅ Installs all Node.js dependencies automatically
+- ✅ Auto-detects paths and configures Claude Desktop
+- ✅ **Safely merges configuration (preserves existing MCP tools)**
+- ✅ Creates backup before any changes
+
+**For details:** See [One-Click Installation in INSTALL.md](INSTALL.md#-mcp-mode-setup-claude-desktop---one-click-installation).
+
+<details>
+<summary><b>Advanced: Manual Setup (click to expand)</b></summary>
+
+See detailed manual setup instructions in [INSTALL.md](INSTALL.md).
+
+</details>
+
+</details>
+
+---
+
+<details>
+<summary><h4>🌐 Option B: REST API Mode (HTTP Integration)</h4></summary>
+
+**Install dependencies:**
+```bash
+# Install dependencies without MCP configuration
+python scripts/install.py --no-mcp
+
+# macOS/Linux users: Use python3 if python points to Python 2
+python3 scripts/install.py --no-mcp
+```
+
+**Start the service:**
+```bash
+python __main__.py
+```
+
+**Verify it's running:**
+```bash
+curl http://localhost:8000/health
+```
+
+**Access API docs:**
+Open browser: http://localhost:8000/docs
+
+The service automatically syncs with GitHub and indexes AIDEFEND framework on first run.
+
+</details>
+
+---
+
+<details>
+<summary><h4>🐳 Option C: Docker Deployment (Production)</h4></summary>
+
+**Start:**
+```bash
+docker-compose up -d
+```
+
+**Check logs:**
+```bash
+docker-compose logs -f
+```
+
+**Note:** MCP mode requires direct Python execution and cannot run in Docker.
+
+**Production Security:**
+For production deployments, configuring authentication is highly recommended:
+```bash
+# In docker-compose.yml or .env
+AUTH_MODE=api_key
+AIDEFEND_API_KEY=<your-secure-key>
+```
+
+</details>
 
 ## 💰 Why Use This MCP / REST API Service?
 
@@ -159,46 +272,7 @@ get_threat_coverage(implemented_techniques=["AID-H-001"])
 
 ---
 
-### 🚀 Get Started in 5 Minutes
 
-```bash
-# 1. Clone
-git clone https://github.com/edward-playground/aidefend-mcp.git
-cd aidefend-mcp
-
-# 2. Install
-pip install -r requirements.txt
-
-# 3. Run (REST API mode - default)
-python __main__.py
-
-# ✅ Done! Access at http://localhost:8000/docs
-```
-
-**For MCP mode (Claude Desktop):** Run `python scripts/install.py` for one-click installation, then see [INSTALL.md](INSTALL.md).
-
-**Try it now:**
-
-```bash
-# REST API
-curl -X POST "http://localhost:8000/api/v1/query" \
-  -H "Content-Type: application/json" \
-  -d '{"query_text": "prompt injection defense", "top_k": 5}'
-
-# MCP Mode (Claude Desktop)
-# Just ask Claude: "How to defend against prompt injection?"
-# Claude automatically uses AIDEFEND tools!
-```
-
----
-
-**Why wait?**
-- ✅ Free and open source
-- ✅ 100% local (privacy-first)
-- ✅ Zero maintenance
-- ✅ 5-minute setup
-
-**Start saving money and get better answers today!** 🚀
 
 ## Architecture
 
@@ -272,107 +346,6 @@ Both modes share the same core logic, ensuring consistent results.
   - Dependencies: ~880MB-1.48GB (ONNX model + Python/Node packages)
   - **75% smaller embedding model**: Quantized Int8 version (280MB vs 1.1GB original)
 
-## Quick Start
-
-### Step 1: Clone the Repository
-
-```bash
-git clone https://github.com/edward-playground/aidefend-mcp.git
-cd aidefend-mcp
-```
-
-### Step 2: Choose Your Mode & Install
-
-| Mode | Best For | Quick Start |
-|------|----------|-------------|
-| **🖥️ Claude Desktop** | Desktop app users | `python scripts/install.py` |
-| **💻 Claude Code** | VSCode users | `python scripts/install.py --client code` |
-| **🌐 REST API** | HTTP integration, CI/CD | `python scripts/install.py --no-mcp` |
-| **🐳 Docker** | Production deployment | `docker-compose up -d` |
-
----
-
-<details open>
-<summary><h4>🔌 Option A: MCP Mode (Claude Desktop) - Recommended</h4></summary>
-
-**🚀 One-Click Installation (2 minutes):**
-
-```bash
-# Single command - installs everything and configures Claude Desktop
-python scripts/install.py
-
-# macOS/Linux users: Use python3 if python points to Python 2
-python3 scripts/install.py
-```
-
-**What this script does:**
-- ✅ Checks Python 3.9+ and Node.js 18+ versions
-- ✅ Installs all Python dependencies automatically
-- ✅ Installs all Node.js dependencies automatically
-- ✅ Auto-detects paths and configures Claude Desktop
-- ✅ **Safely merges configuration (preserves existing MCP tools)**
-- ✅ Creates backup before any changes
-
-**For details:** See [One-Click Installation in INSTALL.md](INSTALL.md#-mcp-mode-setup-claude-desktop---one-click-installation).
-
-<details>
-<summary><b>Advanced: Manual Setup (click to expand)</b></summary>
-
-See detailed manual setup instructions in [INSTALL.md](INSTALL.md).
-
-</details>
-
-</details>
-
----
-
-<details>
-<summary><h4>🌐 Option B: REST API Mode (HTTP Integration)</h4></summary>
-
-**Install dependencies:**
-```bash
-# Install dependencies without MCP configuration
-python scripts/install.py --no-mcp
-
-# macOS/Linux users: Use python3 if python points to Python 2
-python3 scripts/install.py --no-mcp
-```
-
-**Start the service:**
-```bash
-python __main__.py
-```
-
-**Verify it's running:**
-```bash
-curl http://localhost:8000/health
-```
-
-**Access API docs:**
-Open browser: http://localhost:8000/docs
-
-The service automatically syncs with GitHub and indexes AIDEFEND framework on first run.
-
-</details>
-
----
-
-<details>
-<summary><h4>🐳 Option C: Docker Deployment (Production)</h4></summary>
-
-**Start:**
-```bash
-docker-compose up -d
-```
-
-**Check logs:**
-```bash
-docker-compose logs -f
-```
-
-**Note:** MCP mode requires direct Python execution and cannot run in Docker.
-
-</details>
 
 ## Usage Guide
 

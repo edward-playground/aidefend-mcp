@@ -564,7 +564,7 @@ def install_python_dependencies(verbose: bool = True) -> bool:
     if verbose:
         print("Installing Python dependencies...")
         print(f"   Using: {requirements_file}")
-        print("   This may take 2-5 minutes...")
+        print("   This may take 2-4 minutes...")
 
     try:
         # Upgrade pip first
@@ -742,7 +742,7 @@ def install_vc_redist_auto() -> Tuple[bool, str]:
     print("\n⚠️  This component is needed for AI functionality to work on Windows.")
     print("   (Microsoft Visual C++ Runtime Library)\n")
     print("Options:")
-    print("  [1] Install automatically (recommended, ~1-2 minutes)")
+    print("  [1] Install automatically (recommended, estimated 1-2 minutes)")
     print("  [2] Show manual installation steps")
     print("  [3] Skip (I already have it installed)")
 
@@ -1573,10 +1573,10 @@ def main():
     # Step 6: Initial Database Sync (if MCP configured and not dry-run)
     if not args.no_mcp and not args.dry_run:
         print_step(6, 6, "Performing initial database sync")
-        print("   This is a one-time operation (10-15 minutes)")
+        print("   This is a one-time operation (estimated 5 - 10 minutes)")
         print("   Downloading AIDEFEND content from GitHub and building vector database...")
         print("   • Downloading files: ~1-2 minutes")
-        print("   • Generating embeddings for ~549 documents: ~10-15 minutes (CPU-based)")
+        print("   • Generating embeddings for ~549 documents: ~5-10 minutes (CPU-based)")
         print("   Please be patient - this ensures fast queries later!")
         print("")
 
