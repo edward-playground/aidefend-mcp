@@ -79,6 +79,25 @@ async def lifespan(app: FastAPI):
     logger.info(f"Version: {__version__}")
     logger.info("=" * 60)
 
+    # Clean up stale lock files from crashed processes
+    try:
+        from app.sync import cleanup_stale_lock
+        cleanup_stale_lock()
+    except Exception as e:
+        logger.warning(f"Failed to cleanup stale lock on startup: {e}")
+
+    # Ensure database is ready (auto-initialize or repair if needed)
+    # This handles both new installations and corrupted databases
+    try:
+        from app.sync import ensure_database_ready
+        logger.info("Checking database health...")
+        await ensure_database_ready()
+        logger.info("Database is ready")
+    except Exception as e:
+        logger.error(f"Critical: Failed to ensure database ready: {e}")
+        # This is a fatal error - cannot start without database
+        raise RuntimeError("Database initialization/repair failed - cannot start REST API server")
+
     # Check for embedding model changes
     version_info = load_version_info()
     if version_info:
