@@ -1400,6 +1400,24 @@ curl -X POST "http://localhost:8000/api/v1/analyze-security-posture" \
 
 **100% LOCAL** - All scoring uses heuristic algorithms based on metadata, no external API calls.
 
+### Scoring Logic (Context-Aware)
+
+- **Effectiveness (0-100)**:
+  - **Prevention Bonus (+25)**: Higher score for preventive controls (hardening, filters) vs. detection.
+  - **Asset Criticality (+15)**: Bonus for protecting critical assets like Model Weights or Training Data.
+  - **Validation Ready (+10)**: Bonus if technique is verifiable/testable.
+  - **Threat Coverage**: Points for each OWASP/ATLAS/MAESTRO threat covered.
+
+- **Complexity (0-100)**:
+  - **Cross-Domain Friction**: Penalties for techniques requiring cross-team coordination (e.g., DevOps + Data Science).
+  - **Human Scale**: Penalties for process-heavy techniques (training, policy).
+  - **Integration Phase**: "Building" phase techniques are rated as higher complexity than runtime deployment.
+
+- **Cost (0-100)**:
+  - **OpEx vs CapEx**: "Detection" techniques have higher OpEx scores (logs, alerts) than "Prevention" (set-and-forget).
+  - **Cloud Costs**: Cloud-native techniques include estimated infrastructure costs.
+  - **Tooling**: Commercial tools add cost; pure open-source reduces cost.
+
 #### MCP Mode Example (Claude Desktop):
 
 ```

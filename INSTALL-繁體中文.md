@@ -162,7 +162,7 @@ docker-compose --version
 ### 💻 系統需求
 
 - **RAM**: 最低 2GB，建議 4GB
-- **磁碟空間**: **3-4GB 可用空間**（詳細分解如下）
+- **磁碟空間**: **2-2.5GB 可用空間**（詳細分解如下）
 
   **AIDEFEND 服務本身 (~200-700MB):**
   - 原始碼: ~10MB
@@ -170,12 +170,12 @@ docker-compose --version
   - 原始內容快取: ~50-100MB
   - 日誌檔案: ~10-50MB
 
-  **外部相依套件 (~1.7-2.3GB):**
-  - ONNX 嵌入模型（HuggingFace 快取）: ~1.1GB
+  **外部相依套件 (~1.5GB):**
+  - ONNX 嵌入模型（Int8 量化版）: ~280MB
   - Python 套件（pip）: ~500MB-1GB（FastAPI、LanceDB、NumPy 等）
   - Node.js 套件（npm）: ~100-200MB（Acorn 解析器）
 
-  **總計: 最低 2-3GB，資料庫增長後最多 4GB**
+  **總計: 最低 2GB，資料庫增長後最多 3GB**
 
 - **網路**: 初次下載時需要（設定後可離線運作）
 
@@ -334,7 +334,7 @@ python3 scripts/install.py
 ⚠️ **重要：** **首次使用**時，AIDEFEND 會自動下載約 1.1GB 的 embedding 模型（`multilingual-e5-base`）。
 
 **預期情況：**
-- **下載時間：** 5-15 分鐘（取決於網路速度）
+- **下載時間：** 4-8 分鐘（取決於網路速度）
 - **儲存空間：** 總共約 3-4GB（模型 + 相依套件 + 知識庫 - 詳細分解請見上方系統需求）
 - **存放位置：** `~/.cache/fastembed/`（macOS/Linux）或 `%USERPROFILE%\.cache\fastembed\`（Windows）
 - **僅此一次：** 後續使用會立即回應
@@ -732,6 +732,12 @@ open -e .env      # macOS
 ```
 
 **對大多數使用者來說，預設值就可以了。你可以跳過這個步驟。**
+
+> **🔒 安全提示：** 對於生產環境部署，我們強烈建議在 `.env` 中啟用 API Key 驗證：
+> ```bash
+> AUTH_MODE=api_key
+> AIDEFEND_API_KEY=<your-secure-random-key>
+> ```
 
 ---
 

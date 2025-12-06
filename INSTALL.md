@@ -162,7 +162,7 @@ docker-compose --version
 ### 💻 System Requirements
 
 - **RAM**: 2GB minimum, 4GB recommended
-- **Disk Space**: **3-4GB free** (breakdown below)
+- **Disk Space**: **2-2.5GB free** (breakdown below)
 
   **AIDEFEND Service itself (~200-700MB):**
   - Source code: ~10MB
@@ -170,12 +170,12 @@ docker-compose --version
   - Raw content cache: ~50-100MB
   - Logs: ~10-50MB
 
-  **Dependencies (~1.7-2.3GB):**
-  - ONNX embedding model (HuggingFace cache): ~1.1GB
+  **Dependencies (~1.5GB):**
+  - ONNX embedding model (Int8 Quantized): ~280MB
   - Python packages (pip): ~500MB-1GB (FastAPI, LanceDB, NumPy, etc.)
   - Node.js packages (npm): ~100-200MB (Acorn parser)
 
-  **Total: 2-3GB minimum, up to 4GB with database growth**
+  **Total: 2GB minimum, up to 3GB with database growth**
 
 - **Internet**: Required for initial download (service works offline after setup)
 
@@ -732,6 +732,12 @@ open -e .env      # macOS
 ```
 
 **For most users, the defaults work fine. You can skip this step.**
+
+> **🔒 Security Tip:** For production deployments, we highly recommend enabling API key authentication in `.env`:
+> ```bash
+> AUTH_MODE=api_key
+> AIDEFEND_API_KEY=<your-secure-random-key>
+> ```
 
 ---
 
