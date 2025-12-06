@@ -169,8 +169,8 @@ def _generate_unified_summary(
     if not technical_cov or not threat_cov:
         return summary
 
-    # Extract key metrics
-    tech_coverage_pct = technical_cov.get("overall_coverage", {}).get("percentage", 0)
+    # Extract key metrics - Fix: Use correct key 'analysis_summary' instead of 'overall_coverage'
+    tech_coverage_pct = technical_cov.get("analysis_summary", {}).get("coverage_percentage", 0)
     owasp_cov_pct = threat_cov.get("coverage_rate", {}).get("owasp", 0)
     atlas_cov_pct = threat_cov.get("coverage_rate", {}).get("atlas", 0)
     maestro_cov_pct = threat_cov.get("coverage_rate", {}).get("maestro", 0)
@@ -201,12 +201,23 @@ def _generate_unified_summary(
         f"MAESTRO: {maestro_cov_pct:.1f}% threat coverage"
     )
 
-    # Identify top priorities from technical gaps
+    # Identify top priorities from technical gaps and recommendations
+    # Note: critical_gaps contains gap analysis (tactic/pillar/phase gaps)
+    # recommendations contains specific technique suggestions with IDs
     critical_gaps = technical_cov.get("critical_gaps", [])
+    recommendations = technical_cov.get("recommendations", [])
+
     if critical_gaps:
+        # Add gap descriptions (gaps have 'reason' not 'technique_id')
+        for gap in critical_gaps[:3]:
+            gap_desc = gap.get('reason', gap.get('tactic', 'Unknown gap'))
+            summary["top_priorities"].append(f"Gap: {gap_desc}")
+
+    # Add specific technique recommendations
+    if recommendations:
         summary["top_priorities"].extend([
-            f"{gap['technique_id']}: {gap['name']}"
-            for gap in critical_gaps[:3]
+            f"{rec['technique_id']}: {rec['name']}"
+            for rec in recommendations[:5]  # Top 5 technique recommendations
         ])
 
     # Identify uncovered high-priority threats

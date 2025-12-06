@@ -134,6 +134,12 @@ class Settings(BaseSettings):
         default=True,
         description="Enable automatic background sync"
     )
+    LOCK_MAX_AGE_SECONDS: int = Field(
+        default=1800,
+        ge=300,
+        le=7200,
+        description="Maximum age (in seconds) for lock file before considered stale (30 minutes default, min 5 min, max 2 hours)"
+    )
 
     # API Configuration
     API_HOST: str = Field(

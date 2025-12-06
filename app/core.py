@@ -93,11 +93,33 @@ class QueryEngine:
         self._model: Optional[TextEmbedding] = None
         self._initialized = False
         self._rw_lock = RWLock()  # Read-write lock for concurrent access
+        self._rw_lock_loop_id = None  # Track which event loop the lock is bound to
         self._id_cache: Optional[List] = None  # ID cache for validation tool
         self._active_embedding_model: str = settings.EMBEDDING_MODEL
         self._active_embedding_dimension: int = settings.EMBEDDING_DIMENSION
 
         logger.info("QueryEngine instance created (lazy initialization)")
+
+    def _ensure_rwlock_for_current_loop(self):
+        """
+        Ensure RWLock is bound to the current event loop.
+
+        aiorwlock.RWLock() binds to the event loop active when first used.
+        If the event loop changes (e.g., FastAPI worker restart, tests),
+        we must recreate the lock to avoid "bound to a different event loop" errors.
+        """
+        try:
+            current_loop = asyncio.get_running_loop()
+            current_loop_id = id(current_loop)
+
+            # If lock is bound to a different loop, recreate it
+            if self._rw_lock_loop_id != current_loop_id:
+                logger.debug(f"Recreating RWLock for new event loop (old: {self._rw_lock_loop_id}, new: {current_loop_id})")
+                self._rw_lock = RWLock()
+                self._rw_lock_loop_id = current_loop_id
+        except RuntimeError:
+            # No event loop running - this is OK, lock will be created when needed
+            pass
 
     def _detect_table_vector_dimension(self, table: lancedb.Table) -> Optional[int]:
         """
@@ -342,6 +364,7 @@ class QueryEngine:
         Returns:
             True if successful, False otherwise
         """
+        self._ensure_rwlock_for_current_loop()
         async with self._rw_lock.writer:
             return await self._do_initialize()
 
@@ -378,6 +401,7 @@ class QueryEngine:
                 )
 
         # Acquire reader lock for search operation (allows concurrent reads)
+        self._ensure_rwlock_for_current_loop()
         async with self._rw_lock.reader:
             # Double-check state after acquiring lock
             if not self._initialized or self._model is None or self._table is None:
@@ -495,6 +519,7 @@ class QueryEngine:
                 )
 
         # Acquire reader lock for search operation
+        self._ensure_rwlock_for_current_loop()
         async with self._rw_lock.reader:
             if not self._initialized or self._model is None or self._table is None:
                 raise QueryEngineNotInitializedError("Query engine components not available")
@@ -578,6 +603,7 @@ class QueryEngine:
             }
 
         # Acquire reader lock for stats operation
+        self._ensure_rwlock_for_current_loop()
         async with self._rw_lock.reader:
             try:
                 doc_count = 0
@@ -621,6 +647,7 @@ class QueryEngine:
                 return False
 
             # Acquire reader lock for health check operation
+            self._ensure_rwlock_for_current_loop()
             async with self._rw_lock.reader:
                 # Try a simple count operation
                 if self._table:
@@ -641,6 +668,7 @@ class QueryEngine:
             True if successful, False otherwise
         """
         # Acquire writer lock for reload operation (exclusive access)
+        self._ensure_rwlock_for_current_loop()
         async with self._rw_lock.writer:
             logger.info("Reloading QueryEngine...")
 

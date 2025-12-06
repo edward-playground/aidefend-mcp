@@ -64,6 +64,26 @@ async def serve():
 
     logger.info("Initializing AIDEFEND MCP Server...")
 
+    # Clean up stale lock files from crashed processes
+    # This should be done before any sync operations
+    try:
+        from app.sync import cleanup_stale_lock
+        cleanup_stale_lock()
+    except Exception as e:
+        logger.warning(f"Failed to cleanup stale lock on startup: {e}")
+
+    # Ensure database is ready (auto-initialize or repair if needed)
+    # This handles both new installations and corrupted databases
+    try:
+        from app.sync import ensure_database_ready
+        logger.info("Checking database health...")
+        await ensure_database_ready()
+        logger.info("Database is ready")
+    except Exception as e:
+        logger.error(f"Critical: Failed to ensure database ready: {e}")
+        # This is a fatal error - cannot start without database
+        raise RuntimeError("Database initialization/repair failed - cannot start MCP server")
+
     # Tool 1: Query AIDEFEND knowledge base
     @server.list_tools()
     async def list_tools() -> List[Tool]:
@@ -922,6 +942,12 @@ async def handle_sync() -> List[TextContent]:
     """
     Handle sync_aidefend tool call.
 
+    Uses run_sync() which internally calls core_sync(force_rebuild=False).
+    This performs a normal sync check (downloads updates if available).
+
+    For force rebuild, users should use CLI: python __main__.py --resync
+    For corruption repair, ensure_database_ready() runs at startup.
+
     Returns:
         List of TextContent with sync result
     """
@@ -934,6 +960,7 @@ async def handle_sync() -> List[TextContent]:
     )
 
     try:
+        # run_sync() handles lock acquisition/release and calls core_sync()
         success = await run_sync()
 
         if success:
@@ -945,21 +972,10 @@ async def handle_sync() -> List[TextContent]:
                 "💡 Tip: Use `get_aidefend_status` to verify the service is ready."
             )
         else:
-            error = get_last_sync_error() or "Unknown error"
+            error = get_last_sync_error() or "Unknown error - check logs for details"
             sync_text += (
                 f"**❌ Sync Failed**\n\n"
-                f"**Error:** {error}\n\n"
-                f"**Common Causes:**\n"
-                f"- **Missing Node.js dependencies:** Run `npm install` in project directory\n"
-                f"- **Network issues:** Check internet connection and GitHub access\n"
-                f"- **HuggingFace unavailable:** Embedding model download failed (usually temporary)\n"
-                f"- **Database locked:** Another process may be running\n\n"
-                f"**Troubleshooting Steps:**\n"
-                f"1. Ensure Node.js installed: `node --version`\n"
-                f"2. Install dependencies: `npm install && pip install -r requirements.txt`\n"
-                f"3. Stop all other instances of the server\n"
-                f"4. Check logs for detailed error: Look for ERROR messages\n"
-                f"5. If HuggingFace down, retry in a few minutes\n"
+                f"{error}\n"
             )
 
         return [TextContent(type="text", text=sync_text)]
@@ -1046,9 +1062,10 @@ async def handle_get_statistics(arguments: Dict[str, Any]) -> List[TextContent]:
 
         output += "\n## Threat Framework Coverage\n\n"
         tfc = result['threat_framework_coverage']
-        output += f"- **OWASP LLM Items:** {tfc['owasp_llm_items_covered']}\n"
+        output += f"- **OWASP LLM Items:** {tfc['owasp_llm_items_covered']}/{tfc.get('owasp_llm_total_items', 10)} ({tfc.get('owasp_llm_coverage_percentage', 0)}%)\n"
         output += f"- **MITRE ATLAS Items:** {tfc['mitre_atlas_items_covered']}\n"
-        output += f"- **Coverage:** {tfc['coverage_percentage']}%\n"
+        output += f"- **MAESTRO Items:** {tfc.get('maestro_items_covered', 0)}\n"
+        output += f"- **Techniques with Threat Mappings:** {tfc.get('techniques_with_threat_mappings', 0)} ({tfc.get('techniques_mapped_percentage', 0)}%)\n"
 
         output += f"\n*Last synced: {result['overview']['last_synced']}*"
 
@@ -1284,14 +1301,43 @@ async def handle_map_to_compliance_framework(arguments: Dict[str, Any]) -> List[
         )
 
         output = f"# Compliance Mapping: {result['framework']['name']}\n\n"
-        output += f"**Total Mapped:** {result['total_mapped']}\n\n"
+        output += f"**Framework Version:** {result['framework'].get('version', 'N/A')}\n"
+        output += f"**Total Techniques Mapped:** {result['total_mapped']}\n\n"
+
+        # Display coverage summary if available
+        if result.get('summary'):
+            summary = result['summary']
+            output += "## Coverage Summary\n\n"
+            output += f"**Total Controls in Framework:** {summary.get('total_controls_in_framework', 'N/A')}\n"
+            output += f"**Covered Controls:** {summary.get('covered_controls', 0)}\n"
+            output += f"**Coverage Percentage:** {summary.get('coverage_percentage', '0%')}\n\n"
+
+            # Show uncovered critical controls
+            if summary.get('uncovered_critical_controls'):
+                output += "### Uncovered Critical Controls (High Priority)\n\n"
+                for control_id in summary['uncovered_critical_controls']:
+                    output += f"- {control_id}\n"
+                output += "\n"
+
+        output += "## Technique Mappings\n\n"
 
         for mapping in result['mappings']:
             output += f"## {mapping['technique_id']}: {mapping['technique_name']}\n\n"
-            output += f"**Framework Controls:**\n"
+            output += f"**Framework Controls:**\n\n"
+
+            # Format control objects as readable Markdown
             for control in mapping['framework_controls']:
-                output += f"- {control}\n"
-            output += f"\n**Confidence:** {mapping['mapping_confidence']}\n\n"
+                if isinstance(control, dict):
+                    # Control is an object with id, description, confidence
+                    control_id = control.get('id', 'Unknown')
+                    description = control.get('description', 'No description available')
+                    confidence = control.get('confidence', 'medium')
+                    output += f"- **{control_id}**: {description} *(Confidence: {confidence})*\n"
+                else:
+                    # Fallback for string controls (backward compatibility)
+                    output += f"- {control}\n"
+
+            output += f"\n**Mapping Confidence:** {mapping['mapping_confidence']}\n\n"
 
         output += f"\n*{result['disclaimer']}*\n"
 
@@ -1757,25 +1803,45 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             tech = result["technical_coverage"]
             output += "## Technical Coverage\n\n"
 
-            overall = tech.get("overall_coverage", {})
-            output += f"**Coverage:** {overall.get('percentage', 0):.1f}% "
+            # Fix: Use correct key 'analysis_summary' instead of 'overall_coverage'
+            overall = tech.get("analysis_summary", {})
+            output += f"**Coverage:** {overall.get('coverage_percentage', 0):.1f}% "
             output += f"({overall.get('coverage_level', 'unknown')})\n"
-            output += f"**Implemented:** {overall.get('implemented', 0)}/{overall.get('total', 0)} techniques\n\n"
+            output += f"**Implemented:** {overall.get('techniques_implemented', 0)}/{overall.get('total_techniques_available', 0)} techniques\n\n"
 
-            # By Tactic
-            if tech.get("by_tactic"):
-                output += "### By Tactic\n\n"
-                for tactic_info in sorted(tech["by_tactic"], key=lambda x: -x["percentage"]):
-                    output += f"- **{tactic_info['tactic']}:** {tactic_info['percentage']:.1f}% "
+            # By Tactic - Fix: Use 'coverage_by_tactic' and convert dict to list
+            coverage_by_tactic = tech.get("coverage_by_tactic", {})
+            if coverage_by_tactic:
+                output += "### Coverage by Tactic\n\n"
+                # Convert dict to sorted list (by percentage descending)
+                tactic_list = [
+                    {"tactic": tactic, **stats}
+                    for tactic, stats in coverage_by_tactic.items()
+                ]
+                for tactic_info in sorted(tactic_list, key=lambda x: -x["percentage"]):
+                    emoji = "❌" if tactic_info["percentage"] == 0 else "🟡"
+                    output += f"{emoji} **{tactic_info['tactic']}:** {tactic_info['percentage']:.1f}% "
                     output += f"({tactic_info['implemented']}/{tactic_info['total']})\n"
                 output += "\n"
 
-            # Critical Gaps
+            # Critical Gaps (gap analysis - uses 'reason' not 'technique_id')
             if tech.get("critical_gaps"):
                 output += "### Critical Gaps (High Priority)\n\n"
                 for gap in tech["critical_gaps"][:5]:
-                    output += f"- **{gap['technique_id']}:** {gap['name']}\n"
-                    output += f"  - Tactic: {gap['tactic']}\n"
+                    output += f"- **{gap.get('tactic', 'Unknown')}:** {gap.get('reason', 'No description')}\n"
+                    if gap.get('risk'):
+                        output += f"  - Risk: {gap['risk']}\n"
+                output += "\n"
+
+            # Recommendations (specific technique suggestions - uses 'technique_id')
+            if tech.get("recommendations"):
+                output += "### Recommended Techniques\n\n"
+                for rec in tech["recommendations"][:5]:
+                    output += f"- **{rec.get('technique_id', 'Unknown')}:** {rec.get('name', 'No name')}\n"
+                    output += f"  - Tactic: {rec.get('tactic', 'Unknown')}\n"
+                    output += f"  - Priority: {rec.get('priority', 'MEDIUM')}\n"
+                    if rec.get('reason'):
+                        output += f"  - Reason: {rec['reason']}\n"
                 output += "\n"
 
         # Threat Coverage Section
