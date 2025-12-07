@@ -27,7 +27,6 @@
 - **快速向量搜尋**：LanceDB 驅動的語意搜尋（CPU：單次查詢 500-1000ms；可選 GPU 加速：100-300ms - 參見 [GPU 指南](docs/advanced/GPU_ACCELERATION.md)）
 - **安全優先**：全面的輸入驗證、清理與安全 Header
 - **Docker 環境適用**：可輕鬆透過 Docker 和 docker-compose 部署
-- **Prod 環境適用**：包含健康檢查、流量限制、結構化日誌與監控
 - **智慧情境感知評分 (Smart Context-Aware Scoring)**：根據預防 vs 偵測、資產重要性、合規影響和實作準備度來優先排序防禦手法
 - **深度防禦**：多層安全機制（詳見 [SECURITY.md](./SECURITY.md)）
 
@@ -56,7 +55,7 @@ cd aidefend-mcp
 <details open>
 <summary><h4>🔌 選項 A：MCP 模式（Claude Desktop）- 推薦</h4></summary>
 
-**🚀 一鍵安裝（2 分鐘完成）：**
+**🚀 一鍵安裝（5 分鐘完成）：**
 
 ```bash
 # 單一指令 - 自動安裝所有依賴並設定 Claude Desktop
@@ -173,7 +172,7 @@ AIDEFEND_API_KEY=<your-secure-key>
 #### ✅ AIDEFEND MCP 方式：智慧 Vector Search
 
 ```
-1. 安裝一次（2 分鐘）
+1. 安裝一次（5 分鐘）
    python scripts/install.py
 
 2. 問問題（透過 Claude Desktop 或 API）
