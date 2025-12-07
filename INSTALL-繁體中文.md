@@ -731,13 +731,22 @@ nano .env         # Linux
 open -e .env      # macOS
 ```
 
-**對大多數使用者來說，預設值就可以了。你可以跳過這個步驟。**
+**⚠️ 重要安全需求：**
 
-> **🔒 安全提示：** 對於生產環境部署，我們強烈建議在 `.env` 中啟用 API Key 驗證：
-> ```bash
-> AUTH_MODE=api_key
-> AIDEFEND_API_KEY=<your-secure-random-key>
-> ```
+Docker 部署會綁定至 `0.0.0.0`，因此**必須**設定 API Key 才能啟動。
+
+1. **產生金鑰：**
+   ```bash
+   python scripts/generate_api_key.py
+   ```
+
+2. **加入至 `.env` 檔案：**
+   ```bash
+   AUTH_MODE=api_key
+   AIDEFEND_API_KEY=<你的金鑰>
+   ```
+
+> **注意：** 如果缺少此金鑰，容器將無法啟動。
 
 ---
 

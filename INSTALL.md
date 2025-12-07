@@ -731,13 +731,22 @@ nano .env         # Linux
 open -e .env      # macOS
 ```
 
-**For most users, the defaults work fine. You can skip this step.**
+**⚠️ CRITICAL SECURITY REQUIREMENT:**
 
-> **🔒 Security Tip:** For production deployments, we highly recommend enabling API key authentication in `.env`:
-> ```bash
-> AUTH_MODE=api_key
-> AIDEFEND_API_KEY=<your-secure-random-key>
-> ```
+Docker deployments bind to `0.0.0.0` and **REQUIRE** an API Key to start.
+
+1. **Generate a key:**
+   ```bash
+   python scripts/generate_api_key.py
+   ```
+
+2. **Add to `.env` file:**
+   ```bash
+   AUTH_MODE=api_key
+   AIDEFEND_API_KEY=<your-generated-key>
+   ```
+
+> **Note:** The container will fail to start if this key is missing.
 
 ---
 

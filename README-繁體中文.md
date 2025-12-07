@@ -132,13 +132,16 @@ docker-compose logs -f
 
 **注意：** MCP 模式需要直接執行 Python，無法在 Docker 中運行。
 
-**生產環境安全：**
-對於生產環境部署，強烈建議設定身分驗證：
+**Docker 安全需求：**
+Docker 預設綁定 `0.0.0.0`，因此強制要求設定 API Key。
+
+1. 產生金鑰：`python scripts/generate_api_key.py`
+2. 建立 `.env`：
 ```bash
-# 在 docker-compose.yml 或 .env 中
 AUTH_MODE=api_key
-AIDEFEND_API_KEY=<your-secure-key>
+AIDEFEND_API_KEY=<your-key>
 ```
+3. 啟動：`docker-compose up -d`
 
 </details>
 

@@ -12,7 +12,7 @@ AIDEFEND MCP Service is a **local, decentralized RAG engine** for the AIDEFEND A
 
 **Key features:**
 - 100% local processing - all queries processed on-machine, never sent to external services
-- Multilingual support (100+ languages via `intfloat/multilingual-e5-base` Quantized Int8)
+- Multilingual support (100+ languages via `Xenova/multilingual-e5-base` Quantized Int8)
 - Auto-sync from GitHub repository (hourly checks)
 - Vector search with LanceDB + FastEmbed (ONNX-based, 75% smaller with quantization)
 - 18 security tools (3 basic + 15 specialized P0 tools) for comprehensive AI security analysis
@@ -87,8 +87,8 @@ User Query → Entry Point (__main__.py)
 
 **⚠️ MUST RUN WITH SINGLE WORKER (`API_WORKERS=1`)**
 
-This is enforced in [app/config.py:193-203](app/config.py#L193-L203). Running with multiple workers causes:
-- Sync lock conflicts (asyncio.Lock works only within single process)
+This is enforced in [app/config.py:155-160](app/config.py#L155-L160) (field definition) and [app/config.py:275-285](app/config.py#L275-L285) (validator). Running with multiple workers causes:
+- Sync lock conflicts (file-based lock only works within single instance)
 - LanceDB write conflicts (concurrent writes corrupt database)
 - Stale data served by workers after sync
 
@@ -99,7 +99,7 @@ For horizontal scaling in production:
 
 **⚠️ PATH RESOLUTION MUST USE PROJECT_ROOT**
 
-All file paths in [app/config.py:15-83](app/config.py#L15-L83) are resolved relative to `PROJECT_ROOT` (not current working directory).
+All file paths in [app/config.py:17-83](app/config.py#L17-L83) are resolved relative to `PROJECT_ROOT` (not current working directory).
 
 **Why this is critical:**
 - When launched from command line: `cwd = project root` ✅
@@ -259,7 +259,7 @@ Example: [app/tools/statistics.py](app/tools/statistics.py) provides `get_statis
 
 ### 2. QueryEngine Lazy Initialization
 
-[app/core.py:101-112](app/core.py#L101-L112) implements lazy loading:
+[app/core.py:360](app/core.py#L360) implements lazy loading via `initialize()` method:
 - QueryEngine created on module import
 - Database/model loaded on first `initialize()` call
 - Handles cold start (no database) vs warm start (existing database)
@@ -267,9 +267,9 @@ Example: [app/tools/statistics.py](app/tools/statistics.py) provides `get_statis
 
 ### 3. Sync Locking Pattern
 
-[app/sync.py:38-76](app/sync.py#L38-L76) uses asyncio.Lock:
-- Non-blocking lock acquisition with `_sync_lock.locked()` check
-- Prevents concurrent syncs in single-process environment
+[app/sync.py:42-175](app/sync.py#L42-L175) uses `SyncFileLock` (file-based cross-process locking):
+- OS-level locking (Windows: `msvcrt.locking`, Unix: `fcntl.flock`)
+- Prevents concurrent syncs across processes and instances
 - `is_sync_in_progress()` used by QueryEngine to block queries during sync
 
 ### 4. Security-First Input Validation
@@ -297,7 +297,7 @@ Environment variables loaded via [app/config.py](app/config.py) using Pydantic S
 |----------|---------|-------|
 | `AUTH_MODE` | `no_auth` | `no_auth` (dev) or `api_key` (prod) |
 | `AIDEFEND_API_KEY` | `None` | Required when `AUTH_MODE=api_key` |
-| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | ONNX model via FastEmbed (Quantized Int8, 280MB) |
+| `EMBEDDING_MODEL` | `Xenova/multilingual-e5-base` | ONNX model via FastEmbed (Quantized Int8, 280MB) |
 | `EMBEDDING_DIMENSION` | `768` | Must match model dimension |
 | `SYNC_INTERVAL_SECONDS` | `3600` | Auto-sync frequency (1 hour) |
 | `API_WORKERS` | `1` | **MUST BE 1** - enforced by validator |
@@ -472,7 +472,7 @@ Tests verify:
 {
   "cache_version": "1.0",
   "schema_version": "1.0",
-  "model_name": "intfloat/multilingual-e5-base",
+  "model_name": "Xenova/multilingual-e5-base",
   "model_dimension": 768,
   "embeddings": { ... },
   "metadata": { ... }
