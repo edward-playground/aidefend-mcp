@@ -28,7 +28,6 @@ This service provides secure, private access to the AIDEFEND knowledge base with
 - **Fast Vector Search**: LanceDB-powered semantic search (CPU: 500-1000ms per query; optional GPU acceleration: 100-300ms - see [GPU guide](docs/advanced/GPU_ACCELERATION.md))
 - **Security-First**: Comprehensive input validation, sanitization, and security headers
 - **Docker Ready**: Easy deployment with Docker and docker-compose
-- **Production Ready**: Health checks, rate limiting, structured logging, and monitoring
 - **Smart Context-Aware Scoring**: Prioritizes defenses based on prevention vs. detection, asset criticality, compliance impact, and implementation readiness
 - **Defense in Depth**: Multiple security layers (see [SECURITY.md](./SECURITY.md))
 
@@ -57,7 +56,7 @@ cd aidefend-mcp
 <details open>
 <summary><h4>🔌 Option A: MCP Mode (Claude Desktop) - Recommended</h4></summary>
 
-**🚀 One-Click Installation (2 minutes):**
+**🚀 One-Click Installation (5 minutes):**
 
 ```bash
 # Single command - installs everything and configures Claude Desktop
@@ -174,7 +173,7 @@ Problems:
 #### ✅ AIDEFEND MCP Way: Smart Vector Search
 
 ```
-1. Install once (2 minutes)
+1. Install once (5 minutes)
    python scripts/install.py
 
 2. Ask your question (via Claude Desktop or API)
