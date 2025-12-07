@@ -9,6 +9,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.121.1-009688.svg)](https://fastapi.tiangolo.com)
 [![Security: Multiple Layers](https://img.shields.io/badge/security-multi--layer-success.svg)](./SECURITY.md)
 
+> **⚠️ 注意：本專案正處於活躍開發階段。API 與架構設計可能會隨時調整。非常感謝您的任何回饋與建議！**
+
 一個為 [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework) 打造的**本地端、去中心化 RAG (Retrieval-Augmented Generation) 引擎服務**。此服務提供安全、隱私的 AIDEFEND 知識庫存取，不會將敏感查詢傳送到外部服務。支援兩種模式：
 
 - **REST API**：適用於自訂應用程式與系統整合。

@@ -9,6 +9,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.121.1-009688.svg)](https://fastapi.tiangolo.com)
 [![Security: Multiple Layers](https://img.shields.io/badge/security-multi--layer-success.svg)](./SECURITY.md)
 
+> **⚠️ Note: This project is under active development. APIs and architectural design are subject to change. Any feedback and recommendations are highly appreciated!**
+
 A **local, decentralized RAG (Retrieval-Augmented Generation) engine** for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework).
 This service provides secure, private access to the AIDEFEND knowledge base without sending sensitive queries to external services. Two modes are supported:
 
