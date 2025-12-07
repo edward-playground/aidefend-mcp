@@ -319,5 +319,5 @@ def _format_as_markdown(categorized: Dict[str, List[Dict[str, Any]]]) -> str:
 
 def _get_timestamp() -> str:
     """Get current timestamp in ISO format."""
-    from datetime import datetime
-    return datetime.utcnow().isoformat() + "Z"
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

@@ -3,10 +3,19 @@ Pydantic schemas for API request/response validation.
 """
 
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
 from pydantic import BaseModel, Field, field_validator
+
+
 from app.config import settings
 from app.security import validate_query_text, validate_top_k
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time. Replacement for deprecated datetime.utcnow()."""
+    return datetime.now(timezone.utc)
 
 
 class QueryRequest(BaseModel):
@@ -103,7 +112,7 @@ class QueryResponse(BaseModel):
         description="Number of results returned"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Query timestamp (UTC)"
     )
 
@@ -173,7 +182,7 @@ class StatusResponse(BaseModel):
         description="Service version"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Status check timestamp (UTC)"
     )
 
@@ -207,7 +216,7 @@ class HealthResponse(BaseModel):
         description="Individual health check results"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Health check timestamp (UTC)"
     )
 
@@ -242,7 +251,7 @@ class ErrorResponse(BaseModel):
         description="Additional error details (only in development mode)"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Error timestamp (UTC)"
     )
 
@@ -323,7 +332,7 @@ class ThreatCoverageResponse(BaseModel):
         description="Detailed threat coverage per technique"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Analysis timestamp (UTC)"
     )
 
@@ -469,7 +478,7 @@ class ImplementationPlanResponse(BaseModel):
         description="Compound tool metadata (only when detail_level='standard' or 'detailed')"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Plan generation timestamp (UTC)"
     )
 
@@ -585,7 +594,7 @@ class ClassifyThreatResponse(BaseModel):
         description="Suggested followup tool calls for further investigation"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Classification timestamp (UTC)"
     )
 

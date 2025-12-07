@@ -231,7 +231,7 @@ async def limit_request_size_middleware(request: Request, call_next):
                     content={
                         "error": "REQUEST_TOO_LARGE",
                         "message": f"Request body exceeds maximum allowed size of {MAX_REQUEST_SIZE} bytes (1MB)",
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.now(timezone.utc).isoformat()
                     }
                 )
         except ValueError:
@@ -261,7 +261,7 @@ async def security_headers_middleware(request: Request, call_next):
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     """Log all requests."""
-    start_time = datetime.utcnow()
+    start_time = datetime.now(timezone.utc)
 
     logger.info(
         f"Request: {request.method} {request.url.path}",
@@ -274,7 +274,7 @@ async def request_logging_middleware(request: Request, call_next):
 
     response = await call_next(request)
 
-    duration = (datetime.utcnow() - start_time).total_seconds()
+    duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     logger.info(
         f"Response: {response.status_code} ({duration:.3f}s)",
         extra={
@@ -299,7 +299,7 @@ async def validation_error_handler(request: Request, exc: InputValidationError):
         content=ErrorResponse(
             error="VALIDATION_ERROR",
             message=str(exc),
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         ).model_dump()
     )
 
@@ -313,7 +313,7 @@ async def security_error_handler(request: Request, exc: SecurityError):
         content=ErrorResponse(
             error="SECURITY_ERROR",
             message="Access denied",
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         ).model_dump()
     )
 
@@ -327,7 +327,7 @@ async def engine_not_initialized_handler(request: Request, exc: QueryEngineNotIn
         content=ErrorResponse(
             error="SERVICE_NOT_READY",
             message="Service is initializing. Please wait for initial sync to complete.",
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         ).model_dump()
     )
 
@@ -363,7 +363,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         content=ErrorResponse(
             error="INTERNAL_ERROR",
             message=f"An internal error occurred. Reference ID: {error_id}",
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         ).model_dump()
     )
 
@@ -430,7 +430,7 @@ async def health_check():
         return HealthResponse(
             status=overall_status,
             checks=checks,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     except Exception as e:
@@ -438,7 +438,7 @@ async def health_check():
         return HealthResponse(
             status="unhealthy",
             checks=checks,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
 
@@ -488,7 +488,7 @@ async def get_status(request: Request):
             sync_info=sync_status,
             message=message,
             version=__version__,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     except Exception as e:
@@ -565,7 +565,7 @@ async def query_aidefend(request: Request, query_request: QueryRequest):
                     query_text=query_text,
                     context_chunks=chunks,
                     total_results=len(chunks),
-                    timestamp=datetime.utcnow()
+                    timestamp=datetime.now(timezone.utc)
                 )
 
             except asyncio.TimeoutError as e:
@@ -589,7 +589,7 @@ async def query_aidefend(request: Request, query_request: QueryRequest):
                 query_text=query_text,
                 context_chunks=chunks,
                 total_results=len(chunks),
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)
             )
 
     except QueryEngineNotInitializedError:
@@ -625,7 +625,7 @@ async def trigger_sync(request: Request):
     return {
         "status": "sync_triggered",
         "message": "Sync operation started in background",
-        "timestamp": datetime.utcnow()
+        "timestamp": datetime.now(timezone.utc)
     }
 
 
