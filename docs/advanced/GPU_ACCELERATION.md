@@ -90,11 +90,11 @@ If command fails: Install NVIDIA drivers from https://www.nvidia.com/Download/in
 
 1. Download CUDA Toolkit 12.x:
    - https://developer.nvidia.com/cuda-downloads
-   - Select: Windows → x86_64 → 11 → exe (local)
+   - Select: Windows → x86_64 → 12 → exe (local)
 
 1. 下載 CUDA Toolkit 12.x：
    - https://developer.nvidia.com/cuda-downloads
-   - 選擇：Windows → x86_64 → 11 → exe (local)
+   - 選擇：Windows → x86_64 → 12 → exe (local)
 
 2. Install with default settings
 

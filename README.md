@@ -133,13 +133,16 @@ docker-compose logs -f
 
 **Note:** MCP mode requires direct Python execution and cannot run in Docker.
 
-**Production Security:**
-For production deployments, configuring authentication is highly recommended:
+**Docker Security Requirement:**
+Docker usage limits binding to `0.0.0.0` and **REQUIRES** an API Key.
+
+1. Generate key: `python scripts/generate_api_key.py`
+2. Create `.env`:
 ```bash
-# In docker-compose.yml or .env
 AUTH_MODE=api_key
-AIDEFEND_API_KEY=<your-secure-key>
+AIDEFEND_API_KEY=<your-key>
 ```
+3. Start: `docker-compose up -d`
 
 </details>
 
@@ -244,7 +247,7 @@ LLM gets precise, relevant information → Better answers!
 
 ---
 
-### 🛠️ Not Just Search: 19 Professional Tools
+### 🛠️ Not Just Search: 18 Professional Tools
 
 **Manual way:** Ask questions
 **AIDEFEND MCP:** Professional AI security analysis platform
@@ -525,7 +528,7 @@ aidefend-mcp/
 │   ├── main.py              # FastAPI REST API
 │   ├── core.py              # QueryEngine (shared)
 │   ├── sync.py              # Background sync
-│   └── tools/               # 19 specialized tools
+│   └── tools/               # 18 specialized tools
 ├── docs/                    # Documentation
 │   ├── TOOLS.md             # Complete tool reference
 │   └── CONFIGURATION.md     # Configuration guide

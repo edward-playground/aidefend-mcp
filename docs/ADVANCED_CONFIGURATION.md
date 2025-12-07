@@ -41,9 +41,11 @@ FastEmbed supports many popular models out-of-the-box (e.g., `BAAI/bge-small-en-
 
 ### Scenario B: Using a Custom or Unsupported Model
 
-If you want to use a model that isn't in the default FastEmbed list (or a specific quantized version like `Xenova/multilingual-e5-base`), you need to **register** it in the code.
+If you want to use a model that isn't in the default FastEmbed list, you need to **register** it in the code.
 
-**Example**: Switching back to the original `intfloat/multilingual-e5-base` (if it wasn't supported) or another custom ONNX model.
+**Note**: `Xenova/multilingual-e5-base` is the **default** model and is already registered - no custom configuration needed.
+
+**Example**: Using a different ONNX model like `intfloat/multilingual-e5-small` or another custom model.
 
 #### Step 1: Update Configuration
 Edit `.env`:
