@@ -127,8 +127,10 @@ class TestHeuristicMapping:
         result = _generate_heuristic_mapping(technique, 'nist_ai_rmf')
 
         for control in result['framework_controls']:
+            # Control is now a dict with 'id', 'description', 'confidence' keys
+            control_id = control['id']
             # Should contain function like GOVERN, MAP, MEASURE, MANAGE
-            assert any(prefix in control for prefix in ['GOVERN', 'MAP', 'MEASURE', 'MANAGE'])
+            assert any(prefix in control_id for prefix in ['GOVERN', 'MAP', 'MEASURE', 'MANAGE'])
 
     def test_eu_act_control_format(self):
         """EU AI Act controls should reference articles."""
@@ -136,7 +138,9 @@ class TestHeuristicMapping:
         result = _generate_heuristic_mapping(technique, 'eu_ai_act')
 
         for control in result['framework_controls']:
-            assert 'Art.' in control
+            # Control is now a dict with 'id', 'description', 'confidence' keys
+            control_id = control['id']
+            assert 'Art.' in control_id
 
     def test_iso_control_format(self):
         """ISO controls should have section numbers."""
@@ -144,8 +148,10 @@ class TestHeuristicMapping:
         result = _generate_heuristic_mapping(technique, 'iso_42001')
 
         for control in result['framework_controls']:
+            # Control is now a dict with 'id', 'description', 'confidence' keys
+            control_id = control['id']
             # Should contain numbers like 6.1, 8.2, etc.
-            assert any(char.isdigit() for char in control)
+            assert any(char.isdigit() for char in control_id)
 
 
 class TestInputValidation:
@@ -212,7 +218,8 @@ class TestMappingCoverage:
 
         assert len(result['framework_controls']) > 0
         # Should reference V-chapters (V1, V6, V8, etc.)
-        assert any('V' in control for control in result['framework_controls'])
+        # Control is now a dict with 'id', 'description', 'confidence' keys
+        assert any('V' in control['id'] for control in result['framework_controls'])
 
 
 class TestResultStructure:

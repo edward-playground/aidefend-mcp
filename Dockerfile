@@ -22,9 +22,10 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 # Stage 2: Runtime stage
 FROM python:3.11-slim
 
-# Install Node.js (required for parsing JavaScript files with template literals)
+# Install Node.js and npm (required for parsing JavaScript files)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -34,7 +35,7 @@ RUN groupadd -r aidefend && useradd -r -g aidefend aidefend
 WORKDIR /app
 
 # Copy Python dependencies from builder
-COPY --from=builder /root/.local /home/aidefend/.local
+COPY --from=builder --chown=aidefend:aidefend /root/.local /home/aidefend/.local
 
 # Install Node.js dependencies (for secure AST parser)
 COPY package.json ./

@@ -6,7 +6,7 @@ Uses Pydantic BaseSettings for environment variable management.
 import logging
 from pathlib import Path
 from typing import List, Optional, Literal
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Get logger for config warnings
@@ -310,28 +310,27 @@ class Settings(BaseSettings):
             return (PROJECT_ROOT / v).resolve()
         return v
 
-    @field_validator("API_HOST")
-    @classmethod
-    def validate_api_host_with_auth(cls, v: str, info) -> str:
+    @model_validator(mode='after')
+    def validate_api_host_with_auth(self):
         """
         Validate API host binding with authentication mode.
 
         Security Policy: Binding to 0.0.0.0 (all interfaces) requires authentication.
         This prevents accidental exposure of unauthenticated service to network.
+
+        Note: Uses model_validator(mode='after') to ensure all fields are validated
+        before cross-field validation is performed.
         """
-        # Get auth mode from already-validated fields
-        auth_mode = info.data.get("AUTH_MODE", "no_auth")
-
         # Check if binding to external interfaces (0.0.0.0 or empty string)
-        is_external_binding = v in ["0.0.0.0", ""]
+        is_external_binding = self.API_HOST in ["0.0.0.0", ""]
 
-        if is_external_binding and auth_mode == "no_auth":
+        if is_external_binding and self.AUTH_MODE == "no_auth":
             raise ValueError(
                 "\n" + "=" * 70 + "\n"
                 "SECURITY ERROR: Cannot bind to external IP without authentication!\n\n"
                 f"  Current settings:\n"
-                f"    - API_HOST: {v} (exposes service to network)\n"
-                f"    - AUTH_MODE: {auth_mode} (no authentication required)\n\n"
+                f"    - API_HOST: {self.API_HOST} (exposes service to network)\n"
+                f"    - AUTH_MODE: {self.AUTH_MODE} (no authentication required)\n\n"
                 f"  This configuration exposes your service WITHOUT authentication.\n\n"
                 f"  Please choose one of the following:\n"
                 f"    1. Bind to localhost only:\n"
@@ -344,7 +343,7 @@ class Settings(BaseSettings):
                 + "=" * 70
             )
 
-        return v
+        return self
 
     @field_validator("AIDEFEND_API_KEY")
     @classmethod
