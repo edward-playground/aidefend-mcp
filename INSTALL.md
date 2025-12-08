@@ -228,7 +228,7 @@ docker-compose --version
 
 **For users who want to use AIDEFEND with Claude Desktop**
 
-This one-click installation installs all dependencies and configures Claude Desktop in just 2 minutes.
+This one-click installation installs all dependencies and configures Claude Desktop in just 5 - 8 minutes.
 
 ### Prerequisites
 
@@ -377,7 +377,7 @@ Next steps:
 ⚠️ **IMPORTANT:** On **first use**, AIDEFEND will automatically download a ~1.1GB embedding model (`multilingual-e5-base`).
 
 **What to expect:**
-- **Download time:** 5-15 minutes (depending on internet speed)
+- **Download time:** 5-8 minutes (depending on internet speed)
 - **Storage:** ~3-4GB total (model + dependencies + knowledge base - see System Requirements above for breakdown)
 - **Location:** `~/.cache/fastembed/` (macOS/Linux) or `%USERPROFILE%\.cache\fastembed\` (Windows)
 - **One-time only:** Subsequent uses are instant
@@ -667,7 +667,7 @@ python __main__.py
 ```
 
 **What happens on first run:**
-1. ✅ Automatically syncs AIDEFEND framework from GitHub (5-15 minutes)
+1. ✅ Automatically syncs AIDEFEND framework from GitHub (5-8 minutes)
 2. ✅ Parses and indexes all security techniques
 3. ✅ Starts the REST API server on http://localhost:8000
 4. ✅ Service is ready for queries

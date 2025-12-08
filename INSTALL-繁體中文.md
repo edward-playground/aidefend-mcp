@@ -228,7 +228,7 @@ docker-compose --version
 
 **適用於：想要在 Claude Desktop 中使用 AIDEFEND 的使用者**
 
-這個一鍵安裝腳本會自動安裝所有依賴並設定 Claude Desktop，只需 2 分鐘。
+這個一鍵安裝腳本會自動安裝所有依賴並設定 Claude Desktop，只需 5 - 8 分鐘。
 
 ### 前置需求
 
@@ -667,7 +667,7 @@ python __main__.py
 ```
 
 **首次執行時會自動：**
-1. ✅ 從 GitHub 自動同步 AIDEFEND framework（5-15 分鐘）
+1. ✅ 從 GitHub 自動同步 AIDEFEND framework（5 - 8 分鐘）
 2. ✅ 解析並索引所有安全技術
 3. ✅ 在 http://localhost:8000 啟動 REST API 伺服器
 4. ✅ 服務準備就緒，可以開始查詢

@@ -56,7 +56,7 @@ cd aidefend-mcp
 <details open>
 <summary><h4>🔌 Option A: MCP Mode (Claude Desktop) - Recommended</h4></summary>
 
-**🚀 One-Click Installation (5 minutes):**
+**🚀 One-Click Installation (5 - 8 minutes):**
 
 ```bash
 # Single command - installs everything and configures Claude Desktop
@@ -172,7 +172,7 @@ Problems:
 #### ✅ AIDEFEND MCP Way: Smart Vector Search
 
 ```
-1. Install once (5 minutes)
+1. Install once (5 - 8 minutes)
    python scripts/install.py
 
 2. Ask your question (via Claude Desktop or API)

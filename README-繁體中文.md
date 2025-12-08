@@ -55,7 +55,7 @@ cd aidefend-mcp
 <details open>
 <summary><h4>🔌 選項 A：MCP 模式（Claude Desktop）- 推薦</h4></summary>
 
-**🚀 一鍵安裝（5 分鐘完成）：**
+**🚀 一鍵安裝（5 - 8 分鐘完成）：**
 
 ```bash
 # 單一指令 - 自動安裝所有依賴並設定 Claude Desktop
@@ -144,7 +144,7 @@ curl http://localhost:8000/health
 ## 💰 為什麼要使用這個 MCP / REST API Service？
 
 ### TL;DR
-**省 90% LLM 成本 + 更準確的答案 + 5 分鐘安裝 = 你的新 AI 安全工作流程**
+**省 90% LLM 成本 + 更準確的答案 + 5 - 8 分鐘安裝 = 你的新 AI 安全工作流程**
 
 > 如果你正在用 ChatGPT/Claude/Gemini 查詢 AI 安全防禦策略，你可能在不知不覺中浪費 90% 的預算，還得到不完整的答案。
 
@@ -171,7 +171,7 @@ curl http://localhost:8000/health
 #### ✅ AIDEFEND MCP 方式：智慧 Vector Search
 
 ```
-1. 安裝一次（5 分鐘）
+1. 安裝一次（5 - 8 分鐘）
    python scripts/install.py
 
 2. 問問題（透過 Claude Desktop 或 API）
