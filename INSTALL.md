@@ -140,6 +140,49 @@ node --version
 
 ---
 
+#### 5. **macOS Native Dependencies** (macOS Only, Recommended for Apple Silicon)
+
+**What is this?** OpenMP library and Xcode Command Line Tools required for optimal ONNX Runtime performance on macOS.
+
+**Who needs it?** macOS users, especially those with Apple Silicon (M1/M2/M3/M4) Macs.
+
+**When is it needed?** ONNX Runtime uses OpenMP for parallel processing. While pre-built Python wheels often include bundled dependencies, some configurations may require system-level libomp for best performance.
+
+**Check if you have Xcode Command Line Tools:**
+```bash
+xcode-select -p
+```
+
+**Expected output:** `/Library/Developer/CommandLineTools` or similar path
+
+**Check if you have libomp (via Homebrew):**
+```bash
+brew list libomp
+```
+
+**Don't have them?**
+
+**Install Xcode Command Line Tools:**
+```bash
+xcode-select --install
+```
+
+**Install Homebrew (if not installed):**
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+**Install libomp:**
+```bash
+brew install libomp
+```
+
+**Automatic Detection:** The installation script (`python scripts/install.py --check`) will detect macOS and check for these dependencies, providing warnings and instructions if they're missing.
+
+**Note:** Installation may succeed without libomp if the pre-built Python wheels include bundled OpenMP. If you encounter ONNX-related errors after installation, install libomp as shown above.
+
+---
+
 ### 🐳 Optional: Docker (for containerized deployment)
 
 **What is Docker?** A tool that packages the service and all its dependencies into a "container" - think of it like a portable, isolated environment.

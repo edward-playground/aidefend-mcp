@@ -120,20 +120,8 @@ curl http://localhost:8000/health
 <details>
 <summary><h4>🐳 選項 C：Docker 部署（正式環境）</h4></summary>
 
-**啟動：**
-```bash
-docker-compose up -d
-```
-
-**檢查日誌：**
-```bash
-docker-compose logs -f
-```
-
-**注意：** MCP 模式需要直接執行 Python，無法在 Docker 中運行。
-
 **Docker 安全需求：**
-Docker 預設綁定 `0.0.0.0`，因此強制要求設定 API Key。
+Docker 綁定 `0.0.0.0`，因此**強制要求**設定 API Key。
 
 1. 產生金鑰：`python scripts/generate_api_key.py`
 2. 建立 `.env`：
@@ -142,6 +130,14 @@ AUTH_MODE=api_key
 AIDEFEND_API_KEY=<your-key>
 ```
 3. 啟動：`docker-compose up -d`
+4. 檢查日誌：`docker-compose logs -f`
+5. 驗證健康狀態：
+```bash
+curl http://localhost:8000/health
+# 預期回應：{"status":"healthy",...}
+```
+
+**注意：** MCP 模式需要直接執行 Python，無法在 Docker 中運行。
 
 </details>
 
