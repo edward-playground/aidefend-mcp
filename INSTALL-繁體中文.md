@@ -140,6 +140,49 @@ node --version
 
 ---
 
+#### 5. **macOS 原生相依套件**（僅 macOS，Apple Silicon 建議安裝）
+
+**這是什麼？** OpenMP 函式庫和 Xcode 命令列工具，用於在 macOS 上優化 ONNX Runtime 效能。
+
+**誰需要這個？** macOS 使用者，尤其是使用 Apple Silicon（M1/M2/M3/M4）Mac 的使用者。
+
+**何時需要？** ONNX Runtime 使用 OpenMP 進行平行處理。雖然預編譯的 Python wheels 通常包含內建的相依套件，但某些配置可能需要系統層級的 libomp 以獲得最佳效能。
+
+**檢查是否已安裝 Xcode 命令列工具：**
+```bash
+xcode-select -p
+```
+
+**預期輸出：** `/Library/Developer/CommandLineTools` 或類似路徑
+
+**檢查是否已安裝 libomp（透過 Homebrew）：**
+```bash
+brew list libomp
+```
+
+**沒有安裝？**
+
+**安裝 Xcode 命令列工具：**
+```bash
+xcode-select --install
+```
+
+**安裝 Homebrew（如果尚未安裝）：**
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+**安裝 libomp：**
+```bash
+brew install libomp
+```
+
+**自動偵測：** 安裝腳本（`python scripts/install.py --check`）會偵測 macOS 並檢查這些相依套件，如果缺少會提供警告和安裝說明。
+
+**注意：** 如果預編譯的 Python wheels 包含內建的 OpenMP，安裝可能在沒有 libomp 的情況下成功。如果安裝後遇到 ONNX 相關錯誤，請按照上述方式安裝 libomp。
+
+---
+
 ### 🐳 選配：Docker（用於容器化部署）
 
 **什麼是 Docker？** 一個將服務及其所有相依套件打包成「容器」的工具 - 可以想像成一個可攜帶的、隔離的環境。

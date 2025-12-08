@@ -121,20 +121,8 @@ The service automatically syncs with GitHub and indexes AIDEFEND framework on fi
 <details>
 <summary><h4>🐳 Option C: Docker Deployment (Production)</h4></summary>
 
-**Start:**
-```bash
-docker-compose up -d
-```
-
-**Check logs:**
-```bash
-docker-compose logs -f
-```
-
-**Note:** MCP mode requires direct Python execution and cannot run in Docker.
-
 **Docker Security Requirement:**
-Docker usage limits binding to `0.0.0.0` and **REQUIRES** an API Key.
+Docker usage binds to `0.0.0.0` and **REQUIRES** an API Key.
 
 1. Generate key: `python scripts/generate_api_key.py`
 2. Create `.env`:
@@ -143,6 +131,14 @@ AUTH_MODE=api_key
 AIDEFEND_API_KEY=<your-key>
 ```
 3. Start: `docker-compose up -d`
+4. Check logs: `docker-compose logs -f`
+5. Verify health:
+```bash
+curl http://localhost:8000/health
+# Expected: {"status":"healthy",...}
+```
+
+**Note:** MCP mode requires direct Python execution and cannot run in Docker.
 
 </details>
 

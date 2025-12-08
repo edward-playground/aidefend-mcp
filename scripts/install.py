@@ -615,13 +615,116 @@ def install_python_dependencies(verbose: bool = True) -> bool:
         return False
 
 
+def check_macos_libomp() -> Tuple[bool, str]:
+    """
+    Check if libomp is installed on macOS (required for ONNX Runtime OpenMP support).
+
+    On Apple Silicon Macs, ONNX Runtime may require OpenMP for optimal performance.
+    While FastEmbed/LanceDB pre-built wheels often include bundled OpenMP, some
+    configurations may need system libomp.
+
+    Returns:
+        (is_installed, message)
+        - (True, "installed") if libomp is found
+        - (True, "not_needed") if not on macOS
+        - (False, "not_found") if libomp is missing
+        - (False, "homebrew_not_found") if Homebrew is not installed
+    """
+    if sys.platform != "darwin":
+        return True, "not_needed"
+
+    # Check if Homebrew is installed
+    try:
+        brew_result = subprocess.run(
+            ['brew', '--version'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if brew_result.returncode != 0:
+            return False, "homebrew_not_found"
+    except FileNotFoundError:
+        return False, "homebrew_not_found"
+    except Exception:
+        return False, "homebrew_not_found"
+
+    # Check if libomp is installed via Homebrew
+    try:
+        result = subprocess.run(
+            ['brew', 'list', 'libomp'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            return True, "installed"
+        else:
+            return False, "not_found"
+    except Exception:
+        return False, "not_found"
+
+
+def check_macos_prerequisites() -> Tuple[bool, List[str]]:
+    """
+    Check macOS-specific prerequisites for ONNX Runtime and native dependencies.
+
+    Returns:
+        (all_ok, list of warning messages)
+    """
+    if sys.platform != "darwin":
+        return True, []
+
+    import platform
+
+    warnings = []
+    all_ok = True
+    arch = platform.machine()
+    is_apple_silicon = arch in ["arm64", "aarch64"]
+
+    # Check Xcode Command Line Tools
+    try:
+        result = subprocess.run(
+            ['xcode-select', '-p'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode != 0:
+            warnings.append("Xcode Command Line Tools not installed")
+            warnings.append("  Install with: xcode-select --install")
+            all_ok = False
+    except FileNotFoundError:
+        warnings.append("Xcode Command Line Tools not found")
+        warnings.append("  Install with: xcode-select --install")
+        all_ok = False
+    except Exception:
+        pass  # Non-critical check
+
+    # Check libomp (important for Apple Silicon)
+    libomp_ok, libomp_status = check_macos_libomp()
+
+    if not libomp_ok:
+        if libomp_status == "homebrew_not_found":
+            if is_apple_silicon:
+                warnings.append("Homebrew not found (recommended for Apple Silicon)")
+                warnings.append("  Install Homebrew: /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"")
+        elif libomp_status == "not_found":
+            if is_apple_silicon:
+                warnings.append("libomp not found (may be needed for ONNX Runtime on Apple Silicon)")
+                warnings.append("  Install with: brew install libomp")
+                # Note: This is a warning, not a hard failure, as pre-built wheels often work without it
+
+    return all_ok, warnings
+
+
 def is_vc_redist_installed() -> bool:
     """
     Check if Visual C++ Redistributable 2015-2022 is installed (Windows only).
-    
+
     Checks registry for VC++ 14.x runtime (covers 2015, 2017, 2019, 2022 versions).
     Supports x64, ARM64, and x86 architectures.
-    
+
     Returns:
         True if installed, False otherwise
     """
@@ -1280,7 +1383,7 @@ def main():
         all_ok = True
 
         # Check Python
-        print("[1/4] Checking Python version...")
+        print("[1/5] Checking Python version...")
         py_valid, py_version = check_python_version()
         if py_valid:
             print(f"   ✅ Python {py_version} (OK)")
@@ -1290,7 +1393,7 @@ def main():
             all_ok = False
 
         # Check Node.js
-        print("\n[2/4] Checking Node.js version...")
+        print("\n[2/5] Checking Node.js version...")
         node_valid, node_version = check_node_version()
         if node_valid:
             print(f"   ✅ Node.js {node_version} (OK)")
@@ -1299,8 +1402,35 @@ def main():
             print(f"      Download: https://nodejs.org/")
             all_ok = False
 
+        # Check platform-specific prerequisites
+        print("\n[3/5] Checking platform-specific prerequisites...")
+        if sys.platform == "darwin":
+            import platform
+            arch = platform.machine()
+            print(f"   Platform: macOS ({arch})")
+            macos_ok, macos_warnings = check_macos_prerequisites()
+            if macos_ok and not macos_warnings:
+                print(f"   ✅ macOS prerequisites OK")
+            else:
+                for warning in macos_warnings:
+                    if warning.startswith("  "):
+                        print(f"      {warning.strip()}")
+                    else:
+                        print(f"   ⚠️  {warning}")
+                # macOS warnings are non-blocking (pre-built wheels often work)
+        elif sys.platform == "win32":
+            print(f"   Platform: Windows")
+            if is_vc_redist_installed():
+                print(f"   ✅ Visual C++ Redistributable installed")
+            else:
+                print(f"   ⚠️  Visual C++ Redistributable not detected")
+                print(f"      Will be installed automatically if needed")
+        else:
+            print(f"   Platform: Linux")
+            print(f"   ✅ No special prerequisites")
+
         # Check Claude Desktop
-        print("\n[3/4] Checking Claude Desktop...")
+        print("\n[4/5] Checking Claude Desktop...")
         claude_installed, claude_info = check_claude_desktop_installed()
         if claude_installed:
             print(f"   ✅ Found: {claude_info}")
@@ -1310,7 +1440,7 @@ def main():
             print(f"      (Not required for REST API mode)")
 
         # Check Internet
-        print("\n[4/4] Checking internet connectivity...")
+        print("\n[5/5] Checking internet connectivity...")
         if check_internet_connectivity():
             print(f"   ✅ Internet connection available")
         else:
@@ -1342,6 +1472,25 @@ def main():
         print("   Please upgrade Python: https://www.python.org/downloads/")
         return 1
     print("✅ Python version OK")
+
+    # Check macOS-specific prerequisites (non-blocking warnings)
+    if sys.platform == "darwin":
+        import platform
+        arch = platform.machine()
+        is_apple_silicon = arch in ["arm64", "aarch64"]
+
+        print(f"\n   🍎 Detected macOS ({arch})")
+        macos_ok, macos_warnings = check_macos_prerequisites()
+
+        if macos_warnings:
+            print("\n   ⚠️  macOS Recommendations:")
+            for warning in macos_warnings:
+                if warning.startswith("  "):
+                    print(f"      {warning.strip()}")
+                else:
+                    print(f"      • {warning}")
+            print("\n   💡 Note: Installation may still succeed without these.")
+            print("      If you encounter ONNX errors later, install the recommended packages.")
 
     # Step 2: Check Node.js
     print_step(2, 6, "Checking Node.js version")
