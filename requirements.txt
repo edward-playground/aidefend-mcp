@@ -36,7 +36,7 @@ slowapi==0.1.9
 typing-extensions==4.15.0
 
 # HTML parsing
-beautifulsoup4==4.12.3
+beautifulsoup4==4.14.3
 
 # Fuzzy string matching (10-100x faster than difflib)
 rapidfuzz==3.10.1
