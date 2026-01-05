@@ -75,6 +75,25 @@ python3 scripts/install.py
 
 **詳細說明：** 請參閱 [INSTALL-繁體中文.md 的一鍵安裝章節](INSTALL-繁體中文.md#-mcp-模式設定claude-desktop---一鍵安裝)。
 
+**🚀 如何啟動：**
+
+安裝完成後：
+
+1. **完全重新啟動 Claude Desktop**（關閉後重新開啟）
+2. **確認工具已載入** - 問 Claude：*「你有什麼 AIDEFEND 工具？」*
+3. **開始使用！** - 問 Claude：*「如何防禦 prompt injection？」*
+
+> **💡 注意：** MCP 模式會在 Claude Desktop 啟動時自動啟動，不需要手動啟動服務！
+
+**選配：手動測試 MCP 伺服器：**
+```bash
+# 測試 MCP 伺服器是否正常運作
+python __main__.py --mcp
+
+# 你應該會看到："Starting AIDEFEND MCP Server (stdio mode)..."
+# 按 Ctrl+C 停止
+```
+
 <details>
 <summary><b>進階：手動設定（點擊展開）</b></summary>
 
