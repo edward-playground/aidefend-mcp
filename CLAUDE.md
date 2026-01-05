@@ -17,6 +17,25 @@ AIDEFEND MCP Service is a **local, decentralized RAG engine** for the AIDEFEND A
 - Vector search with LanceDB + FastEmbed (ONNX-based, 75% smaller with quantization)
 - 18 security tools (3 basic + 15 specialized P0 tools) for comprehensive AI security analysis
 
+## Quick Reference
+
+**Essential commands:**
+```bash
+python __main__.py              # Start REST API (http://127.0.0.1:8000)
+python __main__.py --mcp        # Start MCP mode (for Claude Desktop)
+python __main__.py --resync     # Force database rebuild
+pytest                          # Run all tests
+pytest -m "not slow"            # Fast test run
+python scripts/install.py       # One-click installation
+```
+
+**Key files:**
+- `__main__.py` - Entry point (mode selection via `--mcp` flag)
+- `app/core.py` - QueryEngine (shared by both modes)
+- `app/tools/` - All 18 security tools (framework-agnostic)
+- `mcp_server.py` - MCP protocol implementation
+- `app/main.py` - FastAPI REST API
+
 ## Architecture
 
 ### High-Level Flow
@@ -66,22 +85,10 @@ User Query → Entry Point (__main__.py)
    - Rate limiting, CORS, security headers
    - Auto-triggers sync on startup
 
-6. **`app/tools/`**: P0 specialized tools
-   - `statistics.py`: Knowledge base statistics
-   - `validation.py`: Technique ID validation
-   - `technique_detail.py`: Deep-dive into techniques
-   - `defenses_for_threat.py`: Threat-driven defense lookup
-   - `code_snippets.py`: Secure code extraction
-   - `coverage_analysis.py`: Defense gap analysis
-   - `compliance_mapping.py`: Map to compliance frameworks
-   - `quick_reference.py`: Quick reference generation
-   - `threat_coverage.py`: Threat coverage analysis
-   - `implementation_plan.py`: Prioritized recommendations
-   - `classify_threat.py`: 2-tier threat classification (static + fuzzy)
-   - `comprehensive_search.py`: Multi-query aggregated search
-   - `security_posture.py`: Unified security posture analysis
-   - `technique_comparison.py`: Side-by-side technique comparison
-   - `incident_response.py`: Incident playbook generation
+6. **`app/tools/`**: P0 specialized tools (15 tools)
+   - Each tool is a standalone module with framework-agnostic logic
+   - Tools exposed via both REST API (`app/main.py`) and MCP (`mcp_server.py`)
+   - See tool files for implementation details (e.g., `statistics.py`, `classify_threat.py`)
 
 ### Critical Architectural Constraints
 

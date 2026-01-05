@@ -76,6 +76,25 @@ python3 scripts/install.py
 
 **For details:** See [One-Click Installation in INSTALL.md](INSTALL.md#-mcp-mode-setup-claude-desktop---one-click-installation).
 
+**🚀 How to Start:**
+
+After installation completes:
+
+1. **Restart Claude Desktop completely** (quit and reopen)
+2. **Verify tools are available** - Ask Claude: *"What AIDEFEND tools do you have?"*
+3. **Start using!** - Ask Claude: *"How do I defend against prompt injection?"*
+
+> **💡 Note:** MCP mode starts automatically when Claude Desktop launches - no manual server start needed!
+
+**Optional: Test MCP server manually:**
+```bash
+# Test that MCP server runs without errors
+python __main__.py --mcp
+
+# You should see: "Starting AIDEFEND MCP Server (stdio mode)..."
+# Press Ctrl+C to stop
+```
+
 <details>
 <summary><b>Advanced: Manual Setup (click to expand)</b></summary>
 
