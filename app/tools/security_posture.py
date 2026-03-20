@@ -170,10 +170,12 @@ def _generate_unified_summary(
         return summary
 
     # Extract key metrics
-    tech_coverage_pct = technical_cov.get("overall_coverage", {}).get("percentage", 0)
-    owasp_cov_pct = threat_cov.get("coverage_rate", {}).get("owasp", 0)
-    atlas_cov_pct = threat_cov.get("coverage_rate", {}).get("atlas", 0)
-    maestro_cov_pct = threat_cov.get("coverage_rate", {}).get("maestro", 0)
+    # analyze_coverage returns analysis_summary.coverage_percentage (0-100)
+    tech_coverage_pct = technical_cov.get("analysis_summary", {}).get("coverage_percentage", 0)
+    # get_threat_coverage returns coverage_rate as fractions (0.0-1.0), convert to percentage
+    owasp_cov_pct = threat_cov.get("coverage_rate", {}).get("owasp", 0) * 100
+    atlas_cov_pct = threat_cov.get("coverage_rate", {}).get("atlas", 0) * 100
+    maestro_cov_pct = threat_cov.get("coverage_rate", {}).get("maestro", 0) * 100
 
     # Determine overall posture
     avg_coverage = (tech_coverage_pct + owasp_cov_pct + atlas_cov_pct + maestro_cov_pct) / 4
@@ -201,19 +203,23 @@ def _generate_unified_summary(
         f"MAESTRO: {maestro_cov_pct:.1f}% threat coverage"
     )
 
-    # Identify top priorities from technical gaps
-    critical_gaps = technical_cov.get("critical_gaps", [])
-    if critical_gaps:
+    # Identify top priorities from recommendations (gaps have gap_type/tactic, not technique_id/name)
+    recommendations = technical_cov.get("recommendations", [])
+    if recommendations:
         summary["top_priorities"].extend([
-            f"{gap['technique_id']}: {gap['name']}"
-            for gap in critical_gaps[:3]
+            f"{rec['technique_id']}: {rec['name']}"
+            for rec in recommendations[:3]
         ])
 
-    # Identify uncovered high-priority threats
-    uncovered = threat_cov.get("uncovered_threats", {})
-    if uncovered.get("owasp"):
+    # Identify uncovered OWASP threats from threat coverage data
+    # get_threat_coverage returns "covered" dict, compute uncovered from known OWASP list
+    covered_owasp = threat_cov.get("covered", {}).get("owasp", [])
+    all_owasp = ["LLM01", "LLM02", "LLM03", "LLM04", "LLM05",
+                 "LLM06", "LLM07", "LLM08", "LLM09", "LLM10"]
+    uncovered_owasp = [t for t in all_owasp if t not in covered_owasp]
+    if uncovered_owasp:
         summary["top_priorities"].append(
-            f"OWASP threats not covered: {', '.join(uncovered['owasp'][:3])}"
+            f"OWASP threats not covered: {', '.join(uncovered_owasp[:3])}"
         )
 
     return summary

@@ -214,7 +214,7 @@ def _extract_code_from_doc(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
     snippets = []
 
     # Get implementation strategies
-    impl_strategies_str = doc.get('implementation_strategies', '[]')
+    impl_strategies_str = doc.get('implementation_guidance', '[]')
 
     try:
         impl_strategies = json.loads(impl_strategies_str) if isinstance(impl_strategies_str, str) else impl_strategies_str
@@ -238,7 +238,7 @@ def _extract_code_from_doc(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "tactic": doc.get('tactic'),
                 "pillar": doc.get('pillar', ''),
                 "phase": doc.get('phase', ''),
-                "strategy": strategy.get('strategy', 'Implementation Strategy')
+                "implementation": strategy.get('implementation', 'Implementation Guidance')
             }
 
             for block in code_blocks:

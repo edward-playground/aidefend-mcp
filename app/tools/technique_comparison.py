@@ -83,7 +83,7 @@ def _calculate_effectiveness_score(technique_doc: Dict[str, Any]) -> int:
     score += min(maestro_count * 5, 15) # Max 15 points from MAESTRO
 
     # Check for implementation strategies
-    impl_strategies = _parse_json_field(technique_doc.get('implementation_strategies', '[]'))
+    impl_strategies = _parse_json_field(technique_doc.get('implementation_guidance', '[]'))
     if impl_strategies and len(impl_strategies) > 0:
         score += 10
 
@@ -138,7 +138,7 @@ def _calculate_complexity_score(technique_doc: Dict[str, Any]) -> int:
         score += 5
 
     # Implementation strategies count
-    impl_strategies = _parse_json_field(technique_doc.get('implementation_strategies', '[]'))
+    impl_strategies = _parse_json_field(technique_doc.get('implementation_guidance', '[]'))
     if impl_strategies:
         strategy_count = len(impl_strategies) if isinstance(impl_strategies, list) else 0
         score += min(strategy_count * 5, 25)  # Max 25 points from strategies
@@ -203,7 +203,7 @@ def _extract_technique_info(technique_doc: Dict[str, Any]) -> Dict[str, Any]:
         Formatted technique info dict
     """
     defends_against = _parse_json_field(technique_doc.get('defends_against', '[]'))
-    impl_strategies = _parse_json_field(technique_doc.get('implementation_strategies', '[]'))
+    impl_strategies = _parse_json_field(technique_doc.get('implementation_guidance', '[]'))
     opensource_tools = _parse_json_field(technique_doc.get('tools_opensource', '[]'))
     commercial_tools = _parse_json_field(technique_doc.get('tools_commercial', '[]'))
 
@@ -233,7 +233,7 @@ def _extract_technique_info(technique_doc: Dict[str, Any]) -> Dict[str, Any]:
         "type": technique_doc.get('type', ''),
         "description": technique_doc.get('text', '')[:200] + "..." if len(technique_doc.get('text', '')) > 200 else technique_doc.get('text', ''),
         "threat_coverage": threat_summary,
-        "has_implementation_strategies": len(impl_strategies) > 0 if isinstance(impl_strategies, list) else False,
+        "has_implementation_guidance": len(impl_strategies) > 0 if isinstance(impl_strategies, list) else False,
         "has_code_snippets": technique_doc.get('has_code_snippets', False),
         "has_opensource_tools": len(opensource_tools) > 0 if isinstance(opensource_tools, list) else False,
         "has_commercial_tools": len(commercial_tools) > 0 if isinstance(commercial_tools, list) else False,

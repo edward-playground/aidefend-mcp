@@ -121,6 +121,7 @@ skip_glob = ["data/*", ".venv/*", "build/*", "dist/*"]
 # pytest configuration
 [tool.pytest.ini_options]
 minversion = "7.0"
+asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]

@@ -148,7 +148,7 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
         coverage_rate = {
             "owasp": round(len(covered_threats["owasp"]) / 10, 3) if covered_threats["owasp"] else 0.0,
             "atlas": round(len(covered_threats["atlas"]) / 43, 3) if covered_threats["atlas"] else 0.0,
-            "maestro": round(len(covered_threats["maestro"]) / 1, 3) if covered_threats["maestro"] else 0.0
+            "maestro": round(len(covered_threats["maestro"]) / 7, 3) if covered_threats["maestro"] else 0.0  # MAESTRO has 7 layers (L1-L7)
         }
 
         result = {

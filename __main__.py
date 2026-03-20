@@ -132,6 +132,7 @@ def main():
                 # Import and run MCP server
                 from mcp_server import serve
                 asyncio.run(serve())
+                sys.exit(0)
 
             except KeyboardInterrupt:
                 print("\nMCP Server stopped by user", file=sys.stderr)
@@ -142,9 +143,9 @@ def main():
                 traceback.print_exc(file=sys.stderr)
                 sys.exit(1)
 
-        # Force resync already handled above, skip to REST API mode
+        # Force resync already handled above, fall through to REST API mode
         elif arg == "--force-resync":
-            pass  # Already handled above, will continue to REST API mode
+            pass  # Already handled above, will start REST API below
 
         # Unknown argument
         else:
@@ -152,36 +153,35 @@ def main():
             print("Use --help to see available options", file=sys.stderr)
             sys.exit(1)
 
-    # Default: REST API mode
-    else:
-        print("Starting AIDEFEND REST API Server...", file=sys.stderr)
-        print("API will be available at: http://127.0.0.1:8000", file=sys.stderr)
-        print("API documentation: http://127.0.0.1:8000/docs", file=sys.stderr)
-        print("-" * 60, file=sys.stderr)
+    # Start REST API server (default mode, also runs after --force-resync)
+    print("Starting AIDEFEND REST API Server...", file=sys.stderr)
+    print("API will be available at: http://127.0.0.1:8000", file=sys.stderr)
+    print("API documentation: http://127.0.0.1:8000/docs", file=sys.stderr)
+    print("-" * 60, file=sys.stderr)
 
-        try:
-            # Import and run FastAPI server
-            import uvicorn
-            from app.main import app
-            from app.config import settings
+    try:
+        # Import and run FastAPI server
+        import uvicorn
+        from app.main import app
+        from app.config import settings
 
-            # Run server with config from settings
-            uvicorn.run(
-                app,
-                host=settings.API_HOST,
-                port=settings.API_PORT,
-                workers=settings.API_WORKERS,
-                log_level=settings.LOG_LEVEL.lower()
-            )
+        # Run server with config from settings
+        uvicorn.run(
+            app,
+            host=settings.API_HOST,
+            port=settings.API_PORT,
+            workers=settings.API_WORKERS,
+            log_level=settings.LOG_LEVEL.lower()
+        )
 
-        except KeyboardInterrupt:
-            print("\nREST API Server stopped by user", file=sys.stderr)
-            sys.exit(0)
-        except Exception as e:
-            print(f"REST API Server error: {e}", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-            sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nREST API Server stopped by user", file=sys.stderr)
+        sys.exit(0)
+    except Exception as e:
+        print(f"REST API Server error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

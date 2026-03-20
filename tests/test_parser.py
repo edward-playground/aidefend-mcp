@@ -62,11 +62,8 @@ def test_parse_files():
     print("=" * 60)
     print(f"Results: {success_count} success, {fail_count} failed")
 
-    if fail_count > 0:
-        sys.exit(1)
-    else:
-        print("\nAll files parsed successfully!")
-        sys.exit(0)
+    assert fail_count == 0, f"{fail_count} files failed to parse"
+    print("\nAll files parsed successfully!")
 
 if __name__ == "__main__":
     test_parse_files()

@@ -619,7 +619,7 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
 
 ### Tool 3: Get Technique Detail
 
-**Purpose**: Get complete details for a specific technique including all sub-techniques, implementation strategies with code examples, tool recommendations, and threat mappings.
+**Purpose**: Get complete details for a specific technique including all sub-techniques, implementation guidance with code examples, tool recommendations, and threat mappings.
 
 **When to use**: Deep-diving into a specific defense technique, implementing a defense control, or understanding what threats a technique defends against.
 
@@ -637,11 +637,11 @@ Claude: [Uses get_technique_detail tool]
 
         Sub-Techniques (3):
         1. AID-H-001.001: Schema Validation
-           - 2 implementation strategies with Python/JavaScript code
+           - 2 implementation guidance with Python/JavaScript code
         2. AID-H-001.002: Content Filtering
-           - 3 implementation strategies
+           - 3 implementation guidance
         3. AID-H-001.003: Rate Limiting
-           - 2 implementation strategies
+           - 2 implementation guidance
 
         Tools Available:
         - Open-source: prompt-toolkit, guardrails-ai, nemo-guardrails
@@ -773,7 +773,7 @@ curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_keyword=pr
 
 ### Tool 5: Get Secure Code Snippet
 
-**Purpose**: Extract executable secure code snippets from AIDEFEND implementation strategies. Search by technique ID or topic keyword to get copy-paste ready code examples.
+**Purpose**: Extract executable secure code snippets from AIDEFEND implementation guidance. Search by technique ID or topic keyword to get copy-paste ready code examples.
 
 **When to use**: Implementing specific security controls, looking for code examples, or rapid prototyping.
 
@@ -1700,7 +1700,7 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
         "atlas": 2,
         "maestro": 1
       },
-      "has_implementation_strategies": true,
+      "has_implementation_guidance": true,
       "has_code_snippets": true,
       "has_opensource_tools": true
     }

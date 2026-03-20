@@ -13,6 +13,20 @@ Scoring dimensions:
 """
 
 import json
+
+
+def _safe_json_loads(value, default=None):
+    """Safely parse a JSON string or return the value if already parsed."""
+    if default is None:
+        default = []
+    if isinstance(value, (list, dict)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return default
+    return default
 import asyncio
 import lancedb
 from typing import Dict, Any, List, Set, Optional
@@ -166,7 +180,7 @@ async def get_implementation_plan(
             reasoning = _generate_reasoning(tech, breakdown)
 
             # Check if has opensource tools
-            tools_opensource = json.loads(tech.get('tools_opensource', '[]'))
+            tools_opensource = _safe_json_loads(tech.get('tools_opensource', '[]'))
             has_opensource_tools = bool(tools_opensource)
 
             recommendations.append({
@@ -233,7 +247,7 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
     breakdown = {}
 
     # 1. Threat importance (0-3 points)
-    defends_against = json.loads(technique.get('defends_against', '[]'))
+    defends_against = _safe_json_loads(technique.get('defends_against', '[]'))
     threat_score = 0.0
 
     for framework_data in defends_against:
@@ -249,7 +263,7 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
     breakdown["threat_importance"] = threat_score
 
     # 2. Ease of implementation (0-2 points)
-    tools_opensource = json.loads(technique.get('tools_opensource', '[]'))
+    tools_opensource = _safe_json_loads(technique.get('tools_opensource', '[]'))
     ease_score = 2.0 if tools_opensource else 0.0
 
     score += ease_score
@@ -281,7 +295,7 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
     breakdown["pillar_weight"] = pillar_score
 
     # 5. Tool ecosystem maturity (0-1 point)
-    tools_commercial = json.loads(technique.get('tools_commercial', '[]'))
+    tools_commercial = _safe_json_loads(technique.get('tools_commercial', '[]'))
     ecosystem_score = 1.0 if tools_commercial else 0.0
 
     score += ecosystem_score
@@ -353,7 +367,7 @@ def _categorize_recommendations(scored_techniques: List[Dict]) -> Dict[str, List
         score = item["score"]
         tech_id = tech.get('source_id')
 
-        tools_opensource = json.loads(tech.get('tools_opensource', '[]'))
+        tools_opensource = _safe_json_loads(tech.get('tools_opensource', '[]'))
         has_tools = bool(tools_opensource)
 
         # Categorize

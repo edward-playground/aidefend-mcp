@@ -555,7 +555,7 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
             "tools_opensource": tools_opensource,
             "tools_commercial": tools_commercial,
             "parent_technique_id": None,  # Techniques have no parent (use None instead of empty string)
-            "implementation_strategies": [],  # Techniques don't have strategies directly
+            "implementation_guidance": [],  # Techniques don't have strategies directly
             "has_code_snippets": False  # Techniques don't have code (code is in subtechnique strategies)
         })
 
@@ -568,12 +568,12 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
             sub_phase = sub_tech.get("phase", "")
 
             # Extract implementation strategies (preserve full HTML for code extraction)
-            implementation_strategies = sub_tech.get("implementationStrategies", [])
+            implementation_guidance = sub_tech.get("implementationGuidance", [])
 
             # Check if any strategy has code snippets (using BeautifulSoup for robustness)
             # This ensures consistency with code_snippets.py extraction logic
             has_code = False
-            for strat in implementation_strategies:
+            for strat in implementation_guidance:
                 how_to = strat.get("howTo", "")
                 if how_to:
                     soup_check = BeautifulSoup(how_to, 'html.parser')
@@ -602,13 +602,13 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                 "tools_opensource": [],
                 "tools_commercial": [],
                 "parent_technique_id": tech_id,
-                "implementation_strategies": implementation_strategies,
+                "implementation_guidance": implementation_guidance,
                 "has_code_snippets": has_code
             })
 
             # Documents for implementation strategies
-            for i, strategy in enumerate(sub_tech.get("implementationStrategies", []), 1):
-                strategy_name = strategy.get("strategy", "Strategy")
+            for i, strategy in enumerate(sub_tech.get("implementationGuidance", []), 1):
+                strategy_name = strategy.get("implementation", "Implementation")
                 how_to_html = strategy.get("howTo", "")
 
                 # For embedding text: Use BeautifulSoup to safely remove HTML
@@ -627,7 +627,7 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                 strategy_id = f"{sub_id}.S{i}"
                 strategy_text = (
                     f"Tactic: {tactic_name}. Technique: {tech_name}. Sub-Technique: {sub_name}\n"
-                    f"Implementation Strategy: {strategy_name}\n"
+                    f"Implementation Guidance: {strategy_name}\n"
                     f"ID: {strategy_id}\n"
                     f"How-To: {clean_how_to}"
                 )
@@ -644,8 +644,8 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                     "tools_opensource": [],
                     "tools_commercial": [],
                     "parent_technique_id": sub_id,
-                    "implementation_strategies": [{
-                        "strategy": strategy_name,
+                    "implementation_guidance": [{
+                        "implementation": strategy_name,
                         "howTo": how_to_html  # Preserve full HTML
                     }],
                     "has_code_snippets": has_code
@@ -779,7 +779,7 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
                 "tools_opensource": json.dumps(doc.get("tools_opensource", [])),
                 "tools_commercial": json.dumps(doc.get("tools_commercial", [])),
                 "parent_technique_id": doc.get("parent_technique_id", ""),
-                "implementation_strategies": json.dumps(doc.get("implementation_strategies", [])),
+                "implementation_guidance": json.dumps(doc.get("implementation_guidance", [])),
                 "has_code_snippets": doc.get("has_code_snippets", False)
             })
 

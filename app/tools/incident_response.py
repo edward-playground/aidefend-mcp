@@ -58,11 +58,11 @@ def _generate_immediate_actions(
     ]
 
     # Add threat-specific immediate actions
-    if threat_classification and threat_classification.get('matched_threats'):
-        matched_threats = threat_classification['matched_threats']
+    if threat_classification and threat_classification.get('threat_details'):
+        threat_details = threat_classification['threat_details']
 
         # Check for specific high-risk threats
-        threat_keywords = ' '.join([t.get('keyword', '') for t in matched_threats]).lower()
+        threat_keywords = ' '.join([t.get('matched_keyword', '') for t in threat_details]).lower()
 
         if 'prompt injection' in threat_keywords or 'jailbreak' in threat_keywords:
             actions.append({
@@ -134,19 +134,22 @@ def _generate_investigation_actions(
     ]
 
     # Add threat-specific investigation actions
-    if threat_classification and threat_classification.get('matched_threats'):
-        matched_threats = threat_classification['matched_threats']
-        frameworks = set(t.get('framework', '') for t in matched_threats)
+    if threat_classification and threat_classification.get('threat_details'):
+        threat_details = threat_classification['threat_details']
+        threat_ids = [t.get('threat_id', '') for t in threat_details]
 
-        if any('OWASP' in f for f in frameworks):
+        owasp_threats = [tid for tid in threat_ids if 'OWASP' in tid.upper()]
+        atlas_threats = [tid for tid in threat_ids if 'ATLAS' in tid.upper()]
+
+        if owasp_threats:
             actions.append({
                 "action": "Review OWASP LLM Top 10 Mapping",
                 "priority": "MEDIUM",
-                "description": f"Analyze incident against matched OWASP threats: {', '.join([t.get('threat_id', '') for t in matched_threats if 'OWASP' in t.get('framework', '')])}",
+                "description": f"Analyze incident against matched OWASP threats: {', '.join(owasp_threats)}",
                 "estimated_time": "15-20 minutes"
             })
 
-        if any('ATLAS' in f for f in frameworks):
+        if atlas_threats:
             actions.append({
                 "action": "Review MITRE ATLAS Tactics",
                 "priority": "MEDIUM",
@@ -195,21 +198,23 @@ def _generate_containment_actions(
     ]
 
     # Add defense technique recommendations
-    if defense_techniques and defense_techniques.get('techniques'):
-        techniques = defense_techniques['techniques'][:5]  # Top 5 techniques
+    # get_defenses_for_threat returns {"defense_techniques": [{technique: {id, name, tactic, ...}, relevance_score}, ...]}
+    if defense_techniques and defense_techniques.get('defense_techniques'):
+        techniques = defense_techniques['defense_techniques'][:5]  # Top 5 techniques
 
-        for tech in techniques:
+        for tech_entry in techniques:
+            tech = tech_entry.get('technique', {})
             actions.append({
                 "action": f"Deploy Defense: {tech.get('name', '')}",
                 "priority": "HIGH",
-                "description": f"Implement {tech.get('source_id', '')} - {tech.get('description', '')[:150]}...",
+                "description": f"Implement {tech.get('id', '')} - {tech.get('description', '')[:150]}...",
                 "estimated_time": "1-3 hours",
-                "reference": tech.get('source_id', '')
+                "reference": tech.get('id', '')
             })
 
     # Add threat-specific containment
-    if threat_classification and threat_classification.get('matched_threats'):
-        threat_keywords = ' '.join([t.get('keyword', '') for t in threat_classification['matched_threats']]).lower()
+    if threat_classification and threat_classification.get('threat_details'):
+        threat_keywords = ' '.join([t.get('matched_keyword', '') for t in threat_classification['threat_details']]).lower()
 
         if 'prompt injection' in threat_keywords:
             actions.append({
@@ -281,8 +286,8 @@ def _generate_recovery_actions(
     ]
 
     # Add long-term preventive measures
-    if defense_techniques and defense_techniques.get('techniques'):
-        technique_count = len(defense_techniques['techniques'])
+    if defense_techniques and defense_techniques.get('defense_techniques'):
+        technique_count = len(defense_techniques['defense_techniques'])
 
         actions.append({
             "action": "Implement Defense-in-Depth",
@@ -367,8 +372,8 @@ async def generate_incident_playbook(
         try:
             threat_classification = await classify_threat(incident_description)
             logger.info(
-                f"Threat classified: {len(threat_classification.get('matched_threats', []))} threats matched",
-                extra={"threat_count": len(threat_classification.get('matched_threats', []))}
+                f"Threat classified: {len(threat_classification.get('threat_details', []))} threats matched",
+                extra={"threat_count": len(threat_classification.get('threat_details', []))}
             )
         except Exception as e:
             logger.warning(f"Threat classification failed (continuing with generic playbook): {e}")
@@ -376,12 +381,15 @@ async def generate_incident_playbook(
         # Step 2: Get defense techniques if requested
         defense_techniques = None
         if include_defense_techniques and threat_classification:
-            matched_threats = threat_classification.get('matched_threats', [])
+            threat_details = threat_classification.get('threat_details', [])
 
-            if matched_threats:
+            if threat_details:
                 # Use the highest confidence threat for defense lookup
-                primary_threat = matched_threats[0]
-                threat_id = primary_threat.get('threat_id', '')
+                primary_threat = threat_details[0]
+                raw_threat_id = primary_threat.get('threat_id', '')
+                # classify_threat returns IDs like "OWASP-LLM01" or "ATLAS-AML.T0043"
+                # get_defenses_for_threat expects just "LLM01" or "AML.T0043"
+                threat_id = raw_threat_id.split('-', 1)[1] if '-' in raw_threat_id else raw_threat_id
 
                 if threat_id:
                     try:
@@ -391,8 +399,8 @@ async def generate_incident_playbook(
                             top_k=10
                         )
                         logger.info(
-                            f"Found {len(defense_techniques.get('techniques', []))} defense techniques",
-                            extra={"technique_count": len(defense_techniques.get('techniques', []))}
+                            f"Found {len(defense_techniques.get('defense_techniques', []))} defense techniques",
+                            extra={"technique_count": len(defense_techniques.get('defense_techniques', []))}
                         )
                     except Exception as e:
                         logger.warning(f"Failed to fetch defense techniques: {e}")
@@ -436,13 +444,13 @@ async def generate_incident_playbook(
         }
 
         # Add primary threat if identified
-        if threat_classification and threat_classification.get('matched_threats'):
-            primary_threat = threat_classification['matched_threats'][0]
+        if threat_classification and threat_classification.get('threat_details'):
+            primary_threat = threat_classification['threat_details'][0]
             incident_summary['primary_threat'] = {
                 "threat_id": primary_threat.get('threat_id', ''),
-                "framework": primary_threat.get('framework', ''),
-                "description": primary_threat.get('description', ''),
-                "confidence": primary_threat.get('confidence', 0)
+                "framework": primary_threat.get('threat_id', '').split('-')[0] if primary_threat.get('threat_id') else '',
+                "description": primary_threat.get('threat_name', ''),
+                "confidence": primary_threat.get('confidence', 0) * 100  # Convert to percentage
             }
 
         result = {
