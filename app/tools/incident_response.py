@@ -10,7 +10,7 @@ get_defenses_for_threat tools.
 
 import asyncio
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.logger import get_logger
 from app.security import InputValidationError, validate_query_text
@@ -458,7 +458,7 @@ async def generate_incident_playbook(
             "threat_classification": threat_classification,
             "timeline": timeline,
             "defense_techniques": defense_techniques if include_defense_techniques else None,
-            "generated_at": datetime.utcnow().isoformat() + "Z"
+            "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         }
 
         logger.info(

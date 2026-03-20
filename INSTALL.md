@@ -13,12 +13,13 @@ This guide is designed for beginners. Every step is explained in detail. If you 
 ## 📋 Table of Contents
 
 1. [What You'll Need (Prerequisites)](#what-youll-need-prerequisites)
-2. [Method 1: Quick Start with Scripts (Easiest)](#method-1-quick-start-with-scripts-easiest)
-3. [Method 2: Docker Installation (Recommended for Production)](#method-2-docker-installation-recommended-for-production)
-4. [Method 3: Manual Installation (Most Control)](#method-3-manual-installation-most-control)
-5. [Verify Everything is Working](#verify-everything-is-working)
-6. [Troubleshooting Common Issues](#troubleshooting-common-issues)
-7. [Next Steps](#next-steps)
+2. [🚀 MCP Mode Setup (Claude Desktop) - Automated](#-mcp-mode-setup-claude-desktop---automated)
+3. [Method 1: Quick Start with Scripts (Easiest)](#method-1-quick-start-with-scripts-easiest)
+4. [Method 2: Docker Installation (Recommended for Production)](#method-2-docker-installation-recommended-for-production)
+5. [Method 3: Manual Installation (Most Control)](#method-3-manual-installation-most-control)
+6. [Verify Everything is Working](#verify-everything-is-working)
+7. [Troubleshooting Common Issues](#troubleshooting-common-issues)
+8. [Next Steps](#next-steps)
 
 ---
 
@@ -74,14 +75,111 @@ node --version
 
 **Expected output:** `v18.x.x` or higher (e.g., `v22.18.0`)
 
-**Don't have it?** Download from: https://nodejs.org/
+**Don't have it?**
 
-**Installation tips:**
-- **Windows**: Use the installer from nodejs.org
-- **macOS**: Use the installer or `brew install node`
-- **Linux**: `sudo apt install nodejs` or `sudo yum install nodejs`
+✨ **NEW: Semi-Automated Installation!** The installation script can now automatically download and install Node.js LTS for you:
+- Detects if Node.js >= 18 is installed
+- Fetches latest LTS version info from nodejs.org API
+- Downloads installer from Node.js official site (~30-35MB)
+- Offers automatic installation with standard installer UI
+- **Windows/macOS**: Launches installer, waits for completion, verifies installation
+- **Linux**: Provides distro-specific package manager commands
+- Fallback to manual instructions if needed
+
+**How it works:**
+1. Run `python scripts/install.py`
+2. If Node.js is missing or version < 18, you'll see installation options:
+   - **[1] Automatic installation** (recommended for Windows/macOS) - downloads and installs for you
+   - **[2] Show manual instructions** - if you prefer manual control or on Linux
+   - **[3] Skip** - proceed without installing (will fail later)
+3. Choose option 1 for hassle-free installation!
+
+**Manual installation (if you prefer):**
+- **Windows**: Download from https://nodejs.org/ (use LTS version)
+- **macOS**: Download from https://nodejs.org/ or `brew install node`
+- **Linux**: Use your package manager (commands shown in auto-installer)
 
 **Why is this needed?** AIDEFEND framework uses JavaScript ES6 template literals (backticks) which cannot be parsed with Python alone. The service uses Node.js subprocess to natively parse these files.
+
+---
+
+#### 4. **Microsoft Visual C++ Redistributable** (Windows Only)
+
+**What is this?** A set of runtime libraries required by AI/ML libraries on Windows.
+
+**Who needs it?** Windows users only (macOS and Linux users can skip this)
+
+**When is it needed?** ONNX Runtime (used for embeddings) requires Visual C++ runtime DLLs on Windows.
+
+**Check if you have it:**
+- Open "Apps & features" in Windows Settings
+- Search for "Microsoft Visual C++ 2015-2022 Redistributable"
+
+**Don't have it?**
+
+✨ **NEW: Semi-Automated Installation!** The installation script can now automatically download and install Visual C++ Redistributable for you:
+- Detects if already installed (checks Windows registry)
+- Downloads installer from Microsoft official site (~14MB)
+- Offers automatic installation with minimal user interaction
+- Shows UAC prompt for admin privileges (one-click approval)
+- Fallback to manual instructions if needed
+
+**How it works:**
+1. Run `python scripts/install.py`
+2. If Visual C++ is missing, you'll see installation options:
+   - **[1] Automatic installation** (recommended) - downloads and installs for you
+   - **[2] Show manual instructions** - if you prefer manual control
+   - **[3] Skip** - proceed without installing (will fail later)
+3. Choose option 1 for hassle-free installation!
+
+**Manual installation (if you prefer):**
+- **Latest version:** https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+- **Direct download:** https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+**Why is this needed?** Python AI/ML libraries like ONNX Runtime use native C++ code for performance. These libraries require Visual C++ runtime DLLs to function on Windows.
+
+---
+
+#### 5. **macOS Native Dependencies** (macOS Only, Recommended for Apple Silicon)
+
+**What is this?** OpenMP library and Xcode Command Line Tools required for optimal ONNX Runtime performance on macOS.
+
+**Who needs it?** macOS users, especially those with Apple Silicon (M1/M2/M3/M4) Macs.
+
+**When is it needed?** ONNX Runtime uses OpenMP for parallel processing. While pre-built Python wheels often include bundled dependencies, some configurations may require system-level libomp for best performance.
+
+**Check if you have Xcode Command Line Tools:**
+```bash
+xcode-select -p
+```
+
+**Expected output:** `/Library/Developer/CommandLineTools` or similar path
+
+**Check if you have libomp (via Homebrew):**
+```bash
+brew list libomp
+```
+
+**Don't have them?**
+
+**Install Xcode Command Line Tools:**
+```bash
+xcode-select --install
+```
+
+**Install Homebrew (if not installed):**
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+**Install libomp:**
+```bash
+brew install libomp
+```
+
+**Automatic Detection:** The installation script (`python scripts/install.py --check`) will detect macOS and check for these dependencies, providing warnings and instructions if they're missing.
+
+**Note:** Installation may succeed without libomp if the pre-built Python wheels include bundled OpenMP. If you encounter ONNX-related errors after installation, install libomp as shown above.
 
 ---
 
@@ -107,8 +205,429 @@ docker-compose --version
 ### 💻 System Requirements
 
 - **RAM**: 2GB minimum, 4GB recommended
-- **Disk Space**: 500MB free (for ML models and AIDEFEND content)
+- **Disk Space**: **2-2.5GB free** (breakdown below)
+
+  **AIDEFEND Service itself (~200-700MB):**
+  - Source code: ~10MB
+  - Vector database (knowledge base): ~100-500MB (grows as AIDEFEND framework updates)
+  - Raw content cache: ~50-100MB
+  - Logs: ~10-50MB
+
+  **Dependencies (~1.5GB):**
+  - ONNX embedding model (Int8 Quantized): ~280MB
+  - Python packages (pip): ~500MB-1GB (FastAPI, LanceDB, NumPy, etc.)
+  - Node.js packages (npm): ~100-200MB (Acorn parser)
+
+  **Total: 2GB minimum, up to 3GB with database growth**
+
 - **Internet**: Required for initial download (service works offline after setup)
+
+---
+
+## 🚀 MCP Mode Setup (Claude Desktop) - One-Click Installation
+
+**For users who want to use AIDEFEND with Claude Desktop**
+
+This one-click installation installs all dependencies and configures Claude Desktop in just 5 - 8 minutes.
+
+### Prerequisites
+
+1. **Claude Desktop installed** - Download from: https://claude.ai/download
+2. **Python 3.9+** - Check: `python --version`
+3. **Node.js 18+** - Check: `node --version` (Download from: https://nodejs.org/)
+4. **Git** - Check: `git --version`
+
+### Step 1: Download AIDEFEND
+
+```bash
+git clone https://github.com/edward-playground/aidefend-mcp.git
+cd aidefend-mcp
+```
+
+**💡 Tip:** For macOS/Linux users, use `python3` if `python` points to Python 2:
+```bash
+python3 --version  # Check if you need python3 instead of python
+```
+
+### Step 2: (Optional but Recommended) Create Virtual Environment
+
+Using a virtual environment prevents dependency conflicts with other Python projects:
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate it
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# You should see (venv) in your terminal prompt
+```
+
+**Why use venv?**
+- Isolates AIDEFEND dependencies from other Python projects
+- Prevents version conflicts (e.g., if another project uses different Pydantic version)
+- Easy to remove (just delete the `venv` folder)
+
+**Note:** If you use venv, remember to activate it every time you run AIDEFEND.
+
+### Step 3: One-Click Installation
+
+**Check prerequisites first (recommended):**
+```bash
+python scripts/install.py --check
+```
+
+**Then install:**
+```bash
+python scripts/install.py
+```
+
+**Linux/macOS users:** Use `python3` if needed:
+```bash
+python3 scripts/install.py --check
+python3 scripts/install.py
+```
+
+**What this script does:**
+- ✅ Checks Python 3.9+ and Node.js 18+ versions
+- ✅ Installs all Python dependencies (pip install -r requirements.txt)
+- ✅ Installs all Node.js dependencies (npm install)
+- ✅ Auto-detects your Python path and project path
+- ✅ Auto-detects Claude Desktop config location
+- ✅ **Safely merges** configuration (preserves all existing MCP tools)
+- ✅ Creates backup of existing config
+- ✅ Validates all paths before writing
+
+**Example output:**
+```
+======================================================================
+  AIDEFEND MCP - One-Click Installation
+======================================================================
+
+[Step 1/5] Checking Python version
+----------------------------------------------------------------------
+   Python version: 3.13.1
+✅ Python version OK
+
+[Step 2/5] Checking Node.js version
+----------------------------------------------------------------------
+   Node.js version: v20.11.0
+✅ Node.js version OK
+
+[Step 3/5] Installing Python dependencies
+----------------------------------------------------------------------
+Installing Python dependencies...
+   Using: c:\Users\you\aidefend-mcp\requirements.txt
+✅ Python dependencies installed successfully
+
+[Step 4/5] Installing Node.js dependencies
+----------------------------------------------------------------------
+Installing Node.js dependencies...
+   Using: c:\Users\you\aidefend-mcp\package.json
+✅ Node.js dependencies installed successfully
+
+[Step 5/5] Configuring Claude Desktop (MCP mode)
+----------------------------------------------------------------------
+Configuring Claude Desktop for MCP mode...
+   Config file: C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
+   Python: C:/Python313/python.exe
+   Project: c:/Users/you/aidefend-mcp
+
+✅ Backup created: claude_desktop_config.json.backup.20250126_143022
+✅ Preserving 2 existing MCP tool(s):
+   • filesystem
+   • git
+✅ Configuration saved to: C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
+
+✅ MCP configuration completed successfully!
+
+⚠️  IMPORTANT: Restart Claude Desktop to apply changes
+   1. Completely close Claude Desktop
+   2. Reopen Claude Desktop
+   3. Look for 'aidefend' in MCP tools list (Search and tools icon 🔍/⚙️)
+
+======================================================================
+  ✅ Installation Complete!
+======================================================================
+
+Next steps:
+  1. Restart Claude Desktop (close completely and reopen)
+  2. Look for 'aidefend' in MCP tools (Search and tools icon ⚙️)
+  3. Try: 'Search AIDEFEND for prompt injection defenses'
+```
+
+### Step 4: Restart Claude Desktop
+
+**IMPORTANT:** You must **completely quit** Claude Desktop (not just close the window) and restart it.
+
+**Windows:**
+- Right-click Claude icon in system tray → Exit
+
+**macOS:**
+- Press `Cmd+Q` (or Claude menu → Quit)
+
+**Verify tools loaded:**
+- Open Claude Desktop
+- Tools should appear in the available tools panel
+- Ask Claude: "What AIDEFEND tools are available?"
+
+### Step 5: First Use - Model Download
+
+⚠️ **IMPORTANT:** On **first use**, AIDEFEND will automatically download a ~1.1GB embedding model (`multilingual-e5-base`).
+
+**What to expect:**
+- **Download time:** 5-8 minutes (depending on internet speed)
+- **Storage:** ~3-4GB total (model + dependencies + knowledge base - see System Requirements above for breakdown)
+- **Location:** `~/.cache/fastembed/` (macOS/Linux) or `%USERPROFILE%\.cache\fastembed\` (Windows)
+- **One-time only:** Subsequent uses are instant
+
+**If Claude seems slow on first query:**
+- It's downloading the model in the background
+- Check the MCP server logs if needed
+- Wait a few minutes and try again
+
+**For offline use:**
+- After first download, AIDEFEND works completely offline
+- No external API calls are ever made
+- All processing is 100% local
+
+### Alternative: Installation Options
+
+The installation script supports several modes:
+
+```bash
+# Check prerequisites only (no installation)
+python scripts/install.py --check
+
+# Interactive mode (default) - asks for confirmation
+python scripts/install.py
+
+# Automatic mode - no confirmations
+python scripts/install.py --auto
+
+# Skip MCP configuration - only install dependencies
+python scripts/install.py --no-mcp
+
+# Dry run - preview without making changes
+python scripts/install.py --dry-run
+
+# Show help
+python scripts/install.py --help
+```
+
+**Recommended workflow:**
+```bash
+# 1. Check prerequisites first
+python scripts/install.py --check
+
+# 2. If all OK, install
+python scripts/install.py
+```
+
+### Uninstalling MCP Mode
+
+To remove AIDEFEND from Claude Desktop (while keeping the project files):
+
+```bash
+python scripts/uninstall_mcp.py
+```
+
+This will:
+- ✅ Remove AIDEFEND from Claude config
+- ✅ Preserve all other MCP tools
+- ✅ Create backup before removal
+- ✅ Keep your local project files untouched
+
+---
+
+## 🔌 Claude Code Setup (VSCode Extension)
+
+**For users who want to use AIDEFEND with Claude Code (VSCode extension)**
+
+Claude Code uses a different configuration format (`.mcp.json`) than Claude Desktop.
+
+### Quick Setup
+
+```bash
+# Install for Claude Code only
+python scripts/install.py --client code
+
+# Or install for BOTH Claude Desktop and Claude Code
+python scripts/install.py --client both
+```
+
+**What this does:**
+- ✅ Installs all dependencies (same as Claude Desktop)
+- ✅ Creates `.mcp.json` in project root
+- ✅ **Safely merges** with existing `.mcp.json` (preserves other servers)
+- ✅ Ready to commit to git (shareable with team)
+
+### After Installation
+
+1. **Reload VSCode window**:
+   - Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS)
+   - Type "Reload Window" and press Enter
+
+2. **Verify AIDEFEND is available**:
+   - Look for `aidefend` in MCP tools panel
+   - Try using AIDEFEND tools via `/` slash commands
+
+### Claude Code vs Claude Desktop
+
+| Aspect | Claude Desktop | Claude Code |
+|--------|----------------|-------------|
+| **Config file** | `claude_desktop_config.json` | `.mcp.json` (project root) |
+| **Location** | User config directory | Project directory |
+| **Version control** | Not shared | Can be committed to git |
+| **Team sharing** | Manual setup per user | Automatic (via git) |
+| **Client access** | Desktop app only | VSCode only |
+
+### Example .mcp.json
+
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+  "mcpServers": {
+    "aidefend": {
+      "command": "C:/path/to/python.exe",
+      "args": [
+        "C:/Users/you/aidefend-mcp/__main__.py",
+        "--mcp"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
+> **Note:** The installation script automatically detects your actual Python path and fills this in correctly. The example above uses a placeholder.
+
+---
+
+### Troubleshooting Installation Issues
+
+#### Python/Node.js version errors
+
+**Problem:** `python --version` shows Python 2.x or command not found
+
+**Solution for macOS/Linux:**
+```bash
+# Use python3 instead
+python3 --version
+python3 scripts/install.py
+```
+
+**Solution for Windows:**
+```bash
+# Install Python 3.9+ from https://www.python.org/downloads/
+# Make sure "Add Python to PATH" is checked during installation
+```
+
+#### `pip install` fails or times out
+
+**Problem:** Network issues, firewall, or slow downloads
+
+**Solution 1 - Check internet:**
+```bash
+python scripts/install.py --check  # Verify connectivity
+```
+
+**Solution 2 - For China users:**
+```bash
+# Use Tsinghua mirror
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+npm install --registry=https://registry.npmmirror.com
+```
+
+**Solution 3 - Behind corporate proxy:**
+```bash
+pip install -r requirements.txt --proxy YOUR_PROXY_URL
+```
+
+**Solution 4 - Upgrade pip:**
+```bash
+python -m pip install --upgrade pip
+```
+
+#### `npm install` fails
+
+**Problem:** npm errors or permission issues
+
+**Solution 1 - Clear cache:**
+```bash
+npm cache clean --force
+npm install
+```
+
+**Solution 2 - Use different registry:**
+```bash
+npm install --registry=https://registry.npmjs.org/
+```
+
+#### Claude Desktop not detected
+
+**Problem:** Warning that Claude Desktop not found
+
+**Solution:**
+- Install Claude Desktop from https://claude.ai/download
+- The config will still be created for when you install it
+- Not needed if you only want REST API mode
+
+#### Dependencies conflict with other projects
+
+**Problem:** "Version conflict" or "Cannot install pydantic 2.x"
+
+**Solution - Use virtual environment:**
+```bash
+# Create isolated environment
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# Then install
+python scripts/install.py
+```
+
+#### First query is very slow
+
+**Problem:** Claude hangs for 2-5 minutes on first AIDEFEND query
+
+**Cause:** Downloading ~400MB embedding model (one-time only)
+
+**Solution:**
+- Wait for model download to complete (check internet connection)
+- Subsequent queries will be instant
+- Model stored at: `~/.cache/fastembed/` (macOS/Linux) or `%USERPROFILE%\.cache\fastembed\` (Windows)
+
+#### MCP tools not showing in Claude Desktop
+
+**Problem:** AIDEFEND not visible after restart
+
+**Checklist:**
+1. Did you completely quit Claude Desktop? (not just close window)
+   - Windows: Right-click tray icon → Exit
+   - macOS: Cmd+Q
+2. Check config file exists:
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+3. Check config format is valid JSON (no trailing commas)
+4. Try restarting Claude Desktop again
+5. Check Claude Desktop logs for errors
+
+#### Still having issues?
+
+```bash
+# Run diagnostic check
+python scripts/install.py --check
+
+# View detailed logs
+cat data/logs/aidefend_mcp.log  # macOS/Linux
+type data\logs\aidefend_mcp.log  # Windows
+```
+
+For more help, see the full troubleshooting guide below or open an issue on GitHub.
 
 ---
 
@@ -140,25 +659,18 @@ dir # Windows
 
 ---
 
-### Step 2: Run the Start Script
+### Step 2: Start the Service
 
-**On Windows:**
-```cmd
-scripts\start.bat
-```
-
-**On macOS/Linux:**
+**On any platform (Windows/macOS/Linux):**
 ```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
+python __main__.py
 ```
 
-**What this script does automatically:**
-1. ✅ Checks Python is installed
-2. ✅ Creates a virtual environment (isolated Python environment)
-3. ✅ Installs all required Python packages
-4. ✅ Creates configuration file (`.env`)
-5. ✅ Starts the service
+**What happens on first run:**
+1. ✅ Automatically syncs AIDEFEND framework from GitHub (5-8 minutes)
+2. ✅ Parses and indexes all security techniques
+3. ✅ Starts the REST API server on http://localhost:8000
+4. ✅ Service is ready for queries
 
 **Expected output:**
 ```
@@ -262,7 +774,22 @@ nano .env         # Linux
 open -e .env      # macOS
 ```
 
-**For most users, the defaults work fine. You can skip this step.**
+**⚠️ CRITICAL SECURITY REQUIREMENT:**
+
+Docker deployments bind to `0.0.0.0` and **REQUIRE** an API Key to start.
+
+1. **Generate a key:**
+   ```bash
+   python scripts/generate_api_key.py
+   ```
+
+2. **Add to `.env` file:**
+   ```bash
+   AUTH_MODE=api_key
+   AIDEFEND_API_KEY=<your-generated-key>
+   ```
+
+> **Note:** The container will fail to start if this key is missing.
 
 ---
 
@@ -398,11 +925,11 @@ pip install -r requirements.txt
 
 **Expected output:**
 ```
-Collecting fastapi==0.109.2
-Downloading fastapi-0.109.2-py3-none-any.whl (92 kB)
+Collecting fastapi==0.121.1
+Downloading fastapi-0.121.1-py3-none-any.whl (92 kB)
 ...
 Installing collected packages: ...
-Successfully installed fastapi-0.109.2 ...
+Successfully installed fastapi-0.121.1 ...
 ```
 
 ---
@@ -425,14 +952,19 @@ cp .env.example .env
 ### Step 5: Start the Service
 
 ```bash
+# Default (REST API mode)
 C:/Python313/python.exe __main__.py
+
+# Or explicitly specify REST API mode
+C:/Python313/python.exe __main__.py --api
 ```
 
 **What this command means:**
 - Runs the AIDEFEND service main program
-- Starts in REST API mode by default
+- Starts in REST API mode by default (or use `--api` flag explicitly)
 - Service will run on `127.0.0.1:8000`
 - All configuration loaded from `.env` file
+- Use `--mcp` flag for MCP mode, `--resync` for database rebuild, `--help` for help
 
 **Expected output:**
 ```
@@ -874,6 +1406,31 @@ Both modes share the same knowledge base and sync service - they stay in sync au
 
 ## Troubleshooting Common Issues
 
+### ℹ️ About Automatic Cache Management
+
+**Good news:** You never need to manually delete cache files!
+
+AIDEFEND MCP uses **automatic cache invalidation** to ensure data consistency:
+
+**Automatic Updates:**
+- ✅ **Content updates**: System checks GitHub hourly for new techniques and updates automatically
+- ✅ **Schema updates**: Cache auto-invalidates when metadata format changes
+- ✅ **Model changes**: Detected automatically and triggers rebuild
+
+**When to use `--resync`:**
+Only needed in special cases:
+- Changing embedding model (e.g., from e5-base to embeddinggemma)
+- Database corruption
+- Development/testing with clean state
+
+**What happens during auto-update:**
+```
+System detects change → Downloads new data → Updates embeddings → Ready to use
+```
+No user intervention required!
+
+---
+
 ### ❌ Issue: "Python not found" or "python: command not found"
 
 **Possible causes:**
@@ -911,17 +1468,6 @@ pip3 install -r requirements.txt
 # Use python -m pip
 python -m pip install -r requirements.txt
 ```
-
----
-
-### ❌ Issue: Running scripts\start.bat shows "... was unexpected at this time." error
-
-**Meaning:** This is a Windows Command Prompt (cmd.exe) syntax parsing error. This usually happens when the start.bat file contains invisible special characters (e.g., from copying/pasting from a web page) or incorrect file encoding.
-
-**Solutions:**
-
-1. **Preferred solution:** Ensure you downloaded via **git clone** directly from GitHub, rather than copying/pasting the start.bat file content from a web page.
-2. **Alternative solution (most reliable):** **Abandon using start.bat** and **use "Method 3: Manual Installation"** steps instead. Manually run `python -m venv venv`, `venv\Scripts\activate`, `pip install -r requirements.txt`, and `C:/Python313/python.exe __main__.py` to 100% bypass this batch file parsing error.
 
 ---
 
@@ -1048,15 +1594,14 @@ docker-compose logs aidefend-mcp
 
 ### ❌ Issue: "Permission denied" (Linux/macOS)
 
-**For start.sh:**
-```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
-```
-
 **For data directory:**
 ```bash
 chmod -R 755 data/
+```
+
+**For main script:**
+```bash
+chmod +x __main__.py
 ```
 
 ---
@@ -1144,6 +1689,68 @@ docker-compose down -v
 cd ..
 rm -rf aidefend-mcp
 ```
+
+---
+
+## Troubleshooting
+
+### Resync Database
+
+If you encounter database issues or need to upgrade the embedding model, use the resync command:
+
+```bash
+python __main__.py --resync
+```
+
+**When to use:**
+- ✅ Upgrading to a different embedding model
+- ✅ Database corruption or errors
+- ✅ Starting fresh with clean data
+- ✅ After changing `EMBEDDING_MODEL` in `.env`
+
+**What it does:**
+1. Deletes existing database (`data/aidefend_kb.lancedb`)
+2. Deletes version tracking (`data/local_version.json`)
+3. Re-downloads content from GitHub
+4. Rebuilds database with current configuration
+5. Recreates embedding cache
+
+**Note:** This is a safe operation - all data is recoverable from the source repository.
+
+**After resync, start your preferred mode:**
+```bash
+# Start MCP mode
+python __main__.py --mcp
+
+# Or start REST API
+python __main__.py --api
+```
+
+### Common Issues
+
+**Database model mismatch:**
+```
+❌ Embedding model upgrade detected!
+   Database model: intfloat/multilingual-e5-small (384d)
+   Configured model: Xenova/multilingual-e5-base (768d)
+```
+**Solution:** Run `python __main__.py --resync`
+
+**Database corruption:**
+```
+Error: Failed to load database
+```
+**Solution:** Run `python __main__.py --resync`
+
+**Service not responding:**
+- Check if service is running: `ps aux | grep python` (Unix) or Task Manager (Windows)
+- Check logs: `tail -f data/logs/aidefend_mcp.log`
+- Restart the service
+
+**MCP tools not showing in Claude Desktop:**
+- Verify `claude_desktop_config.json` paths are absolute (not relative)
+- Restart Claude Desktop completely
+- Check Python path: `which python3` (Unix) or `where python` (Windows)
 
 ---
 

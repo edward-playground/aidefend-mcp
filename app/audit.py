@@ -9,7 +9,7 @@ Audit logs are stored in JSON Lines format for easy parsing and analysis.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 from logging.handlers import TimedRotatingFileHandler
@@ -79,7 +79,7 @@ class AuditLogger:
 
         # Build audit log entry
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "tool_name": tool_name,
             "parameters": sanitized_params,
             "result_summary": result_summary,
@@ -164,7 +164,7 @@ class AuditLogger:
             additional_context: Optional additional context
         """
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "event_type": "SECURITY_EVENT",
             "security_event_type": event_type,
             "description": description,

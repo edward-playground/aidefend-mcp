@@ -20,16 +20,22 @@ services:
       - API_PORT=8000
       - ENABLE_RATE_LIMITING=${ENABLE_RATE_LIMITING:-true}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
+
+      # Security: Binding to 0.0.0.0 requires authentication
+      # Use ${VAR:?message} syntax to enforce checking at startup
+      - AUTH_MODE=${AUTH_MODE:-api_key}
+      - AIDEFEND_API_KEY=${AIDEFEND_API_KEY:?Error: AIDEFEND_API_KEY is required for Docker. Please set it in your .env file.}
+
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     security_opt:
       - no-new-privileges:true
-    read_only: false  # Need write access for database
+    read_only: false # Need write access for database
     tmpfs:
       - /tmp
     networks:

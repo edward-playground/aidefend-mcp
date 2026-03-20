@@ -3,10 +3,19 @@ Pydantic schemas for API request/response validation.
 """
 
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
 from pydantic import BaseModel, Field, field_validator
+
+
 from app.config import settings
 from app.security import validate_query_text, validate_top_k
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time. Replacement for deprecated datetime.utcnow()."""
+    return datetime.now(timezone.utc)
 
 
 class QueryRequest(BaseModel):
@@ -103,7 +112,7 @@ class QueryResponse(BaseModel):
         description="Number of results returned"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Query timestamp (UTC)"
     )
 
@@ -138,8 +147,7 @@ class SyncStatus(BaseModel):
     )
     current_commit_sha: Optional[str] = Field(
         default=None,
-        description="Current GitHub commit SHA",
-        pattern=r"^[a-f0-9]{40}$"
+        description="Current GitHub commit SHA"
     )
     framework_version: Optional[str] = Field(
         default=None,
@@ -173,7 +181,7 @@ class StatusResponse(BaseModel):
         description="Service version"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Status check timestamp (UTC)"
     )
 
@@ -207,7 +215,7 @@ class HealthResponse(BaseModel):
         description="Individual health check results"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Health check timestamp (UTC)"
     )
 
@@ -242,7 +250,7 @@ class ErrorResponse(BaseModel):
         description="Additional error details (only in development mode)"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Error timestamp (UTC)"
     )
 
@@ -276,12 +284,12 @@ class ThreatCoverageRequest(BaseModel):
     @field_validator("implemented_techniques")
     @classmethod
     def validate_technique_ids(cls, v: List[str]) -> List[str]:
-        """Validate technique ID list."""
-        if not v:
-            raise ValueError("implemented_techniques cannot be empty")
+        """Validate technique ID list (empty array allowed for baseline analysis)."""
         if len(v) > 100:
             raise ValueError("Too many techniques (max 100)")
-        # Normalize IDs
+        # Normalize IDs (skip if empty for baseline analysis)
+        if not v:
+            return []
         return [tid.strip().upper() for tid in v]
 
     model_config = {
@@ -323,7 +331,7 @@ class ThreatCoverageResponse(BaseModel):
         description="Detailed threat coverage per technique"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Analysis timestamp (UTC)"
     )
 
@@ -385,6 +393,11 @@ class ImplementationPlanRequest(BaseModel):
         le=20,
         description="Number of recommendations to return (1-20)"
     )
+    detail_level: str = Field(
+        default="basic",
+        description="Level of detail: 'basic' (IDs only), 'standard' (brief summaries for top 5), 'detailed' (full summaries + code for top 5)",
+        examples=["basic", "standard", "detailed"]
+    )
 
     @field_validator("implemented_techniques")
     @classmethod
@@ -414,13 +427,29 @@ class ImplementationPlanRequest(BaseModel):
             raise ValueError("top_k must be between 1 and 20")
         return v
 
+    @field_validator("detail_level")
+    @classmethod
+    def validate_detail_level(cls, v: str) -> str:
+        """Validate detail_level parameter."""
+        allowed_values = ["basic", "standard", "detailed"]
+        if v not in allowed_values:
+            raise ValueError(f"detail_level must be one of {allowed_values}")
+        return v
+
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
                     "implemented_techniques": ["AID-D-001", "AID-H-002"],
                     "exclude_tactics": ["Model"],
-                    "top_k": 10
+                    "top_k": 10,
+                    "detail_level": "basic"
+                },
+                {
+                    "implemented_techniques": [],
+                    "exclude_tactics": [],
+                    "top_k": 5,
+                    "detail_level": "detailed"
                 }
             ]
         }
@@ -439,8 +468,16 @@ class ImplementationPlanResponse(BaseModel):
     categories: Dict[str, List[str]] = Field(
         description="Recommendations categorized by priority (quick_wins, high_priority, standard)"
     )
+    actionable_strategies: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Detailed implementation strategies for top 5 recommendations (only when detail_level='standard' or 'detailed')"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Compound tool metadata (only when detail_level='standard' or 'detailed')"
+    )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Plan generation timestamp (UTC)"
     )
 
@@ -667,7 +704,7 @@ class ClassifyThreatResponse(BaseModel):
         description="Suggested followup tool calls for further investigation"
     )
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=_utc_now,
         description="Classification timestamp (UTC)"
     )
 

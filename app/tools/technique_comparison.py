@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError
+from app.security import InputValidationError, sanitize_technique_id
 from app.core import query_engine
 from app.exceptions import QueryEngineNotInitializedError
 
@@ -36,159 +36,178 @@ def _parse_json_field(field_value: Any) -> Any:
     return field_value
 
 
+def _detect_defense_type(tactic: str, description: str) -> str:
+    """
+    Detect the type of defense based on keywords.
+    Returns: 'prevention', 'detection', 'response', or 'unknown'
+    """
+    text = (tactic + " " + description).lower()
+    if any(k in text for k in ["harden", "prevent", "filter", "block", "sanitize", "output validation", "input validation", "firewall"]):
+        return "prevention"
+    if any(k in text for k in ["detect", "monitor", "log", "audit", "alert", "scan", "identif"]):
+        return "detection"
+    if any(k in text for k in ["respond", "isolate", "recover", "mitigate", "incident", "investigat"]):
+        return "response"
+    return "unknown"
+
+
+def _has_keywords(text: str, keywords: List[str]) -> bool:
+    """Check if text contains any of the keywords."""
+    text_lower = text.lower()
+    return any(k in text_lower for k in keywords)
+
+
 def _calculate_effectiveness_score(technique_doc: Dict[str, Any]) -> int:
     """
-    Calculate effectiveness score based on threat coverage and implementation support.
-
-    Scoring algorithm (0-100):
-    - Base: 50 points
-    - +10 for each OWASP threat defended
-    - +5 for each ATLAS threat defended
-    - +5 for each MAESTRO threat defended
-    - +10 if has implementation strategies
-    - +10 if has code snippets
-
-    Args:
-        technique_doc: Technique document from LanceDB
-
-    Returns:
-        Effectiveness score (0-100)
+    Calculate effectiveness score using Quality > Quantity heuristic.
+    
+    New Scoring (0-100):
+    - Base: 20 points
+    - Defense Type: Prevention (+25), Detection (+15), Response (+10)
+    - Asset Criticality: Model/Training Data related (+15)
+    - Validation Ready: Mentions verify/test (+10)
+    - Threat Coverage: +5 per threat (Max 20)
+    - Implementation Ready: Strategies/Code (+10)
     """
-    score = 50  # Base score
+    score = 20  # Lower base score to allow quality factors to dominate
+    
+    description = technique_doc.get('text', '')
+    tactic = technique_doc.get('tactic', '')
+    pillars = _parse_json_field(technique_doc.get('pillar', ''))
+    pillar_lower = [p.lower() for p in pillars] if isinstance(pillars, list) else []
 
-    # Parse defends_against field
+    # 1. Defense Type Weighting
+    defense_type = _detect_defense_type(tactic, description)
+    if defense_type == "prevention":
+        score += 25
+    elif defense_type == "detection":
+        score += 15
+    elif defense_type == "response":
+        score += 10
+        
+    # 2. Asset Criticality (Model-centric is critical for specialized AI security)
+    if 'model' in pillar_lower:
+        score += 15
+        
+    # 3. Validation Bonus
+    if _has_keywords(description, ["verify", "test", "validation", "evaluat", "assess"]):
+        score += 10
+
+    # 4. Threat Coverage (Capped count)
     defends_against = _parse_json_field(technique_doc.get('defends_against', '[]'))
-
-    # Count threats by framework
-    owasp_count = 0
-    atlas_count = 0
-    maestro_count = 0
-
+    threat_count = 0
     if isinstance(defends_against, list):
-        for defense_item in defends_against:
-            if isinstance(defense_item, dict):
-                framework = defense_item.get('framework', '').lower()
-                items = defense_item.get('items', [])
+        for item in defends_against:
+            if isinstance(item, dict) and 'items' in item:
+                threat_count += len(item.get('items', []))
+    score += min(threat_count * 5, 20)  # Max 20 points
 
-                if 'owasp' in framework:
-                    owasp_count += len(items) if isinstance(items, list) else 0
-                elif 'atlas' in framework:
-                    atlas_count += len(items) if isinstance(items, list) else 0
-                elif 'maestro' in framework:
-                    maestro_count += len(items) if isinstance(items, list) else 0
-
-    # Add points based on threat coverage
-    score += min(owasp_count * 10, 30)  # Max 30 points from OWASP
-    score += min(atlas_count * 5, 15)   # Max 15 points from ATLAS
-    score += min(maestro_count * 5, 15) # Max 15 points from MAESTRO
-
-    # Check for implementation strategies
+    # 5. Implementation Readiness
     impl_strategies = _parse_json_field(technique_doc.get('implementation_guidance', '[]'))
-    if impl_strategies and len(impl_strategies) > 0:
+    has_code = technique_doc.get('has_code_snippets', False)
+
+    if (impl_strategies and len(impl_strategies) > 0) or has_code:
         score += 10
 
-    # Check for code snippets
-    has_code_snippets = technique_doc.get('has_code_snippets', False)
-    if has_code_snippets:
-        score += 10
-
-    # Normalize to 0-100
     return min(score, 100)
 
 
 def _calculate_complexity_score(technique_doc: Dict[str, Any]) -> int:
     """
-    Calculate complexity score based on implementation requirements.
-
-    Scoring algorithm (0-100):
-    - Base: 30 points (low complexity)
-    - +20 if has sub-techniques (indicates depth)
-    - +15 if pillar = "infrastructure" (harder than app/model)
-    - +10 if phase = "building" (design-time harder)
-    - +5 per implementation strategy (more options = more complex)
-
-    Args:
-        technique_doc: Technique document from LanceDB
-
-    Returns:
-        Complexity score (0-100, higher = more complex)
+    Calculate complexity score reflecting implementation friction.
+    
+    New Scoring (0-100):
+    - Base: 20 points
+    - Cross-Domain Friction: Infra+Model (+25), App+Model (+15)
+    - Human Dependency: Policy/Process/Training (+15)
+    - Code Complexity: No snippets but specific tools (+15)
+    - Tactic/Phase: Building phase (+10)
     """
-    score = 30  # Base score (low complexity)
-
-    # Check for sub-techniques
-    source_id = technique_doc.get('source_id', '')
-    technique_type = technique_doc.get('type', '')
-
-    # If this is a parent technique (not a subtechnique), it likely has subtechniques
-    if technique_type == 'technique' and '.' not in source_id:
-        score += 20
-
-    # Pillar complexity
-    pillar = technique_doc.get('pillar', '').lower()
-    if 'infrastructure' in pillar:
+    score = 20
+    
+    description = technique_doc.get('text', '')
+    pillars = _parse_json_field(technique_doc.get('pillar', ''))
+    pillar_lower = [p.lower() for p in pillars] if isinstance(pillars, list) else []
+    
+    # 1. Cross-Domain Friction
+    has_infra = 'infra' in pillar_lower or 'infrastructure' in pillar_lower
+    has_model = 'model' in pillar_lower
+    has_app = 'app' in pillar_lower or 'application' in pillar_lower
+    
+    if has_infra and has_model:
+        score += 25  # Hardest: Data Scientist + DevOps coordination
+    elif has_app and has_model:
+        score += 15  # Hard: Data Scientist + App Dev coordination
+        
+    # 2. Human Dependency (Process is harder to maintain than tech)
+    if _has_keywords(description, ["policy", "process", "review", "training", "governance", "manual"]):
         score += 15
-    elif 'model' in pillar:
-        score += 5
+        
+    # 3. Hidden Complexity (Tools without code samples)
+    has_code = technique_doc.get('has_code_snippets', False)
+    opensource_tools = _parse_json_field(technique_doc.get('tools_opensource', '[]'))
+    has_tools = opensource_tools and len(opensource_tools) > 0
+    
+    if has_tools and not has_code:
+        score += 15  # Implies configuration/setup effort without copy-paste help
 
-    # Phase complexity
-    phase = technique_doc.get('phase', '').lower()
-    if 'building' in phase:
-        score += 10
-    elif 'deployment' in phase:
-        score += 5
+    # 4. Phase and Scale
+    phase_raw = technique_doc.get('phase', '')
+    phases = _parse_json_field(phase_raw)
+    phase_lower = [p.lower() for p in phases] if isinstance(phases, list) else []
+    
+    if 'building' in phase_lower:
+        score += 10 # Design-time integration
+        
+    # Sub-technique check (depth implies complexity)
+    source_id = technique_doc.get('source_id', '')
+    if '.' in source_id: 
+         score += 5 # Sub-techniques are specific but often detailed
 
-    # Implementation strategies count
-    impl_strategies = _parse_json_field(technique_doc.get('implementation_guidance', '[]'))
-    if impl_strategies:
-        strategy_count = len(impl_strategies) if isinstance(impl_strategies, list) else 0
-        score += min(strategy_count * 5, 25)  # Max 25 points from strategies
-
-    # Normalize to 0-100
     return min(score, 100)
 
 
 def _calculate_cost_score(technique_doc: Dict[str, Any]) -> int:
     """
-    Calculate cost score based on tooling and implementation requirements.
-
-    Scoring algorithm (0-100):
-    - Base: 40 points (medium cost)
-    - +20 if requires commercial tools
-    - +10 if phase = "building" (upfront investment)
-    - +15 if pillar = "infrastructure" (expensive)
-    - -10 if has opensource tools only
-
-    Args:
-        technique_doc: Technique document from LanceDB
-
-    Returns:
-        Cost score (0-100, higher = more expensive)
+    Calculate cost score based on OpEx (Operations) and CapEx (Tooling).
+    
+    New Scoring (0-100):
+    - Base: 30 points
+    - Operational Overhead (OpEx): Detection/Logging (+15), Prevention (+5)
+    - Cloud/Infrastructure: Cloud keywords/Infra pillar (+15)
+    - Enterprise Tooling (CapEx): Commercial tools (+20)
+    - Mitigation: Open source only (-10)
     """
-    score = 40  # Base score (medium cost)
-
-    # Check for commercial tools
+    score = 30
+    
+    description = technique_doc.get('text', '')
+    tactic = technique_doc.get('tactic', '')
+    
+    # 1. Operational Overhead (OpEx)
+    defense_type = _detect_defense_type(tactic, description)
+    if defense_type == "detection":
+        score += 15  # High OpEx: Storage, Analysis, Alert Triage
+    elif defense_type == "prevention":
+        score += 5   # Low OpEx: Set and forget (mostly)
+        
+    # 2. Cloud/Infrastructure Costs
+    pillars = _parse_json_field(technique_doc.get('pillar', ''))
+    pillar_lower = [p.lower() for p in pillars] if isinstance(pillars, list) else []
+    
+    if 'infra' in pillar_lower or 'infrastructure' in pillar_lower or \
+       _has_keywords(description, ["aws", "azure", "gcp", "cloud", "kubernetes", "cluster"]):
+        score += 15
+        
+    # 3. Enterprise Tooling (CapEx)
     commercial_tools = _parse_json_field(technique_doc.get('tools_commercial', '[]'))
     if commercial_tools and len(commercial_tools) > 0:
         score += 20
-
-    # Check for opensource tools
+        
+    # 4. Mitigation (Open Source)
     opensource_tools = _parse_json_field(technique_doc.get('tools_opensource', '[]'))
     if opensource_tools and len(opensource_tools) > 0 and not commercial_tools:
-        score -= 10  # Opensource only = lower cost
-
-    # Phase cost
-    phase = technique_doc.get('phase', '').lower()
-    if 'building' in phase:
-        score += 10  # Upfront design investment
-
-    # Pillar cost
-    pillar = technique_doc.get('pillar', '').lower()
-    if 'infrastructure' in pillar:
-        score += 15  # Infrastructure is expensive
-    elif 'model' in pillar:
-        score += 5
-
-    # Normalize to 0-100
+        score -= 10
+        
     return max(0, min(score, 100))
 
 
@@ -324,8 +343,11 @@ async def compare_techniques(
         for technique_id in technique_ids:
             logger.debug(f"Fetching technique: {technique_id}")
 
+            # Sanitize technique_id to prevent filter injection
+            sanitized_id = sanitize_technique_id(technique_id)
+
             docs = await asyncio.to_thread(
-                lambda tid=technique_id: table.search()
+                lambda tid=sanitized_id: table.search()
                 .where(f"source_id = '{tid}'")
                 .limit(1)
                 .to_pandas()

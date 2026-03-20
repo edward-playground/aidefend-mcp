@@ -147,6 +147,43 @@ def save_version_info(commit_sha: str, additional_info: Optional[Dict[str, Any]]
         raise
 
 
+def save_sync_timestamp() -> None:
+    """
+    Update last_synced_at timestamp without changing commit SHA.
+
+    Used when sync check completes but no update is needed.
+    This indicates the service checked for updates even if none were available.
+    """
+    try:
+        # Load existing version info
+        existing_data = load_version_info()
+
+        if existing_data is None:
+            # No version file exists yet - create minimal version info
+            version_data = {
+                "commit_sha": "unknown",
+                "last_synced_at": datetime.now(timezone.utc).isoformat(),
+                "sync_timestamp": datetime.now(timezone.utc).timestamp()
+            }
+        else:
+            # Update timestamp in existing data
+            existing_data["last_synced_at"] = datetime.now(timezone.utc).isoformat()
+            existing_data["sync_timestamp"] = datetime.now(timezone.utc).timestamp()
+            version_data = existing_data
+
+        # Save updated version info
+        settings.VERSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(settings.VERSION_FILE, 'w', encoding='utf-8') as f:
+            json.dump(version_data, f, indent=2)
+
+        set_secure_file_permissions(settings.VERSION_FILE)
+        logger.info("Updated sync timestamp (no content changes)")
+    except Exception as e:
+        logger.error(f"Failed to update sync timestamp: {e}")
+        # Don't raise - timestamp update failure is not critical
+
+
 def load_version_info() -> Optional[Dict[str, Any]]:
     """Load version information from local file."""
     try:
@@ -180,10 +217,3 @@ def format_bytes(bytes_size: int) -> str:
             return f"{bytes_size:.1f} {unit}"
         bytes_size /= 1024.0
     return f"{bytes_size:.1f} TB"
-
-
-def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:
-    """Truncate text to maximum length."""
-    if len(text) <= max_length:
-        return text
-    return text[:max_length - len(suffix)] + suffix

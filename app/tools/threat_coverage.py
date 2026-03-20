@@ -16,7 +16,7 @@ from collections import defaultdict
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError
+from app.security import InputValidationError, sanitize_technique_id
 
 logger = get_logger(__name__)
 
@@ -57,8 +57,7 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
     from app.exceptions import QueryEngineNotInitializedError
 
     # Input validation (check parameters BEFORE database check)
-    if not implemented_techniques:
-        raise InputValidationError("implemented_techniques cannot be empty")
+    # Note: Empty array is allowed for baseline threat coverage analysis (0% coverage)
 
     if not isinstance(implemented_techniques, list):
         raise InputValidationError("implemented_techniques must be a list")
@@ -90,9 +89,12 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
 
         # Process each technique
         for tech_id in normalized_techniques:
-            # Query technique from database
+            # Sanitize technique_id to prevent filter injection
+            sanitized_id = sanitize_technique_id(tech_id)
+
+            # Query technique from database (using sanitized ID)
             results = await asyncio.to_thread(
-                lambda tid=tech_id: table.search().where(
+                lambda tid=sanitized_id: table.search().where(
                     f"source_id = '{tid}' AND type = 'technique'"
                 ).limit(1).to_pandas().to_dict('records')
             )

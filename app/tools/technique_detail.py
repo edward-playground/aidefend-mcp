@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError
+from app.security import InputValidationError, sanitize_technique_id
 
 logger = get_logger(__name__)
 
@@ -52,12 +52,6 @@ async def get_technique_detail(
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
-    # Pre-flight check: ensure query engine is ready
-    if not query_engine.is_ready:
-        raise QueryEngineNotInitializedError(
-            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
-        )
-
     # Input validation
     if not technique_id or not isinstance(technique_id, str):
         raise InputValidationError("technique_id must be a non-empty string")
@@ -67,16 +61,24 @@ async def get_technique_detail(
     if len(technique_id) > 50:
         raise InputValidationError("technique_id too long")
 
-    logger.info(f"Fetching technique detail for: {technique_id}")
+    # Pre-flight check: ensure query engine is ready
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
+
+    # Sanitize technique_id to prevent filter injection
+    sanitized_id = sanitize_technique_id(technique_id)
+    logger.info(f"Fetching technique detail for: {sanitized_id}")
 
     try:
         # Connect to LanceDB
         db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
         table = await asyncio.to_thread(db.open_table, "aidefend")
 
-        # Step 1: Get the main technique/subtechnique
+        # Step 1: Get the main technique/subtechnique (using sanitized ID)
         main_doc = await asyncio.to_thread(
-            lambda: table.search().where(f"source_id = '{technique_id}'").limit(1).to_pandas().to_dict('records')
+            lambda: table.search().where(f"source_id = '{sanitized_id}'").limit(1).to_pandas().to_dict('records')
         )
 
         if not main_doc:
@@ -122,11 +124,12 @@ async def get_technique_detail(
 
         if doc_type == 'technique':
             # This is a parent technique - find all subtechniques
-            logger.info(f"Searching for subtechniques of {technique_id}...")
+            logger.info(f"Searching for subtechniques of {sanitized_id}...")
 
+            # Use sanitized ID in where() clause to prevent injection
             subtechniques_docs = await asyncio.to_thread(
                 lambda: table.search().where(
-                    f"parent_technique_id = '{technique_id}' AND type = 'subtechnique'"
+                    f"parent_technique_id = '{sanitized_id}' AND type = 'subtechnique'"
                 ).to_pandas().to_dict('records')
             )
 
