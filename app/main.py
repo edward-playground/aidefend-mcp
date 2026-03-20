@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status, Depends, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -19,6 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from app import __version__
 from app.config import settings
 from app.logger import get_logger, setup_logger
+from app.auth import get_current_user
 from app.schemas import (
     QueryRequest,
     QueryResponse,
@@ -82,6 +83,25 @@ async def lifespan(app: FastAPI):
     logger.info(f"Version: {__version__}")
     logger.info("=" * 60)
 
+    # Clean up stale lock files from crashed processes
+    try:
+        from app.sync import cleanup_stale_lock
+        cleanup_stale_lock()
+    except Exception as e:
+        logger.warning(f"Failed to cleanup stale lock on startup: {e}")
+
+    # Ensure database is ready (auto-initialize or repair if needed)
+    # This handles both new installations and corrupted databases
+    try:
+        from app.sync import ensure_database_ready
+        logger.info("Checking database health...")
+        await ensure_database_ready()
+        logger.info("Database is ready")
+    except Exception as e:
+        logger.error(f"Critical: Failed to ensure database ready: {e}")
+        # This is a fatal error - cannot start without database
+        raise RuntimeError("Database initialization/repair failed - cannot start REST API server")
+
     # Check for embedding model changes
     version_info = load_version_info()
     if version_info:
@@ -95,7 +115,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️  Configured model: {current_model}")
             logger.warning("⚠️")
             logger.warning("⚠️  Database rebuild recommended for optimal performance.")
-            logger.warning("⚠️  Run: python __main__.py --force-resync")
+            logger.warning("⚠️  Run: python __main__.py --resync")
             logger.warning("=" * 60)
 
     # Check for multi-worker configuration issue
@@ -174,8 +194,58 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Create routers for authentication separation
+# Public router: No authentication required (health checks, monitoring)
+public_router = APIRouter()
+
+# Protected router: Authentication required (core functionality)
+# Only applied when AUTH_MODE != "no_auth"
+protected_router = APIRouter(
+    dependencies=[Depends(get_current_user)]
+)
+
 
 # Security middleware
+@app.middleware("http")
+async def limit_request_size_middleware(request: Request, call_next):
+    """
+    Limit request body size to prevent DoS attacks.
+
+    Checks Content-Length header and rejects requests exceeding 1MB.
+    Returns HTTP 413 (Payload Too Large) if limit is exceeded.
+    """
+    MAX_REQUEST_SIZE = 1048576  # 1MB in bytes
+
+    content_length = request.headers.get("content-length")
+
+    if content_length:
+        try:
+            content_length_int = int(content_length)
+            if content_length_int > MAX_REQUEST_SIZE:
+                logger.warning(
+                    f"Request rejected: size {content_length_int} bytes exceeds limit {MAX_REQUEST_SIZE} bytes",
+                    extra={
+                        "client": request.client.host if request.client else "unknown",
+                        "path": request.url.path,
+                        "content_length": content_length_int
+                    }
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    content={
+                        "error": "REQUEST_TOO_LARGE",
+                        "message": f"Request body exceeds maximum allowed size of {MAX_REQUEST_SIZE} bytes (1MB)",
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                )
+        except ValueError:
+            # Invalid Content-Length header - let FastAPI handle it
+            logger.warning(f"Invalid Content-Length header: {content_length}")
+
+    response = await call_next(request)
+    return response
+
+
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     """Add security headers to all responses."""
@@ -195,7 +265,7 @@ async def security_headers_middleware(request: Request, call_next):
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     """Log all requests."""
-    start_time = datetime.utcnow()
+    start_time = datetime.now(timezone.utc)
 
     logger.info(
         f"Request: {request.method} {request.url.path}",
@@ -208,7 +278,7 @@ async def request_logging_middleware(request: Request, call_next):
 
     response = await call_next(request)
 
-    duration = (datetime.utcnow() - start_time).total_seconds()
+    duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     logger.info(
         f"Response: {response.status_code} ({duration:.3f}s)",
         extra={
@@ -220,15 +290,7 @@ async def request_logging_middleware(request: Request, call_next):
     return response
 
 
-# CORS middleware
-if settings.ENABLE_CORS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["GET", "POST"],
-        allow_headers=["*"],
-    )
+
 
 
 # Exception handlers
@@ -241,8 +303,8 @@ async def validation_error_handler(request: Request, exc: InputValidationError):
         content=ErrorResponse(
             error="VALIDATION_ERROR",
             message=str(exc),
-            timestamp=datetime.utcnow()
-        ).model_dump()
+            timestamp=datetime.now(timezone.utc)
+        ).model_dump(mode='json')
     )
 
 
@@ -255,8 +317,8 @@ async def security_error_handler(request: Request, exc: SecurityError):
         content=ErrorResponse(
             error="SECURITY_ERROR",
             message="Access denied",
-            timestamp=datetime.utcnow()
-        ).model_dump()
+            timestamp=datetime.now(timezone.utc)
+        ).model_dump(mode='json')
     )
 
 
@@ -269,28 +331,50 @@ async def engine_not_initialized_handler(request: Request, exc: QueryEngineNotIn
         content=ErrorResponse(
             error="SERVICE_NOT_READY",
             message="Service is initializing. Please wait for initial sync to complete.",
-            timestamp=datetime.utcnow()
-        ).model_dump()
+            timestamp=datetime.now(timezone.utc)
+        ).model_dump(mode='json')
     )
 
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Handle all other exceptions."""
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    """
+    Handle all other exceptions.
+
+    Security: Explicitly hides internal error details from API responses
+    to prevent information leakage. Full error details are logged server-side
+    with a unique error ID for correlation.
+    """
+    # Generate unique error ID for correlation
+    import uuid
+    error_id = str(uuid.uuid4())[:8]
+
+    # Log full error details server-side with error ID
+    logger.error(
+        f"Unhandled exception [ID: {error_id}]: {exc}",
+        exc_info=True,
+        extra={
+            "error_id": error_id,
+            "client": request.client.host if request.client else "unknown",
+            "path": request.url.path,
+            "method": request.method
+        }
+    )
+
+    # Return generic error to client without internal details
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=ErrorResponse(
             error="INTERNAL_ERROR",
-            message="An internal error occurred",
-            timestamp=datetime.utcnow()
-        ).model_dump()
+            message=f"An internal error occurred. Reference ID: {error_id}",
+            timestamp=datetime.now(timezone.utc)
+        ).model_dump(mode='json')
     )
 
 
-# API Endpoints
+# ==================== PUBLIC ENDPOINTS (No Authentication) ====================
 
-@app.get("/", include_in_schema=False)
+@public_router.get("/", include_in_schema=False)
 async def root():
     """Root endpoint redirect to docs."""
     return {
@@ -302,7 +386,7 @@ async def root():
     }
 
 
-@app.get("/health", response_model=HealthResponse, tags=["Health"])
+@public_router.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """
     Health check endpoint for container orchestration.
@@ -350,7 +434,7 @@ async def health_check():
         return HealthResponse(
             status=overall_status,
             checks=checks,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     except Exception as e:
@@ -358,11 +442,13 @@ async def health_check():
         return HealthResponse(
             status="unhealthy",
             checks=checks,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
 
-@app.get("/api/v1/status", response_model=StatusResponse, tags=["Status"])
+# ==================== PROTECTED ENDPOINTS (Authentication Required) ====================
+
+@protected_router.get("/api/v1/status", response_model=StatusResponse, tags=["Status"])
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def get_status(request: Request):
     """
@@ -406,7 +492,7 @@ async def get_status(request: Request):
             sync_info=sync_status,
             message=message,
             version=__version__,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     except Exception as e:
@@ -417,7 +503,7 @@ async def get_status(request: Request):
         )
 
 
-@app.post("/api/v1/query", response_model=QueryResponse, tags=["Query"])
+@protected_router.post("/api/v1/query", response_model=QueryResponse, tags=["Query"])
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def query_aidefend(request: Request, query_request: QueryRequest):
     """
@@ -426,28 +512,94 @@ async def query_aidefend(request: Request, query_request: QueryRequest):
     Performs semantic search over AIDEFEND tactics, techniques, and strategies.
     Returns the most relevant context chunks for the given query.
 
+    **Automatic Chunking:** For long queries (> 1500 chars), the system automatically
+    chunks the text and combines results from multiple searches.
+
     **Security:** Query text is validated and sanitized to prevent injection attacks.
+    Long queries are subject to additional limits (max 5000 chars, max 5 chunks).
     """
+    from app.tools.chunked_search import search_with_chunking
+    from app.security import InputValidationError
+
     try:
+        query_text = query_request.query_text
+        query_length = len(query_text)
+
         logger.info(
             f"Query received",
             extra={
-                "query_preview": query_request.query_text[:50],
-                "top_k": query_request.top_k
+                "query_preview": query_text[:50],
+                "query_length": query_length,
+                "top_k": query_request.top_k,
+                "chunking_eligible": query_length > settings.MAX_QUERY_LENGTH
             }
         )
 
-        # Perform search
-        chunks = await query_engine.search(query_request)
+        # Determine if chunking is needed
+        if query_length > settings.MAX_QUERY_LENGTH:
+            # Use chunked search for long queries
+            logger.info(
+                f"Using chunked search for long query",
+                extra={"query_length": query_length}
+            )
 
-        return QueryResponse(
-            query_text=query_request.query_text,
-            context_chunks=chunks,
-            total_results=len(chunks),
-            timestamp=datetime.utcnow()
-        )
+            try:
+                result = await search_with_chunking(
+                    query_text=query_text,
+                    top_k=query_request.top_k,
+                    filters=query_request.filters
+                )
+
+                # result contains: {results: [...], metadata: {...}}
+                chunks = result['results']
+                metadata = result['metadata']
+
+                logger.info(
+                    f"Chunked search completed",
+                    extra={
+                        "chunks_processed": metadata.get('chunks_processed', 0),
+                        "results_found": len(chunks),
+                        "processing_time": metadata.get('processing_time_seconds', 0)
+                    }
+                )
+
+                # Add chunking metadata to response (via extra field if available)
+                # For now, log it - can extend QueryResponse schema later if needed
+                return QueryResponse(
+                    query_text=query_text,
+                    context_chunks=chunks,
+                    total_results=len(chunks),
+                    timestamp=datetime.now(timezone.utc)
+                )
+
+            except asyncio.TimeoutError as e:
+                logger.error(f"Chunked search timeout: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                    detail=str(e)
+                )
+            except InputValidationError as e:
+                logger.warning(f"Chunked query validation failed: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e)
+                )
+
+        else:
+            # Regular search for normal-length queries
+            chunks = await query_engine.search(query_request)
+
+            return QueryResponse(
+                query_text=query_text,
+                context_chunks=chunks,
+                total_results=len(chunks),
+                timestamp=datetime.now(timezone.utc)
+            )
 
     except QueryEngineNotInitializedError:
+        raise
+    except HTTPException:
+        # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Query failed: {e}", exc_info=True)
@@ -457,7 +609,7 @@ async def query_aidefend(request: Request, query_request: QueryRequest):
         )
 
 
-@app.post("/api/v1/sync", tags=["Admin"])
+@protected_router.post("/api/v1/sync", tags=["Admin"])
 @limiter.limit("5/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def trigger_sync(request: Request):
     """
@@ -477,13 +629,13 @@ async def trigger_sync(request: Request):
     return {
         "status": "sync_triggered",
         "message": "Sync operation started in background",
-        "timestamp": datetime.utcnow()
+        "timestamp": datetime.now(timezone.utc)
     }
 
 
 # ==================== P0 Tool Endpoints ====================
 
-@app.get("/api/v1/statistics", tags=["Tools"])
+@protected_router.get("/api/v1/statistics", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_get_statistics(request: Request):
     """
@@ -517,7 +669,7 @@ async def api_get_statistics(request: Request):
         )
 
 
-@app.post("/api/v1/validate-technique-id", tags=["Tools"])
+@protected_router.post("/api/v1/validate-technique-id", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_validate_technique_id(request: Request, technique_id: str):
     """
@@ -556,7 +708,7 @@ async def api_validate_technique_id(request: Request, technique_id: str):
         )
 
 
-@app.get("/api/v1/technique/{technique_id}", tags=["Tools"])
+@protected_router.get("/api/v1/technique/{technique_id}", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_get_technique_detail(
     request: Request,
@@ -605,7 +757,7 @@ async def api_get_technique_detail(
         )
 
 
-@app.post("/api/v1/defenses-for-threat", tags=["Tools"])
+@protected_router.post("/api/v1/defenses-for-threat", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_get_defenses_for_threat(
     request: Request,
@@ -658,7 +810,7 @@ async def api_get_defenses_for_threat(
         )
 
 
-@app.post("/api/v1/code-snippets", tags=["Tools"])
+@protected_router.post("/api/v1/code-snippets", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_get_secure_code_snippet(
     request: Request,
@@ -712,7 +864,7 @@ async def api_get_secure_code_snippet(
         )
 
 
-@app.post("/api/v1/analyze-coverage", tags=["Tools"])
+@protected_router.post("/api/v1/analyze-coverage", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_analyze_coverage(
     request: Request,
@@ -763,7 +915,7 @@ async def api_analyze_coverage(
         )
 
 
-@app.post("/api/v1/compliance-mapping", tags=["Tools"])
+@protected_router.post("/api/v1/compliance-mapping", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_map_to_compliance_framework(
     request: Request,
@@ -814,7 +966,7 @@ async def api_map_to_compliance_framework(
         )
 
 
-@app.post("/api/v1/quick-reference", tags=["Tools"])
+@protected_router.post("/api/v1/quick-reference", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_get_quick_reference(
     request: Request,
@@ -868,7 +1020,7 @@ async def api_get_quick_reference(
 
 # ==================== New Tool Endpoints ====================
 
-@app.post("/api/v1/threat-coverage", response_model=ThreatCoverageResponse, tags=["Tools"])
+@protected_router.post("/api/v1/threat-coverage", response_model=ThreatCoverageResponse, tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_get_threat_coverage(request: Request, coverage_request: ThreatCoverageRequest):
     """
@@ -918,7 +1070,7 @@ async def api_get_threat_coverage(request: Request, coverage_request: ThreatCove
         )
 
 
-@app.post("/api/v1/implementation-plan", response_model=ImplementationPlanResponse, tags=["Tools"])
+@protected_router.post("/api/v1/implementation-plan", response_model=ImplementationPlanResponse, tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_get_implementation_plan(request: Request, plan_request: ImplementationPlanRequest):
     """
@@ -943,7 +1095,8 @@ async def api_get_implementation_plan(request: Request, plan_request: Implementa
         {
             "implemented_techniques": plan_request.implemented_techniques or [],
             "exclude_tactics": plan_request.exclude_tactics or [],
-            "top_k": plan_request.top_k
+            "top_k": plan_request.top_k,
+            "detail_level": plan_request.detail_level
         },
         start_time
     )
@@ -952,13 +1105,14 @@ async def api_get_implementation_plan(request: Request, plan_request: Implementa
         result = await get_implementation_plan(
             implemented_techniques=plan_request.implemented_techniques,
             exclude_tactics=plan_request.exclude_tactics,
-            top_k=plan_request.top_k
+            top_k=plan_request.top_k,
+            detail_level=plan_request.detail_level
         )
 
         audit_tool_completion(
             audit_ctx,
             success=True,
-            result_summary=f"{len(result['recommendations'])} recommendations, {len(result['categories']['quick_wins'])} quick wins"
+            result_summary=f"{len(result['recommendations'])} recommendations, {len(result['categories']['quick_wins'])} quick wins, detail_level={plan_request.detail_level}"
         )
 
         return ImplementationPlanResponse(**result)
@@ -980,7 +1134,7 @@ async def api_get_implementation_plan(request: Request, plan_request: Implementa
         )
 
 
-@app.post("/api/v1/classify-threat", response_model=ClassifyThreatResponse, tags=["Tools"])
+@protected_router.post("/api/v1/classify-threat", response_model=ClassifyThreatResponse, tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_classify_threat(request: Request, classify_request: ClassifyThreatRequest):
     """
@@ -1038,7 +1192,7 @@ async def api_classify_threat(request: Request, classify_request: ClassifyThreat
         )
 
 
-@app.post("/api/v1/comprehensive-search", tags=["Tools"])
+@protected_router.post("/api/v1/comprehensive-search", tags=["Tools"])
 @limiter.limit("30/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_comprehensive_search(
     request: Request,
@@ -1113,7 +1267,7 @@ async def api_comprehensive_search(
         )
 
 
-@app.post("/api/v1/security-posture", tags=["Tools"])
+@protected_router.post("/api/v1/security-posture", tags=["Tools"])
 @limiter.limit("30/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_analyze_security_posture(
     request: Request,
@@ -1168,7 +1322,7 @@ async def api_analyze_security_posture(
         )
 
 
-@app.post("/api/v1/compare-techniques", tags=["Tools"])
+@protected_router.post("/api/v1/compare-techniques", tags=["Tools"])
 @limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_compare_techniques(
     request: Request,
@@ -1222,7 +1376,7 @@ async def api_compare_techniques(
         )
 
 
-@app.post("/api/v1/incident-playbook", tags=["Tools"])
+@protected_router.post("/api/v1/incident-playbook", tags=["Tools"])
 @limiter.limit("30/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def api_generate_incident_playbook(
     request: Request,
@@ -1275,6 +1429,27 @@ async def api_generate_incident_playbook(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate incident playbook: {str(e)}"
         )
+
+
+# ==================== ROUTER REGISTRATION ====================
+
+# Register routers with the main app
+# Order matters: public router first (for /health checks), then protected
+app.include_router(public_router)
+app.include_router(protected_router)
+
+
+# ==================== CORS MIDDLEWARE ====================
+
+# Add CORS middleware (applied AFTER routers are registered)
+if settings.ENABLE_CORS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 
 # Run application

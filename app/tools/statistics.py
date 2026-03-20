@@ -49,7 +49,10 @@ async def get_statistics() -> Dict[str, Any]:
     if version_info and "statistics" in version_info:
         logger.info("Using pre-computed statistics from version file (fast path)")
         statistics = version_info["statistics"]
-        statistics.setdefault("overview", {})["embedding_model"] = query_engine.active_embedding_model
+        model_name = query_engine.active_embedding_model
+        if model_name == "Xenova/multilingual-e5-base":
+            model_name = "Xenova/multilingual-e5-base (Quantized Int8)"
+        statistics.setdefault("overview", {})["embedding_model"] = model_name
         return statistics
 
     # Fallback: Calculate statistics from database (slow path)
@@ -102,8 +105,12 @@ async def get_statistics() -> Dict[str, Any]:
         for doc in all_docs:
             doc_type = doc.get('type', 'unknown')
             tactic = doc.get('tactic', 'Unknown')
-            pillar = doc.get('pillar', '')
-            phase = doc.get('phase', '')
+            pillar_raw = doc.get('pillar', '')
+            phase_raw = doc.get('phase', '')
+
+            # Parse pillar and phase (now JSON arrays)
+            pillars = json.loads(pillar_raw) if isinstance(pillar_raw, str) and pillar_raw.strip() else []
+            phases = json.loads(phase_raw) if isinstance(phase_raw, str) and phase_raw.strip() else []
 
             # Count by type
             type_counts[doc_type] += 1
@@ -111,13 +118,17 @@ async def get_statistics() -> Dict[str, Any]:
             # Count by tactic (all documents)
             tactic_counts[tactic] += 1
 
-            # Count by pillar (only if not empty)
-            if pillar:
-                pillar_counts[pillar] += 1
+            # Count by pillar (iterate over array elements)
+            if isinstance(pillars, list):
+                for pillar in pillars:
+                    if pillar:
+                        pillar_counts[pillar] += 1
 
-            # Count by phase (only if not empty)
-            if phase:
-                phase_counts[phase] += 1
+            # Count by phase (iterate over array elements)
+            if isinstance(phases, list):
+                for phase in phases:
+                    if phase:
+                        phase_counts[phase] += 1
 
             # Enhanced features (only for techniques)
             if doc_type == 'technique':
@@ -178,7 +189,7 @@ async def get_statistics() -> Dict[str, Any]:
                 "total_subtechniques": type_counts.get('subtechnique', 0),
                 "total_strategies": type_counts.get('strategy', 0),
                 "last_synced": last_synced,
-                "embedding_model": query_engine.active_embedding_model,
+                "embedding_model": "Xenova/multilingual-e5-base (Quantized Int8)" if query_engine.active_embedding_model == "Xenova/multilingual-e5-base" else query_engine.active_embedding_model,
                 "database_path": str(settings.DB_PATH)
             },
             "by_tactic": dict(sorted(tactic_counts.items())),
@@ -186,10 +197,12 @@ async def get_statistics() -> Dict[str, Any]:
             "by_phase": dict(sorted(phase_counts.items())),
             "threat_framework_coverage": {
                 "owasp_llm_items_covered": len(owasp_items),
+                "owasp_llm_total_items": 10,
+                "owasp_llm_coverage_percentage": round((len(owasp_items) / 10) * 100, 1),
                 "mitre_atlas_items_covered": len(atlas_items),
                 "maestro_items_covered": len(maestro_items),
                 "techniques_with_threat_mappings": techniques_with_defenses,
-                "coverage_percentage": round(
+                "techniques_mapped_percentage": round(
                     (techniques_with_defenses / type_counts.get('technique', 1)) * 100, 1
                 ) if type_counts.get('technique', 0) > 0 else 0
             },

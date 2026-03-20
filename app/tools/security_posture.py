@@ -75,11 +75,11 @@ async def analyze_security_posture(
         >>> print(f"OWASP threats covered: {result['threat_coverage']['covered_threats']['owasp']}")
     """
     # Input validation
-    if not implemented_techniques:
-        raise InputValidationError("implemented_techniques cannot be empty")
-
     if not isinstance(implemented_techniques, list):
         raise InputValidationError("implemented_techniques must be a list")
+
+    # Allow empty array for baseline analysis (0% coverage, all gaps)
+    # This enables users to generate initial security plans without any existing implementations
 
     if view not in ["both", "technical", "threat"]:
         raise InputValidationError(
@@ -203,12 +203,23 @@ def _generate_unified_summary(
         f"MAESTRO: {maestro_cov_pct:.1f}% threat coverage"
     )
 
-    # Identify top priorities from recommendations (gaps have gap_type/tactic, not technique_id/name)
+    # Identify top priorities from technical gaps and recommendations
+    # Note: critical_gaps contains gap analysis (tactic/pillar/phase gaps)
+    # recommendations contains specific technique suggestions with IDs
+    critical_gaps = technical_cov.get("critical_gaps", [])
     recommendations = technical_cov.get("recommendations", [])
+
+    if critical_gaps:
+        # Add gap descriptions (gaps have 'reason' not 'technique_id')
+        for gap in critical_gaps[:3]:
+            gap_desc = gap.get('reason', gap.get('tactic', 'Unknown gap'))
+            summary["top_priorities"].append(f"Gap: {gap_desc}")
+
+    # Add specific technique recommendations
     if recommendations:
         summary["top_priorities"].extend([
             f"{rec['technique_id']}: {rec['name']}"
-            for rec in recommendations[:3]
+            for rec in recommendations[:5]
         ])
 
     # Identify uncovered OWASP threats from threat coverage data

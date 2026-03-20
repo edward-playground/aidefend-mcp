@@ -62,6 +62,26 @@ async def serve():
 
     logger.info("Initializing AIDEFEND MCP Server...")
 
+    # Clean up stale lock files from crashed processes
+    # This should be done before any sync operations
+    try:
+        from app.sync import cleanup_stale_lock
+        cleanup_stale_lock()
+    except Exception as e:
+        logger.warning(f"Failed to cleanup stale lock on startup: {e}")
+
+    # Ensure database is ready (auto-initialize or repair if needed)
+    # This handles both new installations and corrupted databases
+    try:
+        from app.sync import ensure_database_ready
+        logger.info("Checking database health...")
+        await ensure_database_ready()
+        logger.info("Database is ready")
+    except Exception as e:
+        logger.error(f"Critical: Failed to ensure database ready: {e}")
+        # This is a fatal error - cannot start without database
+        raise RuntimeError("Database initialization/repair failed - cannot start MCP server")
+
     # Tool 1: Query AIDEFEND knowledge base
     @server.list_tools()
     async def list_tools() -> List[Tool]:
@@ -122,20 +142,6 @@ async def serve():
                     "Manually trigger synchronization with the AIDEFEND GitHub repository "
                     "to fetch the latest defense tactics and techniques. "
                     "Note: This may take a few minutes. Auto-sync runs every hour by default."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
-            ),
-            Tool(
-                name="get_framework_version",
-                description=(
-                    "Get the AIDEFEND framework version number and last update information. "
-                    "Returns semantic version (e.g., '1.20251107') indicating the framework's "
-                    "release date. Higher numbers = newer versions. Use this to check if your "
-                    "knowledge base is up-to-date with the latest AIDEFEND release."
                 ),
                 inputSchema={
                     "type": "object",
@@ -385,7 +391,9 @@ async def serve():
                     "based on heuristic scoring (threat importance, ease of implementation, "
                     "phase weight, pillar weight). Use this to prioritize security investments. "
                     "Note: This tool provides ONLY heuristic scores. You should use these scores "
-                    "to make final recommendations via your own reasoning."
+                    "to make final recommendations via your own reasoning. "
+                    "IMPORTANT: Use detail_level='detailed' to get actionable strategies and code snippets "
+                    "for top 5 recommendations, eliminating the need for subsequent get_technique_detail calls."
                 ),
                 inputSchema={
                     "type": "object",
@@ -408,6 +416,12 @@ async def serve():
                             "default": 10,
                             "minimum": 1,
                             "maximum": 20
+                        },
+                        "detail_level": {
+                            "type": "string",
+                            "description": "Level of detail: 'basic' (IDs only), 'standard' (brief summaries for top 5), 'detailed' (full summaries + code for top 5)",
+                            "enum": ["basic", "standard", "detailed"],
+                            "default": "basic"
                         }
                     },
                     "required": []
@@ -510,6 +524,7 @@ async def serve():
                     "- 'both' (default): Full analysis (technical + threat)\n"
                     "- 'technical': Only tactic/pillar/phase coverage\n"
                     "- 'threat': Only threat framework coverage\n\n"
+                    "💡 TIP: Use empty array [] for baseline security planning (shows all gaps and 0% coverage)\n\n"
                     "Perfect for security program management, audits, and strategic planning."
                 ),
                 inputSchema={
@@ -518,9 +533,9 @@ async def serve():
                         "implemented_techniques": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "List of technique IDs already implemented (e.g., ['AID-H-001', 'AID-D-001'])",
-                            "minItems": 1,
-                            "maxItems": 200
+                            "description": "List of technique IDs already implemented (e.g., ['AID-H-001', 'AID-D-001']). Use empty array [] for baseline analysis.",
+                            "maxItems": 200,
+                            "default": []
                         },
                         "view": {
                             "type": "string",
@@ -534,7 +549,7 @@ async def serve():
                             "enum": ["chatbot", "rag", "agent", "classifier", "generative", "multimodal"]
                         }
                     },
-                    "required": ["implemented_techniques"]
+                    "required": []
                 }
             ),
             # New Tool 6: Technique Comparison Matrix
@@ -647,9 +662,6 @@ async def serve():
 
             elif name == "sync_aidefend":
                 return await handle_sync()
-
-            elif name == "get_framework_version":
-                return await handle_get_framework_version()
 
             # P0 Tools
             elif name == "get_statistics":
@@ -838,21 +850,50 @@ async def handle_status() -> List[TextContent]:
     Handle get_aidefend_status tool call.
 
     Returns:
-        List of TextContent with service status information
+        List of TextContent with service status information including detailed version info
     """
     logger.info("MCP status request")
 
     try:
         stats = await query_engine.get_stats()
 
-        # Build status text with framework version
+        # Build status text
         status_text = (
             "# AIDEFEND Knowledge Base Status\n\n"
             f"**Initialization Status:** {'✅ Ready' if stats['initialized'] else '❌ Not Ready'}\n"
         )
 
-        # Add framework version if available
-        if stats.get('framework_version'):
+        # Add detailed framework version information (merged from get_framework_version)
+        version_info = load_version_info()
+        if version_info:
+            framework_version = version_info.get("framework_version")
+            commit_sha = version_info.get("commit_sha", "N/A")
+            last_synced = version_info.get("last_synced_at", "N/A")
+
+            if framework_version:
+                # Parse version to extract date (format: 1.YYYYMMDD)
+                try:
+                    date_str = framework_version.split('.')[1]  # Extract "20251107"
+                    year = date_str[0:4]
+                    month = date_str[4:6]
+                    day = date_str[6:8]
+                    readable_date = f"{year}-{month}-{day}"
+                except (IndexError, ValueError):
+                    readable_date = "Unknown"
+
+                status_text += (
+                    f"**Framework Version:** {framework_version} (Released: {readable_date})\n"
+                    f"**Git Commit:** {commit_sha[:8] if len(commit_sha) >= 8 else commit_sha}\n"
+                    f"**Last Synced:** {last_synced}\n"
+                )
+            else:
+                status_text += (
+                    f"**Framework Version:** ⚠️ Not available\n"
+                    f"**Git Commit:** {commit_sha[:8] if len(commit_sha) >= 8 else commit_sha}\n"
+                    f"**Last Synced:** {last_synced}\n"
+                )
+        elif stats.get('framework_version'):
+            # Fallback to stats if version_info not available
             status_text += f"**Framework Version:** {stats['framework_version']}\n"
 
         status_text += (
@@ -875,7 +916,8 @@ async def handle_status() -> List[TextContent]:
             status_text += (
                 "\n---\n\n"
                 "**Status:** Service is ready for queries!\n"
-                "Use `query_aidefend` to search for AI defense strategies."
+                "Use `query_aidefend` to search for AI defense strategies.\n\n"
+                "💡 **Tip:** To update to the latest framework version, use `sync_aidefend`."
             )
         else:
             status_text += (
@@ -898,6 +940,12 @@ async def handle_sync() -> List[TextContent]:
     """
     Handle sync_aidefend tool call.
 
+    Uses run_sync() which internally calls core_sync(force_rebuild=False).
+    This performs a normal sync check (downloads updates if available).
+
+    For force rebuild, users should use CLI: python __main__.py --resync
+    For corruption repair, ensure_database_ready() runs at startup.
+
     Returns:
         List of TextContent with sync result
     """
@@ -910,6 +958,7 @@ async def handle_sync() -> List[TextContent]:
     )
 
     try:
+        # run_sync() handles lock acquisition/release and calls core_sync()
         success = await run_sync()
 
         if success:
@@ -921,21 +970,10 @@ async def handle_sync() -> List[TextContent]:
                 "💡 Tip: Use `get_aidefend_status` to verify the service is ready."
             )
         else:
-            error = get_last_sync_error() or "Unknown error"
+            error = get_last_sync_error() or "Unknown error - check logs for details"
             sync_text += (
                 f"**❌ Sync Failed**\n\n"
-                f"**Error:** {error}\n\n"
-                f"**Common Causes:**\n"
-                f"- **Missing Node.js dependencies:** Run `npm install` in project directory\n"
-                f"- **Network issues:** Check internet connection and GitHub access\n"
-                f"- **HuggingFace unavailable:** Embedding model download failed (usually temporary)\n"
-                f"- **Database locked:** Another process may be running\n\n"
-                f"**Troubleshooting Steps:**\n"
-                f"1. Ensure Node.js installed: `node --version`\n"
-                f"2. Install dependencies: `npm install && pip install -r requirements.txt`\n"
-                f"3. Stop all other instances of the server\n"
-                f"4. Check logs for detailed error: Look for ERROR messages\n"
-                f"5. If HuggingFace down, retry in a few minutes\n"
+                f"{error}\n"
             )
 
         return [TextContent(type="text", text=sync_text)]
@@ -945,76 +983,6 @@ async def handle_sync() -> List[TextContent]:
         return [TextContent(
             type="text",
             text=f"**❌ Sync Failed**\n\nError: {str(e)}"
-        )]
-
-
-async def handle_get_framework_version() -> List[TextContent]:
-    """
-    Handle get_framework_version tool call.
-
-    Returns:
-        List of TextContent with framework version information
-    """
-    logger.info("MCP get_framework_version request")
-
-    try:
-        # Get version info from file
-        version_info = load_version_info()
-
-        if not version_info:
-            return [TextContent(
-                type="text",
-                text=(
-                    "# AIDEFEND Framework Version\n\n"
-                    "**Status:** ❌ No version information available\n\n"
-                    "The knowledge base has not been synchronized yet.\n"
-                    "Use `sync_aidefend` to download the latest framework."
-                )
-            )]
-
-        framework_version = version_info.get("framework_version")
-        commit_sha = version_info.get("commit_sha", "N/A")
-        last_synced = version_info.get("last_synced_at", "N/A")
-
-        if framework_version:
-            # Parse version to extract date (format: 1.YYYYMMDD)
-            try:
-                date_str = framework_version.split('.')[1]  # Extract "20251107"
-                year = date_str[0:4]
-                month = date_str[4:6]
-                day = date_str[6:8]
-                readable_date = f"{year}-{month}-{day}"
-            except (IndexError, ValueError):
-                readable_date = "Unknown"
-
-            version_text = (
-                "# AIDEFEND Framework Version\n\n"
-                f"**Version:** {framework_version}\n"
-                f"**Release Date:** {readable_date}\n"
-                f"**Git Commit:** {commit_sha[:8] if len(commit_sha) >= 8 else commit_sha}\n"
-                f"**Last Synced:** {last_synced}\n\n"
-                "---\n\n"
-                "**Version Format:** `1.YYYYMMDD` (Major.Date)\n"
-                "Higher version numbers indicate newer releases.\n\n"
-                "To update to the latest version, use `sync_aidefend`."
-            )
-        else:
-            version_text = (
-                "# AIDEFEND Framework Version\n\n"
-                "**Status:** ⚠️ Version number not available\n\n"
-                f"**Git Commit:** {commit_sha[:8] if len(commit_sha) >= 8 else commit_sha}\n"
-                f"**Last Synced:** {last_synced}\n\n"
-                "The framework version could not be extracted from the current sync.\n"
-                "This may indicate an older sync format. Use `sync_aidefend` to update."
-            )
-
-        return [TextContent(type="text", text=version_text)]
-
-    except Exception as e:
-        logger.error(f"Get framework version failed: {e}", exc_info=True)
-        return [TextContent(
-            type="text",
-            text=f"**❌ Failed to Get Version**\n\nError: {str(e)}"
         )]
 
 
@@ -1092,9 +1060,10 @@ async def handle_get_statistics(arguments: Dict[str, Any]) -> List[TextContent]:
 
         output += "\n## Threat Framework Coverage\n\n"
         tfc = result['threat_framework_coverage']
-        output += f"- **OWASP LLM Items:** {tfc['owasp_llm_items_covered']}\n"
+        output += f"- **OWASP LLM Items:** {tfc['owasp_llm_items_covered']}/{tfc.get('owasp_llm_total_items', 10)} ({tfc.get('owasp_llm_coverage_percentage', 0)}%)\n"
         output += f"- **MITRE ATLAS Items:** {tfc['mitre_atlas_items_covered']}\n"
-        output += f"- **Coverage:** {tfc['coverage_percentage']}%\n"
+        output += f"- **MAESTRO Items:** {tfc.get('maestro_items_covered', 0)}\n"
+        output += f"- **Techniques with Threat Mappings:** {tfc.get('techniques_with_threat_mappings', 0)} ({tfc.get('techniques_mapped_percentage', 0)}%)\n"
 
         output += f"\n*Last synced: {result['overview']['last_synced']}*"
 
@@ -1332,14 +1301,43 @@ async def handle_map_to_compliance_framework(arguments: Dict[str, Any]) -> List[
         )
 
         output = f"# Compliance Mapping: {result['framework']['name']}\n\n"
-        output += f"**Total Mapped:** {result['total_mapped']}\n\n"
+        output += f"**Framework Version:** {result['framework'].get('version', 'N/A')}\n"
+        output += f"**Total Techniques Mapped:** {result['total_mapped']}\n\n"
+
+        # Display coverage summary if available
+        if result.get('summary'):
+            summary = result['summary']
+            output += "## Coverage Summary\n\n"
+            output += f"**Total Controls in Framework:** {summary.get('total_controls_in_framework', 'N/A')}\n"
+            output += f"**Covered Controls:** {summary.get('covered_controls', 0)}\n"
+            output += f"**Coverage Percentage:** {summary.get('coverage_percentage', '0%')}\n\n"
+
+            # Show uncovered critical controls
+            if summary.get('uncovered_critical_controls'):
+                output += "### Uncovered Critical Controls (High Priority)\n\n"
+                for control_id in summary['uncovered_critical_controls']:
+                    output += f"- {control_id}\n"
+                output += "\n"
+
+        output += "## Technique Mappings\n\n"
 
         for mapping in result['mappings']:
             output += f"## {mapping['technique_id']}: {mapping['technique_name']}\n\n"
-            output += f"**Framework Controls:**\n"
+            output += f"**Framework Controls:**\n\n"
+
+            # Format control objects as readable Markdown
             for control in mapping['framework_controls']:
-                output += f"- {control}\n"
-            output += f"\n**Confidence:** {mapping['mapping_confidence']}\n\n"
+                if isinstance(control, dict):
+                    # Control is an object with id, description, confidence
+                    control_id = control.get('id', 'Unknown')
+                    description = control.get('description', 'No description available')
+                    confidence = control.get('confidence', 'medium')
+                    output += f"- **{control_id}**: {description} *(Confidence: {confidence})*\n"
+                else:
+                    # Fallback for string controls (backward compatibility)
+                    output += f"- {control}\n"
+
+            output += f"\n**Mapping Confidence:** {mapping['mapping_confidence']}\n\n"
 
         output += f"\n*{result['disclaimer']}*\n"
 
@@ -1448,17 +1446,19 @@ async def handle_get_implementation_plan(arguments: Dict[str, Any]) -> List[Text
         implemented_techniques = arguments.get("implemented_techniques")
         exclude_tactics = arguments.get("exclude_tactics")
         top_k = arguments.get("top_k", 10)
+        detail_level = arguments.get("detail_level", "basic")
 
         result = await get_implementation_plan(
             implemented_techniques=implemented_techniques,
             exclude_tactics=exclude_tactics,
-            top_k=top_k
+            top_k=top_k,
+            detail_level=detail_level
         )
 
         audit_tool_completion(
             audit_ctx,
             success=True,
-            result_summary=f"{len(result['recommendations'])} recommendations, {len(result['categories']['quick_wins'])} quick wins"
+            result_summary=f"{len(result['recommendations'])} recommendations, {len(result['categories']['quick_wins'])} quick wins, detail_level={detail_level}"
         )
 
         output = "# Defense Implementation Plan\n\n"
@@ -1494,6 +1494,54 @@ async def handle_get_implementation_plan(arguments: Dict[str, Any]) -> List[Text
             if rec['has_opensource_tools']:
                 output += "   - ✅ **Open-source tools available**\n"
             output += "\n"
+
+        # Add actionable strategies if detail_level is "standard" or "detailed"
+        if 'actionable_strategies' in result and result['actionable_strategies']:
+            output += "## 🎯 Actionable Implementation Strategies (Top 5)\n\n"
+            output += f"*Generated with detail_level='{detail_level}' - eliminates need for subsequent get_technique_detail calls*\n\n"
+
+            for strategy_data in result['actionable_strategies']:
+                tech_id = strategy_data['technique_id']
+                tech_name = strategy_data['technique_name']
+                strategies = strategy_data['strategies']
+                strategy_count = strategy_data['strategy_count']
+
+                output += f"### {tech_id}: {tech_name}\n\n"
+
+                if 'error' in strategy_data:
+                    output += f"*Error: {strategy_data['error']}*\n\n"
+                    continue
+
+                if strategy_count == 0:
+                    output += "*No implementation strategies available in database*\n\n"
+                    continue
+
+                output += f"**{strategy_count} Implementation Strategies:**\n\n"
+
+                for i, strat in enumerate(strategies, 1):
+                    output += f"{i}. **{strat['strategy_name']}**\n"
+                    output += f"   {strat['summary']}\n"
+
+                    # Add code snippets if in "detailed" mode
+                    if 'code_snippets' in strat:
+                        code_count = strat.get('code_snippet_count', len(strat['code_snippets']))
+                        output += f"\n   **Code Examples ({code_count}):**\n"
+                        for j, code_block in enumerate(strat['code_snippets'], 1):
+                            lang = code_block['language']
+                            code = code_block['code']
+                            output += f"\n   *Example {j} ({lang}):*\n"
+                            output += f"   ```{lang}\n"
+                            # Indent code block for proper markdown rendering
+                            indented_code = '\n'.join('   ' + line for line in code.split('\n'))
+                            output += f"{indented_code}\n"
+                            output += "   ```\n"
+
+                    output += "\n"
+
+            # Add metadata
+            if 'metadata' in result:
+                metadata = result['metadata']
+                output += f"\n---\n*Compound Tool Metadata: {metadata['strategies_fetched']} techniques processed with detail_level={metadata['detail_level']}*\n"
 
         return [TextContent(type="text", text=output)]
 
@@ -1763,29 +1811,37 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             output += f"({overall.get('coverage_level', 'unknown')})\n"
             output += f"**Implemented:** {overall.get('techniques_implemented', 0)}/{overall.get('total_techniques_available', 0)} techniques\n\n"
 
-            # By Tactic (coverage_by_tactic is a dict of dicts: {tactic_name: {implemented, total, percentage, status}})
-            if tech.get("coverage_by_tactic"):
-                output += "### By Tactic\n\n"
-                tactic_items = sorted(tech["coverage_by_tactic"].items(), key=lambda x: -x[1].get("percentage", 0))
-                for tactic_name, tactic_data in tactic_items:
-                    output += f"- **{tactic_name}:** {tactic_data.get('percentage', 0):.1f}% "
-                    output += f"({tactic_data.get('implemented', 0)}/{tactic_data.get('total', 0)})\n"
+            # By Tactic
+            coverage_by_tactic = tech.get("coverage_by_tactic", {})
+            if coverage_by_tactic:
+                output += "### Coverage by Tactic\n\n"
+                tactic_list = [
+                    {"tactic": tactic, **stats}
+                    for tactic, stats in coverage_by_tactic.items()
+                ]
+                for tactic_info in sorted(tactic_list, key=lambda x: -x.get("percentage", 0)):
+                    output += f"- **{tactic_info['tactic']}:** {tactic_info.get('percentage', 0):.1f}% "
+                    output += f"({tactic_info.get('implemented', 0)}/{tactic_info.get('total', 0)})\n"
                 output += "\n"
 
-            # Critical Gaps (gaps have gap_type, tactic, severity, reason, risk)
+            # Critical Gaps
             if tech.get("critical_gaps"):
                 output += "### Critical Gaps (High Priority)\n\n"
                 for gap in tech["critical_gaps"][:5]:
-                    output += f"- **{gap.get('tactic', 'Unknown')}:** {gap.get('reason', '')}\n"
-                    output += f"  - Severity: {gap.get('severity', 'Unknown')}\n"
+                    output += f"- **{gap.get('tactic', 'Unknown')}:** {gap.get('reason', 'No description')}\n"
+                    if gap.get('risk'):
+                        output += f"  - Risk: {gap['risk']}\n"
                 output += "\n"
 
-            # Recommendations (have rank, technique_id, name, reason)
+            # Recommendations
             if tech.get("recommendations"):
-                output += "### Recommended Next Steps\n\n"
+                output += "### Recommended Techniques\n\n"
                 for rec in tech["recommendations"][:5]:
-                    output += f"{rec['rank']}. **{rec['technique_id']}** - {rec['name']}\n"
-                    output += f"   *{rec['reason']}*\n\n"
+                    output += f"- **{rec.get('technique_id', 'Unknown')}:** {rec.get('name', 'No name')}\n"
+                    output += f"  - Tactic: {rec.get('tactic', 'Unknown')}\n"
+                    if rec.get('reason'):
+                        output += f"  - Reason: {rec['reason']}\n"
+                output += "\n"
 
         # Threat Coverage Section
         # get_threat_coverage returns: coverage_rate (fractions 0-1), covered (dict of lists)

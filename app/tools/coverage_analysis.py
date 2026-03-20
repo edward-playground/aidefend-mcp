@@ -69,8 +69,7 @@ async def analyze_coverage(
     from app.exceptions import QueryEngineNotInitializedError
 
     # Input validation (check parameters BEFORE database check)
-    if not implemented_techniques:
-        raise InputValidationError("implemented_techniques cannot be empty")
+    # Note: Empty array is allowed for baseline coverage analysis (0% implementation)
 
     if len(implemented_techniques) > 200:
         raise InputValidationError("Too many techniques (max 200)")
@@ -248,18 +247,42 @@ def _calculate_pillar_coverage(
     pillar_total = defaultdict(int)
     pillar_implemented = defaultdict(int)
 
-    # Count total by pillar (only count items with non-empty pillar)
+    # Count total by pillar (parse JSON arrays, count each element)
     for tech in all_techniques:
-        pillar = tech.get('pillar', '').strip()
-        if pillar:  # Only count if pillar is defined
-            pillar_total[pillar] += 1
+        pillar_raw = tech.get('pillar', '')
+        # Parse JSON array (or handle already-parsed list)
+        if isinstance(pillar_raw, str) and pillar_raw.strip():
+            try:
+                pillars = json.loads(pillar_raw)
+            except json.JSONDecodeError:
+                pillars = []
+        elif isinstance(pillar_raw, list):
+            pillars = pillar_raw
+        else:
+            pillars = []
+
+        # Count each pillar in the array
+        for pillar in pillars:
+            if pillar:
+                pillar_total[pillar] += 1
 
     # Count implemented by pillar
     for tech in all_techniques:
         if tech['source_id'] in implemented:
-            pillar = tech.get('pillar', '').strip()
-            if pillar:  # Only count if pillar is defined
-                pillar_implemented[pillar] += 1
+            pillar_raw = tech.get('pillar', '')
+            if isinstance(pillar_raw, str) and pillar_raw.strip():
+                try:
+                    pillars = json.loads(pillar_raw)
+                except json.JSONDecodeError:
+                    pillars = []
+            elif isinstance(pillar_raw, list):
+                pillars = pillar_raw
+            else:
+                pillars = []
+
+            for pillar in pillars:
+                if pillar:
+                    pillar_implemented[pillar] += 1
 
     # Calculate percentages
     coverage = {}
@@ -298,18 +321,42 @@ def _calculate_phase_coverage(
     phase_total = defaultdict(int)
     phase_implemented = defaultdict(int)
 
-    # Count total by phase (only count items with non-empty phase)
+    # Count total by phase (parse JSON arrays, count each element)
     for tech in all_techniques:
-        phase = tech.get('phase', '').strip()
-        if phase:  # Only count if phase is defined
-            phase_total[phase] += 1
+        phase_raw = tech.get('phase', '')
+        # Parse JSON array (or handle already-parsed list)
+        if isinstance(phase_raw, str) and phase_raw.strip():
+            try:
+                phases = json.loads(phase_raw)
+            except json.JSONDecodeError:
+                phases = []
+        elif isinstance(phase_raw, list):
+            phases = phase_raw
+        else:
+            phases = []
+
+        # Count each phase in the array
+        for phase in phases:
+            if phase:
+                phase_total[phase] += 1
 
     # Count implemented by phase
     for tech in all_techniques:
         if tech['source_id'] in implemented:
-            phase = tech.get('phase', '').strip()
-            if phase:  # Only count if phase is defined
-                phase_implemented[phase] += 1
+            phase_raw = tech.get('phase', '')
+            if isinstance(phase_raw, str) and phase_raw.strip():
+                try:
+                    phases = json.loads(phase_raw)
+                except json.JSONDecodeError:
+                    phases = []
+            elif isinstance(phase_raw, list):
+                phases = phase_raw
+            else:
+                phases = []
+
+            for phase in phases:
+                if phase:
+                    phase_implemented[phase] += 1
 
     # Calculate percentages
     coverage = {}

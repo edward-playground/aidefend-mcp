@@ -13,12 +13,13 @@
 ## 📋 目錄
 
 1. [你需要準備什麼（前置需求）](#你需要準備什麼前置需求)
-2. [方法 1: 使用腳本快速開始（最簡單）](#方法-1-使用腳本快速開始最簡單)
-3. [方法 2: Docker 安裝（建議用於正式環境）](#方法-2-docker-安裝建議用於正式環境)
-4. [方法 3: 手動安裝](#方法-3-手動安裝)
-5. [驗證一切正常運作](#驗證一切正常運作)
-6. [疑難排解常見問題](#疑難排解常見問題)
-7. [下一步](#下一步)
+2. [🚀 MCP 模式設定（Claude Desktop）- 自動化](#-mcp-模式設定claude-desktop--自動化)
+3. [方法 1: 使用腳本快速開始（最簡單）](#方法-1-使用腳本快速開始最簡單)
+4. [方法 2: Docker 安裝（建議用於正式環境）](#方法-2-docker-安裝建議用於正式環境)
+5. [方法 3: 手動安裝](#方法-3-手動安裝)
+6. [驗證一切正常運作](#驗證一切正常運作)
+7. [疑難排解常見問題](#疑難排解常見問題)
+8. [下一步](#下一步)
 
 ---
 
@@ -74,14 +75,111 @@ node --version
 
 **預期輸出：** `v18.x.x` 或更高版本（例如 `v22.18.0`）
 
-**還沒安裝？** 請從這裡下載：https://nodejs.org/
+**還沒安裝？**
 
-**安裝提示：**
-- **Windows**: 使用 nodejs.org 的安裝程式
-- **macOS**: 使用安裝程式或 `brew install node`
-- **Linux**: `sudo apt install nodejs` 或 `sudo yum install nodejs`
+✨ **新功能：半自動安裝！** 安裝腳本現在可以自動下載並安裝 Node.js LTS：
+- 自動檢測是否已安裝 Node.js >= 18
+- 從 nodejs.org API 獲取最新 LTS 版本資訊
+- 從 Node.js 官方網站下載安裝程式（約 30-35MB）
+- 提供自動安裝選項，使用標準安裝介面
+- **Windows/macOS**: 啟動安裝程式，等待完成，驗證安裝
+- **Linux**: 提供針對各發行版的套件管理器指令
+- 如需要可退回手動安裝指示
+
+**運作方式：**
+1. 執行 `python scripts/install.py`
+2. 如果缺少 Node.js 或版本 < 18，你會看到安裝選項：
+   - **[1] 自動安裝**（推薦，適用 Windows/macOS）- 自動下載並安裝
+   - **[2] 顯示手動安裝指示** - 如果你偏好手動控制或在 Linux 上
+   - **[3] 跳過** - 繼續執行但不安裝（稍後會失敗）
+3. 選擇選項 1 即可輕鬆安裝！
+
+**手動安裝（如果你偏好）：**
+- **Windows**: 從 https://nodejs.org/ 下載（使用 LTS 版本）
+- **macOS**: 從 https://nodejs.org/ 下載或使用 `brew install node`
+- **Linux**: 使用套件管理器（自動安裝程式會顯示指令）
 
 **為什麼需要這個？** AIDEFEND framework 使用 JavaScript ES6 template literals（反引號），無法單獨用 Python 解析。本服務使用 Node.js subprocess 來原生解析這些檔案。
+
+---
+
+#### 4. **Microsoft Visual C++ Redistributable**（僅 Windows）
+
+**這是什麼？** Windows 上 AI/ML 程式庫所需的一組執行階段程式庫。
+
+**誰需要它？** 僅 Windows 使用者（macOS 和 Linux 使用者可跳過此步驟）
+
+**何時需要？** ONNX Runtime（用於嵌入向量生成）在 Windows 上需要 Visual C++ runtime DLLs。
+
+**檢查你是否已安裝：**
+- 在 Windows 設定中開啟「應用程式與功能」
+- 搜尋「Microsoft Visual C++ 2015-2022 Redistributable」
+
+**還沒安裝？**
+
+✨ **新功能：半自動安裝！** 安裝腳本現在可以自動下載並安裝 Visual C++ Redistributable：
+- 自動檢測是否已安裝（檢查 Windows registry）
+- 從 Microsoft 官方網站下載安裝程式（約 14MB）
+- 提供自動安裝選項，使用者互動最少
+- 顯示 UAC 提示要求管理員權限（一鍵批准）
+- 如需要可退回手動安裝指示
+
+**運作方式：**
+1. 執行 `python scripts/install.py`
+2. 如果缺少 Visual C++，你會看到安裝選項：
+   - **[1] 自動安裝**（推薦）- 自動下載並安裝
+   - **[2] 顯示手動安裝指示** - 如果你偏好手動控制
+   - **[3] 跳過** - 繼續執行但不安裝（稍後會失敗）
+3. 選擇選項 1 即可輕鬆安裝！
+
+**手動安裝（如果你偏好）：**
+- **最新版本：** https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+- **直接下載：** https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+**為什麼需要這個？** Python AI/ML 程式庫（如 ONNX Runtime）使用原生 C++ 程式碼以提升效能。這些程式庫需要 Visual C++ runtime DLLs 才能在 Windows 上運作。
+
+---
+
+#### 5. **macOS 原生相依套件**（僅 macOS，Apple Silicon 建議安裝）
+
+**這是什麼？** OpenMP 函式庫和 Xcode 命令列工具，用於在 macOS 上優化 ONNX Runtime 效能。
+
+**誰需要這個？** macOS 使用者，尤其是使用 Apple Silicon（M1/M2/M3/M4）Mac 的使用者。
+
+**何時需要？** ONNX Runtime 使用 OpenMP 進行平行處理。雖然預編譯的 Python wheels 通常包含內建的相依套件，但某些配置可能需要系統層級的 libomp 以獲得最佳效能。
+
+**檢查是否已安裝 Xcode 命令列工具：**
+```bash
+xcode-select -p
+```
+
+**預期輸出：** `/Library/Developer/CommandLineTools` 或類似路徑
+
+**檢查是否已安裝 libomp（透過 Homebrew）：**
+```bash
+brew list libomp
+```
+
+**沒有安裝？**
+
+**安裝 Xcode 命令列工具：**
+```bash
+xcode-select --install
+```
+
+**安裝 Homebrew（如果尚未安裝）：**
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+**安裝 libomp：**
+```bash
+brew install libomp
+```
+
+**自動偵測：** 安裝腳本（`python scripts/install.py --check`）會偵測 macOS 並檢查這些相依套件，如果缺少會提供警告和安裝說明。
+
+**注意：** 如果預編譯的 Python wheels 包含內建的 OpenMP，安裝可能在沒有 libomp 的情況下成功。如果安裝後遇到 ONNX 相關錯誤，請按照上述方式安裝 libomp。
 
 ---
 
@@ -107,8 +205,429 @@ docker-compose --version
 ### 💻 系統需求
 
 - **RAM**: 最低 2GB，建議 4GB
-- **磁碟空間**: 500MB 可用空間（用於 ML models 和 AIDEFEND 內容）
+- **磁碟空間**: **2-2.5GB 可用空間**（詳細分解如下）
+
+  **AIDEFEND 服務本身 (~200-700MB):**
+  - 原始碼: ~10MB
+  - 向量資料庫（知識庫）: ~100-500MB（隨 AIDEFEND 框架更新而增長）
+  - 原始內容快取: ~50-100MB
+  - 日誌檔案: ~10-50MB
+
+  **外部相依套件 (~1.5GB):**
+  - ONNX 嵌入模型（Int8 量化版）: ~280MB
+  - Python 套件（pip）: ~500MB-1GB（FastAPI、LanceDB、NumPy 等）
+  - Node.js 套件（npm）: ~100-200MB（Acorn 解析器）
+
+  **總計: 最低 2GB，資料庫增長後最多 3GB**
+
 - **網路**: 初次下載時需要（設定後可離線運作）
+
+---
+
+## 🚀 MCP 模式設定（Claude Desktop）- 一鍵安裝
+
+**適用於：想要在 Claude Desktop 中使用 AIDEFEND 的使用者**
+
+這個一鍵安裝腳本會自動安裝所有依賴並設定 Claude Desktop，只需 5 - 8 分鐘。
+
+### 前置需求
+
+1. **Claude Desktop 已安裝** - 下載位置：https://claude.ai/download
+2. **Python 3.9+** - 檢查：`python --version`
+3. **Node.js 18+** - 檢查：`node --version`（下載：https://nodejs.org/）
+4. **Git** - 檢查：`git --version`
+
+### 步驟 1：下載 AIDEFEND
+
+```bash
+git clone https://github.com/edward-playground/aidefend-mcp.git
+cd aidefend-mcp
+```
+
+**💡 提示：** macOS/Linux 使用者，如果 `python` 指向 Python 2，請使用 `python3`：
+```bash
+python3 --version  # 檢查是否需要使用 python3
+```
+
+### 步驟 2：（可選但建議）建立虛擬環境
+
+使用虛擬環境可避免與其他 Python 專案的依賴衝突：
+
+```bash
+# 建立虛擬環境
+python -m venv venv
+
+# 啟動虛擬環境
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# 您應該會在終端機提示符看到 (venv)
+```
+
+**為什麼使用 venv？**
+- 隔離 AIDEFEND 的依賴，不影響其他 Python 專案
+- 避免版本衝突（例如其他專案使用不同版本的 Pydantic）
+- 易於移除（只需刪除 `venv` 資料夾）
+
+**注意：** 如果使用 venv，每次執行 AIDEFEND 前都要記得啟動它。
+
+### 步驟 3：一鍵安裝
+
+**建議先檢查前置需求：**
+```bash
+python scripts/install.py --check
+```
+
+**然後安裝：**
+```bash
+python scripts/install.py
+```
+
+**Linux/macOS 使用者：** 如有需要請使用 `python3`：
+```bash
+python3 scripts/install.py --check
+python3 scripts/install.py
+```
+
+**這個腳本會：**
+- ✅ 檢查 Python 3.9+ 和 Node.js 18+ 版本
+- ✅ 自動安裝所有 Python 依賴（pip install -r requirements.txt）
+- ✅ 自動安裝所有 Node.js 依賴（npm install）
+- ✅ 自動偵測 Python 路徑和專案路徑
+- ✅ 自動偵測 Claude Desktop 設定檔位置
+- ✅ **安全合併**配置（保留所有現有的 MCP 工具）
+- ✅ 建立現有設定的備份
+- ✅ 寫入前驗證所有路徑
+
+**範例輸出：**
+```
+======================================================================
+  AIDEFEND MCP - 一鍵安裝
+======================================================================
+
+[步驟 1/5] 檢查 Python 版本
+----------------------------------------------------------------------
+   Python 版本: 3.13.1
+✅ Python 版本 OK
+
+[步驟 2/5] 檢查 Node.js 版本
+----------------------------------------------------------------------
+   Node.js 版本: v20.11.0
+✅ Node.js 版本 OK
+
+[步驟 3/5] 安裝 Python 依賴
+----------------------------------------------------------------------
+正在安裝 Python 依賴...
+   使用: c:\Users\you\aidefend-mcp\requirements.txt
+✅ Python 依賴安裝成功
+
+[步驟 4/5] 安裝 Node.js 依賴
+----------------------------------------------------------------------
+正在安裝 Node.js 依賴...
+   使用: c:\Users\you\aidefend-mcp\package.json
+✅ Node.js 依賴安裝成功
+
+[步驟 5/5] 設定 Claude Desktop（MCP 模式）
+----------------------------------------------------------------------
+正在設定 Claude Desktop MCP 模式...
+   設定檔: C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
+   Python: C:/Python313/python.exe
+   專案: c:/Users/you/aidefend-mcp
+
+✅ 備份已建立: claude_desktop_config.json.backup.20250126_143022
+✅ 保留現有的 2 個 MCP 工具：
+   • filesystem
+   • git
+✅ 設定檔已儲存: C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
+
+✅ MCP 設定完成！
+
+⚠️  重要：重新啟動 Claude Desktop 以套用變更
+   1. 完全關閉 Claude Desktop
+   2. 重新開啟 Claude Desktop
+   3. 在 MCP 工具清單中尋找 'aidefend'（Search and tools 圖示 ⚙️）
+
+======================================================================
+  ✅ 安裝完成！
+======================================================================
+
+下一步：
+  1. 重新啟動 Claude Desktop（完全關閉後再開啟）
+  2. 在 MCP 工具中尋找 'aidefend'（Search and tools 圖示 ⚙️）
+  3. 試試：「搜尋 AIDEFEND 中關於 prompt injection 的防禦手法」
+```
+
+### 步驟 4：重啟 Claude Desktop
+
+**重要：** 你必須**完全退出** Claude Desktop（不只是關閉視窗），然後重新開啟。
+
+**Windows：**
+- 工作列右鍵點擊 Claude 圖示 → Exit
+
+**macOS：**
+- 按 `Cmd+Q`（或 Claude 選單 → 結束）
+
+**驗證工具已載入：**
+- 開啟 Claude Desktop
+- 工具應該會出現在可用工具面板中
+- 問 Claude：「有哪些 AIDEFEND 工具可用？」
+
+### 步驟 5：首次使用 - 模型下載
+
+⚠️ **重要：** **首次使用**時，AIDEFEND 會自動下載約 1.1GB 的 embedding 模型（`multilingual-e5-base`）。
+
+**預期情況：**
+- **下載時間：** 4-8 分鐘（取決於網路速度）
+- **儲存空間：** 總共約 3-4GB（模型 + 相依套件 + 知識庫 - 詳細分解請見上方系統需求）
+- **存放位置：** `~/.cache/fastembed/`（macOS/Linux）或 `%USERPROFILE%\.cache\fastembed\`（Windows）
+- **僅此一次：** 後續使用會立即回應
+
+**如果 Claude 第一次查詢時很慢：**
+- 正在背景下載模型
+- 如有需要可檢查 MCP 伺服器日誌
+- 等待幾分鐘後再試
+
+**離線使用：**
+- 首次下載後，AIDEFEND 可完全離線運作
+- 不會對外發送任何 API 請求
+- 所有處理皆為 100% 本地運算
+
+### 替代方案：安裝選項
+
+安裝腳本支援多種模式：
+
+```bash
+# 僅檢查前置需求（不安裝）
+python scripts/install.py --check
+
+# 互動模式（預設）- 會詢問確認
+python scripts/install.py
+
+# 自動模式 - 不詢問確認
+python scripts/install.py --auto
+
+# 跳過 MCP 設定 - 僅安裝依賴
+python scripts/install.py --no-mcp
+
+# 試運行 - 預覽但不進行變更
+python scripts/install.py --dry-run
+
+# 顯示說明
+python scripts/install.py --help
+```
+
+**建議工作流程：**
+```bash
+# 1. 先檢查前置需求
+python scripts/install.py --check
+
+# 2. 若一切正常，執行安裝
+python scripts/install.py
+```
+
+### 反安裝 MCP 模式
+
+若要從 Claude Desktop 移除 AIDEFEND（但保留專案檔案）：
+
+```bash
+python scripts/uninstall_mcp.py
+```
+
+這會：
+- ✅ 從 Claude 設定檔移除 AIDEFEND
+- ✅ 保留所有其他 MCP 工具
+- ✅ 移除前建立備份
+- ✅ 保留你的本地專案檔案
+
+---
+
+## 🔌 Claude Code 設定（VSCode 擴充）
+
+**適用於：想要在 Claude Code (VSCode 擴充) 中使用 AIDEFEND 的使用者**
+
+Claude Code 使用不同於 Claude Desktop 的設定格式（`.mcp.json`）。
+
+### 快速設定
+
+```bash
+# 只安裝給 Claude Code
+python scripts/install.py --client code
+
+# 或同時安裝給 Claude Desktop 和 Claude Code
+python scripts/install.py --client both
+```
+
+**這個指令會：**
+- ✅ 安裝所有依賴（與 Claude Desktop 相同）
+- ✅ 在專案根目錄建立 `.mcp.json`
+- ✅ **安全合併**現有的 `.mcp.json`（保留其他 servers）
+- ✅ 可以 commit 到 git（與團隊分享）
+
+### 安裝後步驟
+
+1. **重新載入 VSCode 視窗**：
+   - 按 `Ctrl+Shift+P`（Windows/Linux）或 `Cmd+Shift+P`（macOS）
+   - 輸入 "Reload Window" 並按 Enter
+
+2. **驗證 AIDEFEND 可用**：
+   - 在 MCP 工具面板中尋找 `aidefend`
+   - 嘗試透過 `/` 斜線命令使用 AIDEFEND 工具
+
+### Claude Code vs Claude Desktop
+
+| 項目 | Claude Desktop | Claude Code |
+|------|----------------|-------------|
+| **設定檔** | `claude_desktop_config.json` | `.mcp.json`（專案根目錄） |
+| **位置** | 使用者設定目錄 | 專案目錄 |
+| **版本控制** | 不分享 | 可 commit 到 git |
+| **團隊分享** | 每位使用者手動設定 | 自動（透過 git） |
+| **客戶端存取** | 僅限桌面應用程式 | 僅限 VSCode |
+
+### .mcp.json 範例
+
+```json
+{
+  "mcpServers": {
+    "aidefend": {
+  "mcpServers": {
+    "aidefend": {
+      "command": "C:/path/to/python.exe",
+      "args": [
+        "C:/Users/you/aidefend-mcp/__main__.py",
+        "--mcp"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
+> **注意：** 安裝腳本會自動偵測您的實際 Python 路徑並正確填入。上方的範例僅使用佔位符。
+
+---
+
+### 安裝問題疑難排解
+
+#### Python/Node.js 版本錯誤
+
+**問題：** `python --version` 顯示 Python 2.x 或找不到命令
+
+**macOS/Linux 解決方案：**
+```bash
+# 改用 python3
+python3 --version
+python3 scripts/install.py
+```
+
+**Windows 解決方案：**
+```bash
+# 從 https://www.python.org/downloads/ 安裝 Python 3.9+
+# 安裝時確保勾選「Add Python to PATH」
+```
+
+#### `pip install` 失敗或逾時
+
+**問題：** 網路問題、防火牆或下載緩慢
+
+**解決方案 1 - 檢查網路：**
+```bash
+python scripts/install.py --check  # 驗證連線
+```
+
+**解決方案 2 - 中國大陸使用者：**
+```bash
+# 使用清華鏡像源
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+npm install --registry=https://registry.npmmirror.com
+```
+
+**解決方案 3 - 企業代理：**
+```bash
+pip install -r requirements.txt --proxy YOUR_PROXY_URL
+```
+
+**解決方案 4 - 升級 pip：**
+```bash
+python -m pip install --upgrade pip
+```
+
+#### `npm install` 失敗
+
+**問題：** npm 錯誤或權限問題
+
+**解決方案 1 - 清除快取：**
+```bash
+npm cache clean --force
+npm install
+```
+
+**解決方案 2 - 使用不同 registry：**
+```bash
+npm install --registry=https://registry.npmjs.org/
+```
+
+#### 未偵測到 Claude Desktop
+
+**問題：** 警告找不到 Claude Desktop
+
+**解決方案：**
+- 從 https://claude.ai/download 安裝 Claude Desktop
+- 設定檔仍會被建立，等你安裝後即可使用
+- 如果只想用 REST API 模式則不需要
+
+#### 依賴與其他專案衝突
+
+**問題：** 「版本衝突」或「無法安裝 pydantic 2.x」
+
+**解決方案 - 使用虛擬環境：**
+```bash
+# 建立隔離環境
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# 然後安裝
+python scripts/install.py
+```
+
+#### 第一次查詢非常慢
+
+**問題：** Claude 在第一次 AIDEFEND 查詢時卡住 2-5 分鐘
+
+**原因：** 正在下載約 400MB 的 embedding 模型（僅此一次）
+
+**解決方案：**
+- 等待模型下載完成（檢查網路連線）
+- 後續查詢會立即回應
+- 模型儲存位置：`~/.cache/fastembed/`（macOS/Linux）或 `%USERPROFILE%\.cache\fastembed\`（Windows）
+
+#### MCP 工具未顯示在 Claude Desktop
+
+**問題：** 重啟後看不到 AIDEFEND
+
+**檢查清單：**
+1. 是否完全退出 Claude Desktop？（不只是關閉視窗）
+   - Windows：工作列右鍵 → Exit
+   - macOS：Cmd+Q
+2. 檢查設定檔是否存在：
+   - Windows：`%APPDATA%\Claude\claude_desktop_config.json`
+   - macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`
+3. 檢查設定檔格式是否為有效 JSON（無尾隨逗號）
+4. 再次重啟 Claude Desktop
+5. 檢查 Claude Desktop 日誌是否有錯誤
+
+#### 仍有問題？
+
+```bash
+# 執行診斷檢查
+python scripts/install.py --check
+
+# 查看詳細日誌
+cat data/logs/aidefend_mcp.log  # macOS/Linux
+type data\logs\aidefend_mcp.log  # Windows
+```
+
+如需更多協助，請參閱下方完整疑難排解指南或在 GitHub 開啟 issue。
 
 ---
 
@@ -140,25 +659,18 @@ dir # Windows
 
 ---
 
-### 步驟 2: 執行啟動腳本
+### 步驟 2: 啟動服務
 
-**在 Windows 上：**
-```cmd
-scripts\start.bat
-```
-
-**在 macOS/Linux 上：**
+**在任何平台上（Windows/macOS/Linux）：**
 ```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
+python __main__.py
 ```
 
-**這個腳本會自動做什麼：**
-1. ✅ 檢查 Python 是否已安裝
-2. ✅ 建立 virtual environment（隔離的 Python 環境）
-3. ✅ 安裝所有必要的 Python 套件
-4. ✅ 建立設定檔（`.env`）
-5. ✅ 啟動服務
+**首次執行時會自動：**
+1. ✅ 從 GitHub 自動同步 AIDEFEND framework（5 - 8 分鐘）
+2. ✅ 解析並索引所有安全技術
+3. ✅ 在 http://localhost:8000 啟動 REST API 伺服器
+4. ✅ 服務準備就緒，可以開始查詢
 
 **預期輸出：**
 ```
@@ -262,7 +774,22 @@ nano .env         # Linux
 open -e .env      # macOS
 ```
 
-**對大多數使用者來說，預設值就可以了。你可以跳過這個步驟。**
+**⚠️ 重要安全需求：**
+
+Docker 部署會綁定至 `0.0.0.0`，因此**必須**設定 API Key 才能啟動。
+
+1. **產生金鑰：**
+   ```bash
+   python scripts/generate_api_key.py
+   ```
+
+2. **加入至 `.env` 檔案：**
+   ```bash
+   AUTH_MODE=api_key
+   AIDEFEND_API_KEY=<你的金鑰>
+   ```
+
+> **注意：** 如果缺少此金鑰，容器將無法啟動。
 
 ---
 
@@ -398,11 +925,11 @@ pip install -r requirements.txt
 
 **預期輸出：**
 ```
-Collecting fastapi==0.109.2
-Downloading fastapi-0.109.2-py3-none-any.whl (92 kB)
+Collecting fastapi==0.121.1
+Downloading fastapi-0.121.1-py3-none-any.whl (92 kB)
 ...
 Installing collected packages: ...
-Successfully installed fastapi-0.109.2 ...
+Successfully installed fastapi-0.121.1 ...
 ```
 
 ---
@@ -425,14 +952,19 @@ cp .env.example .env
 ### 步驟 5: 啟動服務
 
 ```bash
+# 預設（REST API 模式）
 C:/Python313/python.exe __main__.py
+
+# 或明確指定 REST API 模式
+C:/Python313/python.exe __main__.py --api
 ```
 
 **這個指令的意思：**
 - 執行 AIDEFEND 服務的主程式
-- 預設會啟動 REST API 模式
+- 預設會啟動 REST API 模式（或使用 `--api` flag 明確指定）
 - 服務會在 `127.0.0.1:8000` 執行
 - 所有設定從 `.env` 檔案載入
+- 使用 `--mcp` flag 啟動 MCP 模式，`--resync` 重建資料庫，`--help` 顯示說明
 
 **預期輸出：**
 ```
@@ -873,6 +1405,31 @@ C:/Python313/python.exe __main__.py          # REST API 在 http://localhost:800
 
 ## 疑難排解常見問題
 
+### ℹ️ 關於自動快取管理
+
+**好消息：你永遠不需要手動刪除快取檔案！**
+
+AIDEFEND MCP 使用**自動快取失效機制**確保資料一致性：
+
+**自動更新：**
+- ✅ **內容更新**：系統每小時檢查 GitHub 是否有新技術，自動更新
+- ✅ **Schema 更新**：當 metadata 格式改變時，快取自動失效
+- ✅ **模型變更**：自動檢測並觸發重建
+
+**何時需要使用 `--resync`：**
+只在特殊情況需要：
+- 更換 embedding 模型（例如從 e5-base 改成 embeddinggemma）
+- 資料庫損壞
+- 開發/測試需要乾淨狀態
+
+**自動更新時會發生什麼：**
+```
+系統偵測變更 → 下載新資料 → 更新 embeddings → 可以使用
+```
+不需要使用者介入！
+
+---
+
 ### ❌ 問題：「Python not found」或「python: command not found」
 
 **可能原因：**
@@ -910,17 +1467,6 @@ pip3 install -r requirements.txt
 # 用 python -m pip
 python -m pip install -r requirements.txt
 ```
-
----
-
-### ❌ 問題：執行 scripts\start.bat 時出現 ... was unexpected at this time. 錯誤
-
-**意思：** 這是 Windows 命令提示字元 (cmd.exe) 的語法解析錯誤。這通常是因為 start.bat 檔案中包含了不可見的特殊字元（例如從網頁複製貼上時帶入的）或錯誤的檔案編碼。
-
-**解決方案：**
-
-1. **首選方案：** 確保您是從 GitHub **直接 git clone** 下載的，而不是從網頁複製貼上 start.bat 檔案的內容。
-2. **備用方案（最可靠）：** **放棄使用 start.bat**，並**改用「方法 3: 手動安裝」**中的步驟。手動執行 `python -m venv venv`、`venv\Scripts\activate`、`pip install -r requirements.txt` 和 `C:/Python313/python.exe __main__.py` 可以 100% 繞過這個批次檔解析錯誤。
 
 ---
 
@@ -1050,15 +1596,14 @@ docker-compose logs aidefend-mcp
 
 ### ❌ 問題：「Permission denied」（Linux/macOS）
 
-**對於 start.sh：**
-```bash
-chmod +x scripts/start.sh
-./scripts/start.sh
-```
-
 **對於 data 目錄：**
 ```bash
 chmod -R 755 data/
+```
+
+**對於主程式：**
+```bash
+chmod +x __main__.py
 ```
 
 ---
@@ -1146,6 +1691,68 @@ docker-compose down -v
 cd ..
 rm -rf aidefend-mcp
 ```
+
+---
+
+## 疑難排解
+
+### 重新同步資料庫
+
+如果遇到資料庫問題或需要升級 embedding 模型，請使用 resync 指令：
+
+```bash
+python __main__.py --resync
+```
+
+**何時使用：**
+- ✅ 升級到不同的 embedding 模型
+- ✅ 資料庫損壞或錯誤
+- ✅ 想要從乾淨狀態開始
+- ✅ 在 `.env` 中變更 `EMBEDDING_MODEL` 後
+
+**執行內容：**
+1. 刪除現有資料庫（`data/aidefend_kb.lancedb`）
+2. 刪除版本追蹤（`data/local_version.json`）
+3. 從 GitHub 重新下載內容
+4. 使用目前設定重建資料庫
+5. 重新建立 embedding 快取
+
+**注意：** 這是安全操作 - 所有資料都可以從來源儲存庫恢復。
+
+**重新同步後，啟動您偏好的模式：**
+```bash
+# 啟動 MCP 模式
+python __main__.py --mcp
+
+# 或啟動 REST API
+python __main__.py --api
+```
+
+### 常見問題
+
+**資料庫模型不匹配：**
+```
+❌ Embedding model upgrade detected!
+   Database model: intfloat/multilingual-e5-small (384d)
+   Configured model: Xenova/multilingual-e5-base (768d)
+```
+**解決方案：** 執行 `python __main__.py --resync`
+
+**資料庫損壞：**
+```
+Error: Failed to load database
+```
+**解決方案：** 執行 `python __main__.py --resync`
+
+**服務沒有回應：**
+- 檢查服務是否正在執行：`ps aux | grep python`（Unix）或工作管理員（Windows）
+- 檢查日誌：`tail -f data/logs/aidefend_mcp.log`
+- 重新啟動服務
+
+**MCP 工具未顯示在 Claude Desktop：**
+- 驗證 `claude_desktop_config.json` 路徑為絕對路徑（非相對路徑）
+- 完全重新啟動 Claude Desktop
+- 檢查 Python 路徑：`which python3`（Unix）或 `where python`（Windows）
 
 ---
 

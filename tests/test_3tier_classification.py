@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.tools.classify_threat import classify_threat
 from app.config import settings
+import pytest
 
 @pytest.mark.asyncio
 async def test_tier1_static_keyword():

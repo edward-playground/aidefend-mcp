@@ -14,11 +14,17 @@ pydantic-settings==2.7.1
 # Vector database
 lancedb==0.25.3
 
+# Data processing (required by LanceDB for .to_pandas())
+pandas>=2.0.0
+
 # Embedding and ML (lightweight ONNX-based)
 fastembed==0.7.3
 
 # MCP (Model Context Protocol) SDK
 mcp==1.21.0
+
+# Windows-specific: MCP SDK requires pywin32 for Windows platform APIs
+pywin32==311; sys_platform == 'win32'
 
 # HTTP client
 httpx==0.28.1
@@ -39,4 +45,5 @@ rapidfuzz==3.10.1
 aiorwlock==1.4.0
 
 # Security
-# (No additional packages needed - using stdlib + our custom security module)
+# filelock: Cross-process file locking for safe concurrent sync operations
+filelock==3.13.1

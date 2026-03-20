@@ -12,7 +12,7 @@ from fastembed import TextEmbedding
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError
+from app.security import InputValidationError, sanitize_technique_id
 
 logger = get_logger(__name__)
 
@@ -100,8 +100,11 @@ async def get_defenses_for_threat(
 
                 # Fetch only the specific techniques (targeted query)
                 for tech_id in technique_ids:
+                    # Sanitize technique_id to prevent filter injection
+                    sanitized_id = sanitize_technique_id(tech_id)
+
                     tech_results = await asyncio.to_thread(
-                        lambda tid=tech_id: table.search().where(f"source_id = '{tid}'").limit(1).to_pandas().to_dict('records')
+                        lambda tid=sanitized_id: table.search().where(f"source_id = '{tid}'").limit(1).to_pandas().to_dict('records')
                     )
 
                     if tech_results:
@@ -223,10 +226,11 @@ async def get_defenses_for_threat(
 
             for doc in search_results:
                 # Calculate relevance score (0.0-1.0)
-                # LanceDB returns distance, lower is better, we need to convert
-                # Assuming cosine similarity: score = 1 - distance
-                distance = doc.get('_distance', 0.5)
-                relevance_score = max(0.0, 1.0 - distance)
+                # LanceDB returns L2 distance (lower is better, no upper bound)
+                # Convert to similarity score using: score = 1 / (1 + distance)
+                # This ensures: distance=0 → score=1.0, distance=∞ → score=0.0
+                distance = doc.get('_distance', 1.0)
+                relevance_score = 1.0 / (1.0 + distance)
 
                 results.append({
                     "technique": {

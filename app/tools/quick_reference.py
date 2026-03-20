@@ -50,13 +50,6 @@ async def get_quick_reference(
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
-    # Pre-flight check: ensure query engine is ready
-    if not query_engine.is_ready:
-        raise QueryEngineNotInitializedError(
-            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
-        )
-
-
     # Input validation
     if not topic or not isinstance(topic, str):
         raise InputValidationError("topic must be a non-empty string")
@@ -74,6 +67,12 @@ async def get_quick_reference(
 
     if max_items < 5 or max_items > 20:
         raise InputValidationError("max_items must be between 5 and 20")
+
+    # Pre-flight check: ensure query engine is ready
+    if not query_engine.is_ready:
+        raise QueryEngineNotInitializedError(
+            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
+        )
 
     logger.info(f"Generating quick reference for topic: {topic}")
 
@@ -319,5 +318,5 @@ def _format_as_markdown(categorized: Dict[str, List[Dict[str, Any]]]) -> str:
 
 def _get_timestamp() -> str:
     """Get current timestamp in ISO format."""
-    from datetime import datetime
-    return datetime.utcnow().isoformat() + "Z"
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

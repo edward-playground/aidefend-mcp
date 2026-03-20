@@ -85,10 +85,12 @@ def test_statistics_structure():
         print("\n[TEST 2] Check threat framework coverage fields")
         threat_framework_fields = [
             "owasp_llm_items_covered",
+            "owasp_llm_total_items",
+            "owasp_llm_coverage_percentage",
             "mitre_atlas_items_covered",
             "maestro_items_covered",
             "techniques_with_threat_mappings",
-            "coverage_percentage"
+            "techniques_mapped_percentage"
         ]
 
         print(f"   Required threat framework fields: {len(threat_framework_fields)}")
