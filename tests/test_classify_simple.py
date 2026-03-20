@@ -9,10 +9,12 @@ import asyncio
 import sys
 import os
 from pathlib import Path
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+@pytest.mark.asyncio
 async def test_basic_functionality():
     """Test basic functionality of the classify_threat module."""
     print("=" * 60)

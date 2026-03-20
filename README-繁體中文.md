@@ -47,7 +47,7 @@ AIDEFEND 是開源的，所以理論上呢，你可以自己去 AIDEFEND 的 Git
 
 #### **問題 2: LLM 無法處理完整的 AIDEFEND Framework**
 
-AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Strategies) 有數千行程式碼。蠻多 LLM 服務有 context window 限制（~8K-128K）。把所有東西貼進 LLM 服務 (ChatGPT/Claude/Gemini/Grok, etc) 有時候會遇到困難。
+AIDEFEND 的防禦手法 (Techniques / Sub-Techniques / Implementation Guidance) 有數千行程式碼。蠻多 LLM 服務有 context window 限制（~8K-128K）。把所有東西貼進 LLM 服務 (ChatGPT/Claude/Gemini/Grok, etc) 有時候會遇到困難。
 
 **這個 MCP / REST API Service：**
 - ✅ **智慧搜尋** - 在毫秒內找出 3-5 個最相關的段落
@@ -498,7 +498,7 @@ AIDEFEND MCP Service 包含 **12 個專門的 P0 工具**，專為 AI 安全從�
 
 Claude: [使用 get_statistics 工具]
         AIDEFEND 知識庫包含:
-        - 156 份文件總數 (45 個 techniques, 78 個 sub-techniques, 33 個 strategies)
+        - 156 份文件總數 (45 個 techniques, 78 個 sub-techniques, 33 個 implementation guidance)
         - 涵蓋 7 種 tactics: Model, Harden, Detect, Isolate, Deceive, Evict, Restore
         - 威脅框架涵蓋範圍: 10 個 OWASP LLM 威脅, 28 個 MITRE ATLAS 技術
         - 34 個 techniques 有開源工具, 18 個有商用工具
@@ -518,7 +518,7 @@ curl http://localhost:8000/api/v1/statistics
     "total_documents": 156,
     "total_techniques": 45,
     "total_subtechniques": 78,
-    "total_strategies": 33
+    "total_guidance": 33
   },
   "by_tactic": {
     "Harden": 18,
@@ -674,9 +674,9 @@ curl "http://localhost:8000/api/v1/technique/AID-H-001?include_code=true&include
     {
       "id": "AID-H-001.001",
       "name": "Schema Validation",
-      "strategies": [
+      "guidance": [
         {
-          "strategy": "Pydantic-based validation",
+          "implementation": "Pydantic-based validation",
           "how_to": "使用 Pydantic models 驗證輸入 schema...",
           "code_blocks": [
             {
@@ -1755,7 +1755,7 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
         "atlas": 2,
         "maestro": 1
       },
-      "has_implementation_strategies": true,
+      "has_implementation_guidance": true,
       "has_code_snippets": true
     },
     {
@@ -1771,7 +1771,7 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
         "atlas": 4,
         "maestro": 0
       },
-      "has_implementation_strategies": true,
+      "has_implementation_guidance": true,
       "has_code_snippets": false
     }
   ],

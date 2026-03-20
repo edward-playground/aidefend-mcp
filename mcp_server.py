@@ -28,7 +28,7 @@ from app.audit import audit_tool_call, audit_tool_completion
 from app.utils import load_version_info
 from datetime import datetime
 
-# Import all P0 tools
+# Import all tools from unified package
 from app.tools import (
     get_statistics,
     validate_technique_id,
@@ -38,16 +38,14 @@ from app.tools import (
     analyze_coverage,
     map_to_compliance_framework,
     get_quick_reference,
+    get_threat_coverage,
+    get_implementation_plan,
+    classify_threat,
     comprehensive_search,
     analyze_security_posture,
     compare_techniques,
-    generate_incident_playbook
+    generate_incident_playbook,
 )
-
-# Import new tools
-from app.tools.threat_coverage import get_threat_coverage
-from app.tools.implementation_plan import get_implementation_plan
-from app.tools.classify_threat import classify_threat
 
 logger = get_logger(__name__)
 
@@ -183,7 +181,7 @@ async def serve():
                 name="get_technique_detail",
                 description=(
                     "Get complete details for a specific AIDEFEND technique including "
-                    "all sub-techniques, implementation strategies with code examples, "
+                    "all sub-techniques, implementation guidance with code examples, "
                     "tool recommendations, and threat mappings. This is the primary tool "
                     "for deep-diving into a specific defense technique."
                 ),
@@ -243,7 +241,7 @@ async def serve():
             Tool(
                 name="get_secure_code_snippet",
                 description=(
-                    "Extract executable secure code snippets from AIDEFEND implementation strategies. "
+                    "Extract executable secure code snippets from AIDEFEND implementation guidance. "
                     "Search by technique ID or topic keyword to get copy-paste ready code examples. "
                     "Perfect for developers implementing specific security controls."
                 ),
@@ -1254,14 +1252,16 @@ async def handle_get_secure_code_snippet(arguments: Dict[str, Any]) -> List[Text
         )
 
         output = "# Secure Code Snippets\n\n"
-        output += f"**Query:** {result['query']}\n"
+        query = result['query']
+        query_desc = query.get('technique_id') or query.get('topic') or str(query)
+        output += f"**Query:** {query_desc}\n"
         output += f"**Snippets Found:** {result['total_snippets']}\n\n"
 
         for i, snippet in enumerate(result['code_snippets'], 1):
             output += f"## Snippet {i}: {snippet['technique_name']}\n\n"
             output += f"**Technique ID:** {snippet['technique_id']}\n"
             output += f"**Language:** {snippet['language']}\n"
-            output += f"**Strategy:** {snippet['strategy']}\n\n"
+            output += f"**Implementation:** {snippet['implementation']}\n\n"
             output += "```" + snippet['language'] + "\n"
             output += snippet['code'] + "\n"
             output += "```\n\n"
@@ -1667,7 +1667,8 @@ async def handle_comprehensive_search(arguments: Dict[str, Any]) -> List[TextCon
                 if item.get('phase'):
                     output += f"**Phase:** {item['phase']}\n"
 
-                output += f"\n**Description:**\n{item['description'][:300]}...\n\n"
+                desc = item['description']
+                output += f"\n**Description:**\n{desc[:300]}{'...' if len(desc) > 300 else ''}\n\n"
                 output += "---\n\n"
         else:
             output += "*No results found for this topic.*\n\n"
@@ -1711,10 +1712,10 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
         if view == "both" and result.get("summary"):
             summary_text = f"Posture: {result['summary']['overall_posture']}"
         elif view == "technical" and result.get("technical_coverage"):
-            pct = result['technical_coverage'].get('overall_coverage', {}).get('percentage', 0)
+            pct = result['technical_coverage'].get('analysis_summary', {}).get('coverage_percentage', 0)
             summary_text = f"Technical: {pct:.1f}%"
         elif view == "threat" and result.get("threat_coverage"):
-            owasp = result['threat_coverage'].get('coverage_rate', {}).get('owasp', 0)
+            owasp = result['threat_coverage'].get('coverage_rate', {}).get('owasp', 0) * 100
             summary_text = f"OWASP: {owasp:.1f}%"
         else:
             summary_text = "Analysis complete"
@@ -1751,52 +1752,66 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
                 output += "\n"
 
         # Technical Coverage Section
+        # analyze_coverage returns: analysis_summary, coverage_by_tactic (dict of dicts),
+        # critical_gaps (with gap_type/tactic/severity/reason), recommendations
         if view in ["both", "technical"] and result.get("technical_coverage"):
             tech = result["technical_coverage"]
             output += "## Technical Coverage\n\n"
 
-            overall = tech.get("overall_coverage", {})
-            output += f"**Coverage:** {overall.get('percentage', 0):.1f}% "
+            overall = tech.get("analysis_summary", {})
+            output += f"**Coverage:** {overall.get('coverage_percentage', 0):.1f}% "
             output += f"({overall.get('coverage_level', 'unknown')})\n"
-            output += f"**Implemented:** {overall.get('implemented', 0)}/{overall.get('total', 0)} techniques\n\n"
+            output += f"**Implemented:** {overall.get('techniques_implemented', 0)}/{overall.get('total_techniques_available', 0)} techniques\n\n"
 
-            # By Tactic
-            if tech.get("by_tactic"):
+            # By Tactic (coverage_by_tactic is a dict of dicts: {tactic_name: {implemented, total, percentage, status}})
+            if tech.get("coverage_by_tactic"):
                 output += "### By Tactic\n\n"
-                for tactic_info in sorted(tech["by_tactic"], key=lambda x: -x["percentage"]):
-                    output += f"- **{tactic_info['tactic']}:** {tactic_info['percentage']:.1f}% "
-                    output += f"({tactic_info['implemented']}/{tactic_info['total']})\n"
+                tactic_items = sorted(tech["coverage_by_tactic"].items(), key=lambda x: -x[1].get("percentage", 0))
+                for tactic_name, tactic_data in tactic_items:
+                    output += f"- **{tactic_name}:** {tactic_data.get('percentage', 0):.1f}% "
+                    output += f"({tactic_data.get('implemented', 0)}/{tactic_data.get('total', 0)})\n"
                 output += "\n"
 
-            # Critical Gaps
+            # Critical Gaps (gaps have gap_type, tactic, severity, reason, risk)
             if tech.get("critical_gaps"):
                 output += "### Critical Gaps (High Priority)\n\n"
                 for gap in tech["critical_gaps"][:5]:
-                    output += f"- **{gap['technique_id']}:** {gap['name']}\n"
-                    output += f"  - Tactic: {gap['tactic']}\n"
+                    output += f"- **{gap.get('tactic', 'Unknown')}:** {gap.get('reason', '')}\n"
+                    output += f"  - Severity: {gap.get('severity', 'Unknown')}\n"
                 output += "\n"
 
+            # Recommendations (have rank, technique_id, name, reason)
+            if tech.get("recommendations"):
+                output += "### Recommended Next Steps\n\n"
+                for rec in tech["recommendations"][:5]:
+                    output += f"{rec['rank']}. **{rec['technique_id']}** - {rec['name']}\n"
+                    output += f"   *{rec['reason']}*\n\n"
+
         # Threat Coverage Section
+        # get_threat_coverage returns: coverage_rate (fractions 0-1), covered (dict of lists)
         if view in ["both", "threat"] and result.get("threat_coverage"):
             threat = result["threat_coverage"]
             output += "## Threat Framework Coverage\n\n"
 
             coverage_rate = threat.get("coverage_rate", {})
-            output += f"**OWASP LLM Top 10:** {coverage_rate.get('owasp', 0):.1f}%\n"
-            output += f"**MITRE ATLAS:** {coverage_rate.get('atlas', 0):.1f}%\n"
-            output += f"**MAESTRO:** {coverage_rate.get('maestro', 0):.1f}%\n\n"
+            output += f"**OWASP LLM Top 10:** {coverage_rate.get('owasp', 0) * 100:.1f}%\n"
+            output += f"**MITRE ATLAS:** {coverage_rate.get('atlas', 0) * 100:.1f}%\n"
+            output += f"**MAESTRO:** {coverage_rate.get('maestro', 0) * 100:.1f}%\n\n"
 
-            # Covered Threats
-            covered = threat.get("covered_threats", {})
+            # Covered Threats (key is "covered", not "covered_threats")
+            covered = threat.get("covered", {})
             if covered.get("owasp"):
                 output += "### OWASP Threats Covered\n\n"
                 output += f"{', '.join(covered['owasp'])}\n\n"
 
-            # Uncovered Threats
-            uncovered = threat.get("uncovered_threats", {})
-            if uncovered.get("owasp"):
+            # Compute uncovered OWASP threats
+            all_owasp = ["LLM01", "LLM02", "LLM03", "LLM04", "LLM05",
+                         "LLM06", "LLM07", "LLM08", "LLM09", "LLM10"]
+            covered_owasp = covered.get("owasp", [])
+            uncovered_owasp = [t for t in all_owasp if t not in covered_owasp]
+            if uncovered_owasp:
                 output += "### OWASP Threats NOT Covered (High Priority)\n\n"
-                output += f"{', '.join(uncovered['owasp'][:5])}\n\n"
+                output += f"{', '.join(uncovered_owasp[:5])}\n\n"
 
         output += "---\n\n"
         output += "*Tip: Use `get_implementation_plan` to get prioritized recommendations for next steps.*\n"
@@ -1855,7 +1870,8 @@ async def handle_compare_techniques(arguments: Dict[str, Any]) -> List[TextConte
         output += "|-----------|---------------|------------|------|--------|--------|\n"
 
         for tech in result['comparison_matrix']:
-            output += f"| **{tech['source_id']}**<br/>{tech['name'][:40]}... | "
+            name = tech['name']
+            output += f"| **{tech['source_id']}**<br/>{name[:40]}{'...' if len(name) > 40 else ''} | "
             output += f"{tech['effectiveness_score']}/100 | "
             output += f"{tech['complexity_score']}/100 | "
             output += f"{tech['cost_score']}/100 | "
@@ -1911,8 +1927,8 @@ async def handle_compare_techniques(arguments: Dict[str, Any]) -> List[TextConte
                 output += f"ATLAS ({threat_cov['atlas']}), MAESTRO ({threat_cov['maestro']})\n"
 
             # Implementation support
-            if tech['has_implementation_strategies']:
-                output += "- ✅ Has implementation strategies\n"
+            if tech['has_implementation_guidance']:
+                output += "- ✅ Has implementation guidance\n"
             if tech['has_code_snippets']:
                 output += "- ✅ Has code examples\n"
             if tech['has_opensource_tools']:
@@ -2028,18 +2044,22 @@ async def handle_generate_incident_playbook(arguments: Dict[str, Any]) -> List[T
             output += "---\n\n"
 
         # Defense techniques recommendation
+        # get_defenses_for_threat returns {"defense_techniques": [{technique: {id, name, ...}, relevance_score}, ...]}
         if include_defense_techniques and result.get('defense_techniques'):
             defense = result['defense_techniques']
             output += "## 🛡️ Recommended Defense Techniques\n\n"
 
-            if defense.get('techniques'):
-                output += f"**Total Techniques Found:** {len(defense['techniques'])}\n\n"
+            defense_list = defense.get('defense_techniques', [])
+            if defense_list:
+                output += f"**Total Techniques Found:** {len(defense_list)}\n\n"
                 output += "### Top Defense Techniques\n\n"
 
-                for i, tech in enumerate(defense['techniques'][:5], 1):
-                    output += f"{i}. **{tech['source_id']}:** {tech['name']}\n"
-                    output += f"   - **Tactic:** {tech['tactic']}\n"
-                    output += f"   - **Description:** {tech['description'][:150]}...\n\n"
+                for i, tech_entry in enumerate(defense_list[:5], 1):
+                    tech = tech_entry.get('technique', {})
+                    output += f"{i}. **{tech.get('id', 'N/A')}:** {tech.get('name', 'N/A')}\n"
+                    output += f"   - **Tactic:** {tech.get('tactic', 'N/A')}\n"
+                    desc = tech.get('description', 'N/A')
+                    output += f"   - **Description:** {desc[:150]}{'...' if len(desc) > 150 else ''}\n\n"
 
                 output += "\n*Use `get_technique_detail` for implementation details.*\n\n"
             else:
@@ -2047,17 +2067,18 @@ async def handle_generate_incident_playbook(arguments: Dict[str, Any]) -> List[T
                 output += "to explore related defenses.*\n\n"
 
         # Threat classification details
-        if result.get('threat_classification') and result['threat_classification'].get('matched_threats'):
+        # classify_threat returns threat_details (not matched_threats)
+        if result.get('threat_classification') and result['threat_classification'].get('threat_details'):
             output += "## 🔍 Threat Classification Details\n\n"
 
-            threats = result['threat_classification']['matched_threats']
+            threats = result['threat_classification']['threat_details']
             output += f"**Matched Threats:** {len(threats)}\n\n"
 
             for i, threat in enumerate(threats[:5], 1):
-                output += f"{i}. **{threat.get('threat_id', 'N/A')}** ({threat.get('framework', 'Unknown')})\n"
-                output += f"   - **Confidence:** {threat.get('confidence', 0):.1f}%\n"
-                output += f"   - **Keyword Match:** {threat.get('keyword', 'N/A')}\n"
-                output += f"   - **Description:** {threat.get('description', 'N/A')[:150]}...\n\n"
+                output += f"{i}. **{threat.get('threat_id', 'N/A')}**\n"
+                output += f"   - **Confidence:** {threat.get('confidence', 0) * 100:.1f}%\n"
+                output += f"   - **Keyword Match:** {threat.get('matched_keyword', 'N/A')}\n"
+                output += f"   - **Threat Name:** {threat.get('threat_name', 'N/A')}\n\n"
 
         output += "---\n\n"
 

@@ -94,7 +94,7 @@ async def map_to_compliance_framework(
 
             # Get technique
             docs = await asyncio.to_thread(
-                lambda: table.search().where(f"source_id = '{tech_id}'").limit(1).to_pandas().to_dict('records')
+                lambda tid=tech_id: table.search().where(f"source_id = '{tid}'").limit(1).to_pandas().to_dict('records')
             )
 
             if not docs:

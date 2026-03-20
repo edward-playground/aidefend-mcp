@@ -19,6 +19,8 @@ from app.tools.coverage_analysis import analyze_coverage
 from app.tools.compliance_mapping import map_to_compliance_framework
 from app.tools.quick_reference import get_quick_reference
 from app.tools.threat_coverage import get_threat_coverage
+from app.tools.implementation_plan import get_implementation_plan
+from app.tools.classify_threat import classify_threat
 from app.tools.comprehensive_search import comprehensive_search
 from app.tools.security_posture import analyze_security_posture
 from app.tools.technique_comparison import compare_techniques
@@ -34,6 +36,8 @@ __all__ = [
     "map_to_compliance_framework",
     "get_quick_reference",
     "get_threat_coverage",
+    "get_implementation_plan",
+    "classify_threat",
     "comprehensive_search",
     "analyze_security_posture",
     "compare_techniques",

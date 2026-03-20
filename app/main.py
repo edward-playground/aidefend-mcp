@@ -31,7 +31,10 @@ from app.schemas import (
     ImplementationPlanRequest,
     ImplementationPlanResponse,
     ClassifyThreatRequest,
-    ClassifyThreatResponse
+    ClassifyThreatResponse,
+    SecurityPostureRequest,
+    TechniqueComparisonRequest,
+    IncidentPlaybookRequest,
 )
 from app.core import query_engine, QueryEngineNotInitializedError
 from app.sync import run_sync, sync_loop, is_sync_in_progress, get_last_sync_error
@@ -39,7 +42,7 @@ from app.utils import load_version_info
 from app.security import InputValidationError, SecurityError
 from app.audit import audit_tool_call, audit_tool_completion
 
-# Import P0 tools
+# Import all tools from unified package
 from app.tools import (
     get_statistics,
     validate_technique_id,
@@ -49,13 +52,14 @@ from app.tools import (
     analyze_coverage,
     map_to_compliance_framework,
     get_quick_reference,
-    comprehensive_search
+    get_threat_coverage,
+    get_implementation_plan,
+    classify_threat,
+    comprehensive_search,
+    analyze_security_posture,
+    compare_techniques,
+    generate_incident_playbook,
 )
-
-# Import new tools
-from app.tools.threat_coverage import get_threat_coverage
-from app.tools.implementation_plan import get_implementation_plan
-from app.tools.classify_threat import classify_threat
 
 # Setup logger
 logger = setup_logger(
@@ -502,6 +506,8 @@ async def api_get_statistics(request: Request):
 
         return result
 
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Statistics failed: {e}", exc_info=True)
@@ -539,6 +545,8 @@ async def api_validate_technique_id(request: Request, technique_id: str):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Validation failed: {e}", exc_info=True)
@@ -586,6 +594,8 @@ async def api_get_technique_detail(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Get technique detail failed: {e}", exc_info=True)
@@ -637,6 +647,8 @@ async def api_get_defenses_for_threat(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Get defenses for threat failed: {e}", exc_info=True)
@@ -689,6 +701,8 @@ async def api_get_secure_code_snippet(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Get code snippets failed: {e}", exc_info=True)
@@ -738,6 +752,8 @@ async def api_analyze_coverage(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Analyze coverage failed: {e}", exc_info=True)
@@ -787,6 +803,8 @@ async def api_map_to_compliance_framework(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Compliance mapping failed: {e}", exc_info=True)
@@ -837,6 +855,8 @@ async def api_get_quick_reference(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Quick reference failed: {e}", exc_info=True)
@@ -887,6 +907,8 @@ async def api_get_threat_coverage(request: Request, coverage_request: ThreatCove
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Threat coverage analysis failed: {e}", exc_info=True)
@@ -947,6 +969,8 @@ async def api_get_implementation_plan(request: Request, plan_request: Implementa
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Implementation plan generation failed: {e}", exc_info=True)
@@ -1003,6 +1027,8 @@ async def api_classify_threat(request: Request, classify_request: ClassifyThreat
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except QueryEngineNotInitializedError:
+        raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
         logger.error(f"Threat classification failed: {e}", exc_info=True)
@@ -1084,6 +1110,170 @@ async def api_comprehensive_search(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to perform comprehensive search: {str(e)}"
+        )
+
+
+@app.post("/api/v1/security-posture", tags=["Tools"])
+@limiter.limit("30/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_analyze_security_posture(
+    request: Request,
+    posture_request: SecurityPostureRequest
+):
+    """
+    Comprehensive security posture analysis combining technical and threat perspectives.
+
+    Provides unified view of security coverage including tactic/pillar/phase distribution,
+    threat framework coverage rates (OWASP/ATLAS/MAESTRO), and prioritized recommendations.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "analyze_security_posture",
+        {
+            "implemented_techniques": posture_request.implemented_techniques,
+            "view": posture_request.view,
+            "system_type": posture_request.system_type
+        },
+        start_time
+    )
+
+    try:
+        result = await analyze_security_posture(
+            implemented_techniques=posture_request.implemented_techniques,
+            view=posture_request.view,
+            system_type=posture_request.system_type
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"Posture analysis: {result.get('implemented_count', 0)} techniques"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except QueryEngineNotInitializedError:
+        raise
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Security posture analysis failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze security posture: {str(e)}"
+        )
+
+
+@app.post("/api/v1/compare-techniques", tags=["Tools"])
+@limiter.limit("60/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_compare_techniques(
+    request: Request,
+    comparison_request: TechniqueComparisonRequest
+):
+    """
+    Side-by-side comparison of multiple AIDEFEND techniques with heuristic scoring.
+
+    Provides comparison matrix showing effectiveness, complexity, and cost scores.
+    Includes quick wins, strategic investments, and implementation priority recommendations.
+    All scoring is 100% local using metadata analysis.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "compare_techniques",
+        {
+            "technique_ids": comparison_request.technique_ids,
+            "include_recommendations": comparison_request.include_recommendations
+        },
+        start_time
+    )
+
+    try:
+        result = await compare_techniques(
+            technique_ids=comparison_request.technique_ids,
+            include_recommendations=comparison_request.include_recommendations
+        )
+
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"Compared {result['summary']['techniques_compared']} techniques"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except QueryEngineNotInitializedError:
+        raise
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Technique comparison failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to compare techniques: {str(e)}"
+        )
+
+
+@app.post("/api/v1/incident-playbook", tags=["Tools"])
+@limiter.limit("30/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
+async def api_generate_incident_playbook(
+    request: Request,
+    playbook_request: IncidentPlaybookRequest
+):
+    """
+    Generate structured incident response playbook based on threat classification.
+
+    Provides timeline-based action plan following NIST incident response phases:
+    immediate actions, investigation, containment, and recovery.
+    Integrates with threat classification and defense technique recommendations.
+    """
+    start_time = datetime.now()
+    audit_ctx = audit_tool_call(
+        "generate_incident_playbook",
+        {
+            "incident_description": playbook_request.incident_description[:100],
+            "include_defense_techniques": playbook_request.include_defense_techniques
+        },
+        start_time
+    )
+
+    try:
+        result = await generate_incident_playbook(
+            incident_description=playbook_request.incident_description,
+            include_defense_techniques=playbook_request.include_defense_techniques
+        )
+
+        total_actions = result['incident_summary']['total_action_items']
+        audit_tool_completion(
+            audit_ctx,
+            success=True,
+            result_summary=f"Generated playbook with {total_actions} actions"
+        )
+
+        return result
+
+    except InputValidationError as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Validation error", error_message=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except QueryEngineNotInitializedError:
+        raise
+    except Exception as e:
+        audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        logger.error(f"Incident playbook generation failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate incident playbook: {str(e)}"
         )
 
 

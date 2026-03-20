@@ -168,7 +168,7 @@ async def get_statistics() -> Dict[str, Any]:
         # Get last sync time from version file
         from app.utils import load_version_info
         version_info = load_version_info()
-        last_synced = version_info.get("last_sync", "Unknown")
+        last_synced = version_info.get("last_sync", "Unknown") if version_info else "Unknown"
 
         # Build response
         statistics = {

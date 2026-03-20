@@ -128,7 +128,7 @@ def test_scoring_algorithms():
                 {"framework": "OWASP LLM Top 10", "items": ["LLM01", "LLM02"]},
                 {"framework": "MITRE ATLAS", "items": ["T0001"]},
             ]),
-            "implementation_strategies": json.dumps([{"strategy": "test"}]),
+            "implementation_guidance": json.dumps([{"implementation": "test"}]),
             "has_code_snippets": True
         }
 
@@ -145,7 +145,7 @@ def test_scoring_algorithms():
             "type": "technique",
             "pillar": "infrastructure",
             "phase": "building",
-            "implementation_strategies": json.dumps([{"strategy": "test"}])
+            "implementation_guidance": json.dumps([{"implementation": "test"}])
         }
 
         score = _calculate_complexity_score(mock_doc)
@@ -175,7 +175,7 @@ def test_scoring_algorithms():
                 {"framework": "OWASP", "items": ["T1"] * 50},  # Many threats
                 {"framework": "ATLAS", "items": ["T1"] * 50},
             ]),
-            "implementation_strategies": json.dumps([{"strategy": "test"}] * 10),
+            "implementation_guidance": json.dumps([{"implementation": "test"}] * 10),
             "has_code_snippets": True
         }
 

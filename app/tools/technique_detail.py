@@ -91,7 +91,7 @@ async def get_technique_detail(
         defends_against = _parse_json_field(main_doc.get('defends_against', '[]'))
         tools_opensource = _parse_json_field(main_doc.get('tools_opensource', '[]'))
         tools_commercial = _parse_json_field(main_doc.get('tools_commercial', '[]'))
-        impl_strategies = _parse_json_field(main_doc.get('implementation_strategies', '[]'))
+        impl_strategies = _parse_json_field(main_doc.get('implementation_guidance', '[]'))
 
         # Build main technique info
         technique_info = {
@@ -134,7 +134,7 @@ async def get_technique_detail(
 
             for sub_doc in subtechniques_docs:
                 sub_id = sub_doc.get('source_id')
-                sub_impl_strategies = _parse_json_field(sub_doc.get('implementation_strategies', '[]'))
+                sub_impl_strategies = _parse_json_field(sub_doc.get('implementation_guidance', '[]'))
 
                 subtechnique_info = {
                     "id": sub_id,
@@ -216,7 +216,7 @@ def _format_strategies(
     Format implementation strategies, optionally extracting code snippets.
 
     Args:
-        strategies: List of strategy dicts with 'strategy' and 'howTo' fields
+        strategies: List of guidance dicts with 'implementation' and 'howTo' fields
         include_code: Whether to include full HTML/code
 
     Returns:
@@ -226,7 +226,7 @@ def _format_strategies(
 
     for strat in strategies:
         strategy_info = {
-            "strategy": strat.get('strategy', ''),
+            "implementation": strat.get('implementation', ''),
             "how_to": strat.get('howTo', '') if include_code else _strip_html(strat.get('howTo', ''))
         }
 

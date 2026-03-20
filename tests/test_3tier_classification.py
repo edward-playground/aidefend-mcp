@@ -8,6 +8,7 @@ Tests static keyword matching and fuzzy matching (RapidFuzz-based).
 import asyncio
 import sys
 import os
+import pytest
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.tools.classify_threat import classify_threat
 from app.config import settings
 
+@pytest.mark.asyncio
 async def test_tier1_static_keyword():
     """Test Tier 1: Static keyword matching (should work with high confidence)."""
     print("\n=== TEST 1: Tier 1 - Static Keyword Match ===")
@@ -30,6 +32,7 @@ async def test_tier1_static_keyword():
     print(f"   Top match: {result['keywords_found'][0]['keyword']} (confidence: {result['keywords_found'][0]['confidence']:.2f})")
     return True
 
+@pytest.mark.asyncio
 async def test_tier2_fuzzy_matching():
     """Test Tier 2: Fuzzy matching for typos (should work with moderate confidence)."""
     print("\n=== TEST 2: Tier 2 - Fuzzy Match (Typo Tolerance) ===")
@@ -48,6 +51,7 @@ async def test_tier2_fuzzy_matching():
         print(f"   Top match: {result['keywords_found'][0]['keyword']} (confidence: {result['keywords_found'][0]['confidence']:.2f})")
     return True
 
+@pytest.mark.asyncio
 async def test_combined_matching():
     """Test combined static + fuzzy matching workflow."""
     print("\n=== TEST 3: Combined Static + Fuzzy Matching Workflow ===")
@@ -68,6 +72,7 @@ async def test_combined_matching():
 
     return True
 
+@pytest.mark.asyncio
 async def test_no_match():
     """Test no match scenario."""
     print("\n=== TEST 4: No Match Scenario ===")
@@ -81,6 +86,7 @@ async def test_no_match():
     print(f"   Matches: {len(result['keywords_found'])}")
     return True
 
+@pytest.mark.asyncio
 async def test_confidence_threshold():
     """Test that confidence threshold works correctly."""
     print("\n=== TEST 5: Confidence Threshold Logic ===")

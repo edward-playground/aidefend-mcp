@@ -534,6 +534,117 @@ class ClassifyThreatRequest(BaseModel):
     }
 
 
+# ===== Security Posture Tool Schemas =====
+
+class SecurityPostureRequest(BaseModel):
+    """Request model for security posture analysis endpoint."""
+
+    implemented_techniques: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="List of implemented AIDEFEND technique IDs",
+        examples=[["AID-H-001", "AID-D-001", "AID-I-001"]]
+    )
+    view: str = Field(
+        default="both",
+        description="Analysis view: 'both', 'technical', or 'threat'"
+    )
+    system_type: Optional[str] = Field(
+        default=None,
+        description="Optional system type for context-aware analysis"
+    )
+
+    @field_validator("implemented_techniques")
+    @classmethod
+    def validate_technique_ids(cls, v: List[str]) -> List[str]:
+        """Validate technique ID list."""
+        if not v:
+            raise ValueError("implemented_techniques cannot be empty")
+        if len(v) > 200:
+            raise ValueError("Too many techniques (max 200)")
+        return [tid.strip().upper() for tid in v]
+
+    @field_validator("view")
+    @classmethod
+    def validate_view(cls, v: str) -> str:
+        """Validate view parameter."""
+        valid_views = ["both", "technical", "threat"]
+        if v not in valid_views:
+            raise ValueError(f"view must be one of: {', '.join(valid_views)}")
+        return v
+
+    @field_validator("system_type")
+    @classmethod
+    def validate_system_type(cls, v: Optional[str]) -> Optional[str]:
+        """Validate system_type parameter."""
+        if v is None:
+            return v
+        valid_types = ["chatbot", "rag", "agent", "classifier", "generative", "multimodal"]
+        if v not in valid_types:
+            raise ValueError(f"system_type must be one of: {', '.join(valid_types)}")
+        return v
+
+
+# ===== Technique Comparison Tool Schemas =====
+
+class TechniqueComparisonRequest(BaseModel):
+    """Request model for technique comparison endpoint."""
+
+    technique_ids: List[str] = Field(
+        ...,
+        min_length=2,
+        max_length=10,
+        description="List of technique IDs to compare (2-10)",
+        examples=[["AID-H-001", "AID-D-002", "AID-I-001"]]
+    )
+    include_recommendations: bool = Field(
+        default=True,
+        description="Include prioritization recommendations"
+    )
+
+    @field_validator("technique_ids")
+    @classmethod
+    def validate_technique_ids(cls, v: List[str]) -> List[str]:
+        """Validate technique ID list."""
+        if len(v) < 2:
+            raise ValueError("At least 2 technique IDs required for comparison")
+        if len(v) > 10:
+            raise ValueError("Too many techniques (max 10)")
+        return [tid.strip().upper() for tid in v]
+
+
+# ===== Incident Response Tool Schemas =====
+
+class IncidentPlaybookRequest(BaseModel):
+    """Request model for incident response playbook endpoint."""
+
+    incident_description: str = Field(
+        ...,
+        min_length=10,
+        max_length=1000,
+        description="Free-text description of the AI security incident",
+        examples=["Suspicious prompt injection attempts detected in production chatbot"]
+    )
+    include_defense_techniques: bool = Field(
+        default=True,
+        description="Include specific AIDEFEND defense techniques in playbook"
+    )
+
+    @field_validator("incident_description")
+    @classmethod
+    def validate_incident_description(cls, v: str) -> str:
+        """Validate incident description."""
+        if not v or not v.strip():
+            raise ValueError("incident_description cannot be empty")
+        v = v.strip()
+        if len(v) < 10:
+            raise ValueError("incident_description too short (min 10 characters)")
+        if len(v) > 1000:
+            raise ValueError("incident_description too long (max 1000 characters)")
+        return v
+
+
 class ClassifyThreatResponse(BaseModel):
     """Response model for threat classification endpoint."""
 
