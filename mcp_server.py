@@ -757,12 +757,25 @@ async def serve():
 
     # Run the MCP server
     logger.info("Starting MCP server on stdio...")
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options()
-        )
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options()
+            )
+    finally:
+        # Graceful shutdown: release resources
+        logger.info("MCP server shutting down, cleaning up resources...")
+        try:
+            # Reset query engine state to release DB handles
+            query_engine._initialized = False
+            query_engine._db = None
+            query_engine._table = None
+            query_engine._id_cache = None
+            logger.info("Query engine resources released")
+        except Exception as cleanup_err:
+            logger.warning(f"Error during shutdown cleanup: {cleanup_err}")
 
 
 async def handle_query(arguments: Dict[str, Any]) -> List[TextContent]:

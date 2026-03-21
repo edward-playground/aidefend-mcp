@@ -84,8 +84,10 @@ def setup_logger(
     logger.handlers.clear()  # Remove existing handlers
 
     # Console handler
+    # CRITICAL: MCP mode uses stdout for protocol messages.
+    # Console logging must go to stderr to avoid corrupting the MCP stream.
     if enable_console:
-        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(logging.INFO)
         console_formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -105,8 +107,10 @@ def setup_logger(
     return logger
 
 
-# Create default logger instance
-default_logger = setup_logger()
+# Create default logger instance (console disabled by default to avoid MCP stdout pollution)
+# Explicit setup_logger() calls with enable_console=True should be done
+# only in REST API mode or CLI mode where stdout is safe.
+default_logger = setup_logger(enable_console=False)
 
 
 def get_logger(name: str = "aidefend_mcp") -> logging.Logger:
