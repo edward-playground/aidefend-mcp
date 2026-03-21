@@ -178,6 +178,8 @@ class EmbeddingCache:
         1. The document still exists in the framework
         2. The content hasn't changed (hash mismatch auto-invalidates)
 
+        Uses copy-on-write to avoid corrupting the cache dict if interrupted.
+
         Args:
             current_doc_ids: Set of document IDs currently in the framework
         """
@@ -189,20 +191,23 @@ class EmbeddingCache:
 
         logger.info(f"🧹 Running cache cleanup (checking {before_count} entries)...")
 
-        # Remove entries for deleted documents
-        self.cache["embeddings"] = {
+        # Build new dict first (copy-on-write), then swap atomically
+        # This prevents corruption if the process is interrupted mid-cleanup
+        cleaned = {
             hash_key: entry
             for hash_key, entry in self.cache["embeddings"].items()
-            if entry["source_id"] in current_doc_ids
+            if entry.get("source_id") in current_doc_ids
         }
 
-        after_count = len(self.cache["embeddings"])
-        removed = before_count - after_count
+        removed = before_count - len(cleaned)
+
+        # Atomic swap of the embeddings dict
+        self.cache["embeddings"] = cleaned
 
         if removed > 0:
-            logger.info(f"✅ Cache cleanup: removed {removed} entries for deleted documents, kept {after_count} entries")
+            logger.info(f"✅ Cache cleanup: removed {removed} entries for deleted documents, kept {len(cleaned)} entries")
         else:
-            logger.info(f"✅ Cache is healthy: all {after_count} entries are valid")
+            logger.info(f"✅ Cache is healthy: all {len(cleaned)} entries are valid")
 
     def save(self):
         """Save cache to disk."""

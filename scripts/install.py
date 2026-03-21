@@ -386,8 +386,8 @@ def install_nodejs_auto() -> Tuple[bool, str]:
             # Clean up installer
             try:
                 Path(installer_path).unlink()
-            except:
-                pass
+            except OSError as cleanup_err:
+                print(f"   ⚠️  Could not clean up installer: {cleanup_err}")
 
             # Verify installation
             print("\n   Verifying installation...")
@@ -413,7 +413,7 @@ def install_nodejs_auto() -> Tuple[bool, str]:
                     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
                         try:
                             user_path = winreg.QueryValueEx(key, "Path")[0]
-                        except:
+                        except (FileNotFoundError, OSError):
                             user_path = ""
 
                     # Combine paths
@@ -456,8 +456,8 @@ def install_nodejs_auto() -> Tuple[bool, str]:
             # Clean up
             try:
                 Path(installer_path).unlink()
-            except:
-                pass
+            except OSError as cleanup_err:
+                print(f"   ⚠️  Could not clean up installer: {cleanup_err}")
 
             # Verify
             print("\n   Verifying installation...")
@@ -886,8 +886,8 @@ def install_vc_redist_auto() -> Tuple[bool, str]:
         # Clean up installer
         try:
             Path(installer_path).unlink()
-        except:
-            pass  # Don't fail if cleanup fails
+        except OSError as cleanup_err:
+            print(f"   ⚠️  Could not clean up installer: {cleanup_err}")
 
         if result.returncode == 0:
             print("   ✅ Installation completed successfully!")
@@ -1107,7 +1107,7 @@ def validate_paths(python_path: str, mcp_path: str) -> bool:
 
 
 def backup_config(config_path: Path) -> Optional[Path]:
-    """Create backup of existing config file."""
+    """Create backup of existing config file and clean up old backups (keep last 3)."""
     if not config_path.exists():
         return None
 
@@ -1115,6 +1115,24 @@ def backup_config(config_path: Path) -> Optional[Path]:
     backup_path = config_path.with_suffix(f'.json.backup.{timestamp}')
     shutil.copy2(config_path, backup_path)
     print(f"✅ Backup created: {backup_path.name}")
+
+    # Clean up old backups, keeping the most recent 3
+    try:
+        backup_pattern = config_path.stem + ".json.backup.*"
+        backups = sorted(
+            config_path.parent.glob(backup_pattern),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True
+        )
+        for old_backup in backups[3:]:
+            try:
+                old_backup.unlink()
+                print(f"   Cleaned up old backup: {old_backup.name}")
+            except OSError:
+                pass
+    except Exception:
+        pass  # Non-critical cleanup
+
     return backup_path
 
 
@@ -1144,6 +1162,13 @@ def merge_config(config_path: Path, aidefend_config: Dict[str, Any]) -> Dict[str
         name for name in existing_config['mcpServers'].keys()
         if name != 'aidefend'
     ]
+
+    # Warn if aidefend already exists (Fix #9)
+    if 'aidefend' in existing_config['mcpServers']:
+        existing = existing_config['mcpServers']['aidefend']
+        existing_cmd = existing.get('command', 'unknown')
+        print(f"\n⚠️  Existing 'aidefend' MCP config found (command: {existing_cmd})")
+        print(f"   This will be replaced with the new configuration.")
 
     # Add/update AIDEFEND
     existing_config['mcpServers']['aidefend'] = aidefend_config

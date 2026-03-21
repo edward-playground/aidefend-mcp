@@ -175,8 +175,10 @@ class SyncFileLock:
 # File lock is stored in DATA_PATH for cross-process visibility
 _file_lock = SyncFileLock(settings.DATA_PATH / "sync.lock")
 
-# Global state for last sync error
+# Thread-safe global state for last sync error
+import threading
 _last_sync_error: Optional[str] = None
+_sync_error_lock = threading.Lock()
 
 
 async def _acquire_sync_lock() -> bool:
@@ -199,28 +201,26 @@ async def _acquire_sync_lock() -> bool:
         return True
 
     # Lock not acquired - provide diagnostic information
+    # Use a single try block to avoid TOCTOU race (file could vanish between exists() and stat())
     lock_file = settings.DATA_PATH / "sync.lock"
-    if lock_file.exists():
-        try:
-            # Get lock file age for diagnostic purposes
-            # CRITICAL: This measurement is now accurate because acquire()
-            # no longer modifies the mtime
-            mtime = datetime.fromtimestamp(lock_file.stat().st_mtime)
-            age = datetime.now() - mtime
-            age_seconds = age.total_seconds()
+    try:
+        stat_info = lock_file.stat()
+        mtime = datetime.fromtimestamp(stat_info.st_mtime)
+        age = datetime.now() - mtime
+        age_seconds = age.total_seconds()
 
-            logger.warning(
-                f"Sync already in progress (lock held by another process). "
-                f"Lock file age: {age_seconds:.1f} seconds. "
-                f"If sync is stuck, manually delete: {lock_file}"
-            )
-        except Exception as stat_error:
-            logger.warning(
-                f"Sync already in progress (file lock is held). "
-                f"Failed to get lock file stats: {stat_error}"
-            )
-    else:
+        logger.warning(
+            f"Sync already in progress (lock held by another process). "
+            f"Lock file age: {age_seconds:.1f} seconds. "
+            f"If sync is stuck, manually delete: {lock_file}"
+        )
+    except FileNotFoundError:
         logger.info("Sync lock acquisition failed (lock file does not exist)")
+    except Exception as stat_error:
+        logger.warning(
+            f"Sync already in progress (file lock is held). "
+            f"Failed to get lock file stats: {stat_error}"
+        )
 
     return False
 
@@ -280,13 +280,13 @@ def is_lock_held_by_other_process() -> bool:
         # No lock file exists
         return False
 
-    # Use OS-specific lock checking with read-only mode to avoid modifying mtime
+    # Use OS-specific lock checking to detect if another process holds the lock
     if sys.platform == "win32":
         # Windows: Try to lock file using msvcrt
+        # CRITICAL: Must use O_RDWR because msvcrt.locking requires write access
         try:
             import msvcrt
-            # Open in read mode (os.O_RDONLY) to avoid modifying mtime
-            fd = os.open(str(lock_file), os.O_RDONLY)
+            fd = os.open(str(lock_file), os.O_RDWR)
             try:
                 # Try non-blocking lock (LK_NBLCK)
                 msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
@@ -298,9 +298,11 @@ def is_lock_held_by_other_process() -> bool:
                 # Another process holds the lock
                 os.close(fd)
                 return True
+        except OSError:
+            # File may not exist or permission denied - assume not locked
+            return False
         except Exception as e:
             logger.debug(f"Failed to check lock status on Windows: {e}")
-            # Can't determine - assume not held by others
             return False
     else:
         # Unix/Linux/macOS: Use fcntl
@@ -364,9 +366,17 @@ def cleanup_stale_lock() -> None:
         logger.error(f"Error checking stale lock: {e}")
 
 
+def _set_last_sync_error(error: Optional[str]) -> None:
+    """Set last sync error message (thread-safe)."""
+    global _last_sync_error
+    with _sync_error_lock:
+        _last_sync_error = error
+
+
 def get_last_sync_error() -> Optional[str]:
-    """Get last sync error message."""
-    return _last_sync_error
+    """Get last sync error message (thread-safe)."""
+    with _sync_error_lock:
+        return _last_sync_error
 
 
 def check_database_corruption() -> bool:
@@ -1279,6 +1289,7 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
             # Helper function to run embedding generation with progress in thread
             def generate_embeddings_with_progress():
                 """Generate embeddings with progress logging (runs in thread)."""
+                import gc
                 import sys
                 from datetime import datetime
                 embeddings_list = []
@@ -1301,6 +1312,10 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
                         # Print to console with explicit flush for real-time display
                         print(progress_msg, file=sys.stderr)
                         sys.stderr.flush()  # Explicit flush to ensure immediate output
+
+                    # Hint GC every 50 embeddings to manage memory for large datasets
+                    if (idx + 1) % 50 == 0:
+                        gc.collect()
 
                 return embeddings_list
 
@@ -1368,10 +1383,12 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
 
         # Drop temporary table if exists (from previous failed sync)
         try:
-            await asyncio.to_thread(db.drop_table, temp_table_name)
-            logger.info(f"Dropped existing '{temp_table_name}' table")
-        except Exception:
-            pass  # Table doesn't exist, that's fine
+            table_names = await asyncio.to_thread(db.table_names)
+            if temp_table_name in table_names:
+                await asyncio.to_thread(db.drop_table, temp_table_name)
+                logger.info(f"Cleaned up orphaned '{temp_table_name}' table from previous failed sync")
+        except Exception as cleanup_err:
+            logger.warning(f"Could not clean up temp table '{temp_table_name}': {cleanup_err}")
 
         # Create new table with explicit schema
         logger.info(f"💾 Writing {len(records)} records to database ('{temp_table_name}' table)...")
@@ -1392,43 +1409,58 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
         logger.info(f"Successfully created {temp_table_name} table. Performing atomic swap...")
 
         # Atomic swap: Rename tables for zero-downtime deployment
+        # Uses rollback on failure to prevent inconsistent state
+
+        aidefend_path = settings.DB_PATH / "aidefend.lance"
+        backup_path = settings.DB_PATH / "aidefend_backup.lance"
+        new_sync_path = settings.DB_PATH / f"{temp_table_name}.lance"
+        backed_up = False
+
         # 1. Delete old backup if exists
         try:
-            await asyncio.to_thread(db.drop_table, "aidefend_backup")
-            logger.info("Deleted old backup table")
-        except Exception:
-            pass  # No backup exists
-
-        # 2. Rename current aidefend to aidefend_backup (if exists)
-        try:
-            table_names = await asyncio.to_thread(db.table_names)
-            if "aidefend" in table_names:
-                # LanceDB doesn't have native rename, so we need to use underlying filesystem
-                aidefend_path = settings.DB_PATH / "aidefend.lance"
-                backup_path = settings.DB_PATH / "aidefend_backup.lance"
-
-                if aidefend_path.exists():
-                    await asyncio.to_thread(
-                        aidefend_path.rename,
-                        backup_path
-                    )
-                    logger.info("Renamed aidefend -> aidefend_backup")
+            if backup_path.exists():
+                import shutil
+                await asyncio.to_thread(shutil.rmtree, str(backup_path))
+                logger.info("Deleted old backup table")
         except Exception as e:
-            logger.warning(f"Could not backup old table: {e}")
+            logger.warning(f"Could not delete old backup (non-critical): {e}")
 
-        # 3. Rename new_sync to aidefend (atomic operation)
-        new_sync_path = settings.DB_PATH / f"{temp_table_name}.lance"
-        aidefend_path = settings.DB_PATH / "aidefend.lance"
-
-        await asyncio.to_thread(
-            new_sync_path.rename,
-            aidefend_path
-        )
-
-        logger.info("Atomic swap complete: aidefend_new_sync -> aidefend")
-
-        # 4. Reload query engine to use new table
+        # 2. Pause query engine before swap to prevent read errors
         from app.core import query_engine
+        query_engine._initialized = False
+        logger.info("Query engine paused for database swap")
+
+        try:
+            # 3. Rename current aidefend to aidefend_backup (if exists)
+            if aidefend_path.exists():
+                await asyncio.to_thread(
+                    aidefend_path.rename,
+                    backup_path
+                )
+                backed_up = True
+                logger.info("Renamed aidefend -> aidefend_backup")
+
+            # 4. Rename new_sync to aidefend
+            # On Windows, target must not exist (ensured by step 3)
+            await asyncio.to_thread(
+                new_sync_path.rename,
+                aidefend_path
+            )
+
+            logger.info("Atomic swap complete: aidefend_new_sync -> aidefend")
+
+        except Exception as swap_error:
+            # ROLLBACK: restore backup if swap failed
+            logger.error(f"Database swap failed: {swap_error}. Attempting rollback...")
+            if backed_up and backup_path.exists() and not aidefend_path.exists():
+                try:
+                    await asyncio.to_thread(backup_path.rename, aidefend_path)
+                    logger.info("Rollback successful: restored aidefend from backup")
+                except Exception as rollback_error:
+                    logger.error(f"Rollback also failed: {rollback_error}. Manual intervention required.")
+            raise swap_error
+
+        # 5. Reload query engine to use new table
         reload_success = await query_engine.reload()
         if reload_success:
             logger.info("Query engine reloaded successfully")
@@ -1436,6 +1468,12 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
             logger.warning("Query engine reload reported failure (may still work)")
 
         logger.info("Zero-downtime sync complete!")
+
+        # Close LanceDB connection explicitly to release file handles
+        try:
+            del db
+        except Exception:
+            pass
 
         # Set secure permissions on database directory
         db_dir = settings.DB_PATH
@@ -1503,9 +1541,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
 
     Note: This function does NOT acquire locks - caller must handle locking.
     """
-    global _last_sync_error
-
-    _last_sync_error = None
+    _set_last_sync_error(None)
 
     try:
         logger.info("=" * 60)
@@ -1528,7 +1564,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                 "Check the logs for detailed HTTP error codes and network diagnostics."
             )
             logger.error(error_msg)
-            _last_sync_error = error_msg
+            _set_last_sync_error(error_msg)
             return False
 
         # Check if update needed (unless force_rebuild=True)
@@ -1603,7 +1639,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                 "and network error details for each failed file."
             )
             logger.error(error_msg)
-            _last_sync_error = error_msg
+            _set_last_sync_error(error_msg)
             return False
 
         # Check if enough files downloaded (intro.js is optional)
@@ -1616,7 +1652,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                 "Check the download errors in the logs above for specific failure reasons."
             )
             logger.error(error_msg)
-            _last_sync_error = error_msg
+            _set_last_sync_error(error_msg)
             return False
 
         logger.info(f"✅ Downloaded {len(downloaded_files)}/{len(settings.AIDEFEND_FILES)} files")
@@ -1685,7 +1721,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                     "Check if 'acorn' parser is installed: npm list acorn"
                 )
                 logger.error(error_msg, exc_info=True)
-                _last_sync_error = error_msg  # Record last error
+                _set_last_sync_error(error_msg)  # Record last error
                 failed_files.append(file_path.name)
                 # Continue processing other files instead of returning False
 
@@ -1709,7 +1745,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                 "4. Try manual test: node parse_js_module.mjs <file.js>"
             )
             logger.error(error_msg)
-            _last_sync_error = error_msg
+            _set_last_sync_error(error_msg)
             return False
 
         # Warn if partial failure occurred
@@ -1726,7 +1762,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
             )
             logger.warning(warning_msg)
             # Update _last_sync_error to show partial failure with details
-            _last_sync_error = warning_msg
+            _set_last_sync_error(warning_msg)
 
         # Embed and index
         success, statistics = await embed_and_index(all_documents)
@@ -1750,7 +1786,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                 "- Embedding generation error\n"
                 "- LanceDB write error"
             )
-            _last_sync_error = error_msg
+            _set_last_sync_error(error_msg)
             return False
 
         # Verify we actually got documents (catch edge cases)
@@ -1766,7 +1802,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                 "This is a bug - please report this issue."
             )
             logger.error(error_msg)
-            _last_sync_error = error_msg
+            _set_last_sync_error(error_msg)
             return False
 
         logger.info(f"Successfully indexed {total_docs} documents")
@@ -1794,7 +1830,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                     "Try restarting the service or running with --resync flag."
                 )
                 logger.error(error_msg)
-                _last_sync_error = error_msg
+                _set_last_sync_error(error_msg)
                 return False
 
             # Verify reload actually made service ready
@@ -1808,7 +1844,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                     "Check the query engine logs for model loading errors."
                 )
                 logger.error(error_msg)
-                _last_sync_error = error_msg
+                _set_last_sync_error(error_msg)
                 return False
 
             logger.info("Query engine reloaded successfully")
@@ -1828,7 +1864,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                 "The service may need to be restarted. Check the full stack trace in the logs."
             )
             logger.error(error_msg, exc_info=True)
-            _last_sync_error = error_msg
+            _set_last_sync_error(error_msg)
             return False
 
         # Save version info ONLY after reload succeeds and is_ready = True
@@ -1872,7 +1908,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
             "Check the full stack trace in the logs for diagnostic information."
         )
         logger.error(error_msg, exc_info=True)
-        _last_sync_error = error_msg
+        _set_last_sync_error(error_msg)
         return False
 
 
@@ -1996,18 +2032,42 @@ async def _create_vector_index_if_needed() -> bool:
 
 
 async def sync_loop():
-    """Background task that runs sync periodically."""
+    """Background task that runs sync periodically with exponential backoff on failure."""
     logger.info(
         f"Starting sync loop (interval: {settings.SYNC_INTERVAL_SECONDS}s)"
     )
 
+    consecutive_failures = 0
+    max_backoff = 3600 * 4  # Cap at 4 hours
+
     while True:
         try:
-            await asyncio.sleep(settings.SYNC_INTERVAL_SECONDS)
+            # Calculate sleep with backoff on consecutive failures
+            if consecutive_failures > 0:
+                backoff = min(
+                    settings.SYNC_INTERVAL_SECONDS * (2 ** consecutive_failures),
+                    max_backoff
+                )
+                logger.warning(
+                    f"Sync backoff: waiting {backoff:.0f}s after {consecutive_failures} consecutive failure(s)"
+                )
+                await asyncio.sleep(backoff)
+            else:
+                await asyncio.sleep(settings.SYNC_INTERVAL_SECONDS)
+
             if settings.ENABLE_AUTO_SYNC:
-                await run_sync()
+                success = await run_sync()
+                if success:
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
+                    logger.warning(
+                        f"Sync failed ({consecutive_failures} consecutive). "
+                        f"Next retry with backoff."
+                    )
         except asyncio.CancelledError:
             logger.info("Sync loop cancelled")
             break
         except Exception as e:
+            consecutive_failures += 1
             logger.error(f"Error in sync loop: {e}", exc_info=True)

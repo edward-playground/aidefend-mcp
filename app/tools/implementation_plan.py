@@ -12,7 +12,13 @@ Scoring dimensions:
 5. Tool ecosystem maturity (tools_commercial availability)
 """
 
+import asyncio
+import html  # For HTML entity unescaping
 import json
+import re    # For fallback HTML parsing
+import lancedb
+
+from app.security import sanitize_technique_id
 
 
 def _safe_json_loads(value, default=None):
@@ -27,10 +33,6 @@ def _safe_json_loads(value, default=None):
         except (json.JSONDecodeError, ValueError):
             return default
     return default
-import asyncio
-import html  # For HTML entity unescaping
-import re    # For fallback HTML parsing
-import lancedb
 from typing import Dict, Any, List, Set, Optional
 from collections import defaultdict
 from bs4 import BeautifulSoup  # Robust HTML parsing for Compound Tool optimization
@@ -369,9 +371,16 @@ async def get_implementation_plan(
 
                     strategy_details = []
 
+                    # Defense-in-depth: sanitize tech_id even though it comes from DB
+                    sanitized_tid = sanitize_technique_id(tech_id) if tech_id else None
+
+                    if not sanitized_tid:
+                        logger.warning(f"Skipping strategy fetch for invalid technique ID: {tech_id}")
+                        continue
+
                     # Step 1: Check for subtechniques
                     sub_techniques = await asyncio.to_thread(
-                        lambda tid=tech_id: table.search()
+                        lambda tid=sanitized_tid: table.search()
                         .where(f"type = 'subtechnique' AND parent_technique_id = '{tid}'")
                         .limit(5)  # Get up to 5 subtechniques
                         .to_pandas()
