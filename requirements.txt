@@ -9,7 +9,7 @@ python-multipart==0.0.20
 
 # Pydantic and settings
 pydantic==2.12.4
-pydantic-settings==2.7.1
+pydantic-settings==2.11.0
 
 # Vector database
 lancedb==0.25.3
