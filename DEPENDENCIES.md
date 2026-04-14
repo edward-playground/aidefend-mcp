@@ -157,12 +157,10 @@ All Python dependencies are listed in [`requirements.txt`](requirements.txt). To
 | **beautifulsoup4** | 4.12.3 | HTML parsing (for web content) | MIT |
 | **rapidfuzz** | 3.10.1 | Fast fuzzy string matching (10-100x faster than difflib) | MIT |
 | **aiorwlock** | 1.4.0 | Async read-write locks for QueryEngine | Apache-2.0 |
-| **filelock** | 3.13.1 | Cross-process file locking for safe concurrent sync | Unlicense |
 
 **Why these**:
 - rapidfuzz: Used for typo-tolerant threat classification (Tier 2 fuzzy matching)
 - aiorwlock: Prevents race conditions during database reads/writes
-- filelock: Ensures only one sync process runs at a time
 
 ---
 
@@ -253,7 +251,6 @@ All dependencies use permissive open-source licenses:
 - **Apache-2.0**: LanceDB, aiorwlock
 - **BSD-3-Clause**: uvicorn, httpx, pandas
 - **PSF License**: Python, typing-extensions
-- **Unlicense**: filelock (public domain)
 
 **No proprietary or copyleft (GPL) licenses used.**
 

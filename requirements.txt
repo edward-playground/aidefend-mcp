@@ -44,6 +44,3 @@ rapidfuzz==3.10.1
 # Read-Write Lock for QueryEngine
 aiorwlock==1.4.0
 
-# Security
-# filelock: Cross-process file locking for safe concurrent sync operations
-filelock==3.13.1
