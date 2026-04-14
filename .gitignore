@@ -87,6 +87,8 @@ logs/
 *.tmp
 temp/
 tmp/
+.release-check-*/
+.wheelcheck/
 
 # VSCode Claude extension cache
 .claude/
