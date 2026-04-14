@@ -3,7 +3,7 @@ Security Posture Analysis Tool for AIDEFEND MCP Service
 
 Comprehensive security posture analysis combining:
 1. Technical coverage (tactics/pillars/phases)
-2. Threat framework coverage (OWASP/ATLAS/MAESTRO)
+2. Threat framework coverage across all mapped external frameworks
 3. Gap analysis and recommendations
 
 This tool merges functionality from analyze_coverage and get_threat_coverage
@@ -14,6 +14,7 @@ from typing import Dict, Any, List, Optional
 
 from app.logger import get_logger
 from app.security import InputValidationError
+from app.framework_utils import FRAMEWORK_LABELS
 from app.tools.coverage_analysis import analyze_coverage
 from app.tools.threat_coverage import get_threat_coverage
 
@@ -30,7 +31,7 @@ async def analyze_security_posture(
 
     Provides unified view of security coverage from both technical and threat perspectives:
     - Technical view: Coverage by tactic/pillar/phase, gap analysis, recommendations
-    - Threat view: Coverage of OWASP LLM Top 10, MITRE ATLAS, MAESTRO frameworks
+    - Threat view: Coverage across all mapped threat frameworks
     - Both views: Combined analysis (default)
 
     Args:
@@ -72,7 +73,7 @@ async def analyze_security_posture(
         ...     system_type="rag"
         ... )
         >>> print(f"Overall coverage: {result['technical_coverage']['overall_coverage']['percentage']}%")
-        >>> print(f"OWASP threats covered: {result['threat_coverage']['covered_threats']['owasp']}")
+        >>> print(result['threat_coverage']['coverage_rate'])
     """
     # Input validation
     if not isinstance(implemented_techniques, list):
@@ -173,12 +174,16 @@ def _generate_unified_summary(
     # analyze_coverage returns analysis_summary.coverage_percentage (0-100)
     tech_coverage_pct = technical_cov.get("analysis_summary", {}).get("coverage_percentage", 0)
     # get_threat_coverage returns coverage_rate as fractions (0.0-1.0), convert to percentage
-    owasp_cov_pct = threat_cov.get("coverage_rate", {}).get("owasp", 0) * 100
-    atlas_cov_pct = threat_cov.get("coverage_rate", {}).get("atlas", 0) * 100
-    maestro_cov_pct = threat_cov.get("coverage_rate", {}).get("maestro", 0) * 100
+    framework_percentages = {
+        key: threat_cov.get("coverage_rate", {}).get(key, 0) * 100
+        for key in FRAMEWORK_LABELS
+    }
 
     # Determine overall posture
-    avg_coverage = (tech_coverage_pct + owasp_cov_pct + atlas_cov_pct + maestro_cov_pct) / 4
+    avg_coverage = (
+        tech_coverage_pct
+        + sum(framework_percentages.values())
+    ) / (len(framework_percentages) + 1)
 
     if avg_coverage >= 80:
         summary["overall_posture"] = "strong"
@@ -193,15 +198,10 @@ def _generate_unified_summary(
     summary["key_insights"].append(
         f"Technical coverage: {tech_coverage_pct:.1f}% of AIDEFEND techniques"
     )
-    summary["key_insights"].append(
-        f"OWASP LLM Top 10: {owasp_cov_pct:.1f}% threat coverage"
-    )
-    summary["key_insights"].append(
-        f"MITRE ATLAS: {atlas_cov_pct:.1f}% threat coverage"
-    )
-    summary["key_insights"].append(
-        f"MAESTRO: {maestro_cov_pct:.1f}% threat coverage"
-    )
+    for key, label in FRAMEWORK_LABELS.items():
+        summary["key_insights"].append(
+            f"{label}: {framework_percentages[key]:.1f}% threat coverage"
+        )
 
     # Identify top priorities from technical gaps and recommendations
     # Note: critical_gaps contains gap analysis (tactic/pillar/phase gaps)
@@ -222,9 +222,20 @@ def _generate_unified_summary(
             for rec in recommendations[:5]
         ])
 
+    low_coverage_frameworks = [
+        (FRAMEWORK_LABELS[key], pct)
+        for key, pct in framework_percentages.items()
+        if pct < 50
+    ]
+    low_coverage_frameworks.sort(key=lambda item: item[1])
+    for label, pct in low_coverage_frameworks[:3]:
+        summary["top_priorities"].append(
+            f"Increase {label} coverage ({pct:.1f}%)"
+        )
+
     # Identify uncovered OWASP threats from threat coverage data
     # get_threat_coverage returns "covered" dict, compute uncovered from known OWASP list
-    covered_owasp = threat_cov.get("covered", {}).get("owasp", [])
+    covered_owasp = threat_cov.get("covered", {}).get("owasp_llm", [])
     all_owasp = ["LLM01", "LLM02", "LLM03", "LLM04", "LLM05",
                  "LLM06", "LLM07", "LLM08", "LLM09", "LLM10"]
     uncovered_owasp = [t for t in all_owasp if t not in covered_owasp]

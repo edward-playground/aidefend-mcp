@@ -137,6 +137,9 @@ async def get_technique_detail(
 
             for sub_doc in subtechniques_docs:
                 sub_id = sub_doc.get('source_id')
+                sub_defends_against = _parse_json_field(sub_doc.get('defends_against', '[]'))
+                sub_tools_opensource = _parse_json_field(sub_doc.get('tools_opensource', '[]'))
+                sub_tools_commercial = _parse_json_field(sub_doc.get('tools_commercial', '[]'))
                 sub_impl_strategies = _parse_json_field(sub_doc.get('implementation_guidance', '[]'))
 
                 subtechnique_info = {
@@ -148,8 +151,17 @@ async def get_technique_detail(
                     "has_code_snippets": sub_doc.get('has_code_snippets', False)
                 }
 
+                if sub_defends_against:
+                    subtechnique_info["defends_against"] = sub_defends_against
+
+                if include_tools and (sub_tools_opensource or sub_tools_commercial):
+                    subtechnique_info["tools"] = {
+                        "opensource": sub_tools_opensource,
+                        "commercial": sub_tools_commercial
+                    }
+
                 # Add strategies for this subtechnique
-                if include_code and sub_impl_strategies:
+                if sub_impl_strategies:
                     subtechnique_info["strategies"] = _format_strategies(
                         sub_impl_strategies,
                         include_code=include_code
@@ -157,9 +169,14 @@ async def get_technique_detail(
 
                 subtechniques.append(subtechnique_info)
 
+            if not subtechniques_docs and impl_strategies:
+                # Standalone techniques store implementation guidance on the
+                # technique record itself.
+                strategies = _format_strategies(impl_strategies, include_code=include_code)
+
         elif doc_type == 'subtechnique':
             # This is a subtechnique - include its strategies
-            if include_code and impl_strategies:
+            if impl_strategies:
                 strategies = _format_strategies(impl_strategies, include_code=include_code)
 
         # Step 3: Build response

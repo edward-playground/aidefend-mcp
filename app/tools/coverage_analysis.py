@@ -4,7 +4,6 @@ Coverage Analysis Tool for AIDEFEND MCP Service
 Analyzes defense coverage based on implemented techniques and identifies gaps.
 """
 
-import json
 import asyncio
 import lancedb
 from typing import Dict, Any, List, Optional
@@ -13,6 +12,13 @@ from collections import defaultdict
 from app.logger import get_logger
 from app.config import settings
 from app.security import InputValidationError
+from app.framework_utils import (
+    coverage_lists_from_sets,
+    extract_framework_coverage,
+    is_actionable_record,
+    merge_framework_coverage_sets,
+    parse_json_list,
+)
 
 logger = get_logger(__name__)
 
@@ -29,7 +35,9 @@ def _query_techniques_from_table(table) -> List[Dict[str, Any]]:
     Returns:
         List of technique records
     """
-    return table.search().where("type = 'technique'").to_pandas().to_dict('records')
+    return table.search().where(
+        "type = 'technique' OR type = 'subtechnique'"
+    ).to_pandas().to_dict('records')
 
 
 async def analyze_coverage(
@@ -98,7 +106,9 @@ async def analyze_coverage(
             _query_techniques_from_table, table
         )
 
-        logger.info(f"Total techniques in KB: {len(all_techniques)}")
+        all_techniques = [tech for tech in all_techniques if is_actionable_record(tech)]
+
+        logger.info(f"Total actionable techniques in KB: {len(all_techniques)}")
 
         # Calculate coverage by tactic
         coverage_by_tactic = _calculate_tactic_coverage(
@@ -252,10 +262,7 @@ def _calculate_pillar_coverage(
         pillar_raw = tech.get('pillar', '')
         # Parse JSON array (or handle already-parsed list)
         if isinstance(pillar_raw, str) and pillar_raw.strip():
-            try:
-                pillars = json.loads(pillar_raw)
-            except json.JSONDecodeError:
-                pillars = []
+            pillars = parse_json_list(pillar_raw)
         elif isinstance(pillar_raw, list):
             pillars = pillar_raw
         else:
@@ -271,10 +278,7 @@ def _calculate_pillar_coverage(
         if tech['source_id'] in implemented:
             pillar_raw = tech.get('pillar', '')
             if isinstance(pillar_raw, str) and pillar_raw.strip():
-                try:
-                    pillars = json.loads(pillar_raw)
-                except json.JSONDecodeError:
-                    pillars = []
+                pillars = parse_json_list(pillar_raw)
             elif isinstance(pillar_raw, list):
                 pillars = pillar_raw
             else:
@@ -326,10 +330,7 @@ def _calculate_phase_coverage(
         phase_raw = tech.get('phase', '')
         # Parse JSON array (or handle already-parsed list)
         if isinstance(phase_raw, str) and phase_raw.strip():
-            try:
-                phases = json.loads(phase_raw)
-            except json.JSONDecodeError:
-                phases = []
+            phases = parse_json_list(phase_raw)
         elif isinstance(phase_raw, list):
             phases = phase_raw
         else:
@@ -345,10 +346,7 @@ def _calculate_phase_coverage(
         if tech['source_id'] in implemented:
             phase_raw = tech.get('phase', '')
             if isinstance(phase_raw, str) and phase_raw.strip():
-                try:
-                    phases = json.loads(phase_raw)
-                except json.JSONDecodeError:
-                    phases = []
+                phases = parse_json_list(phase_raw)
             elif isinstance(phase_raw, list):
                 phases = phase_raw
             else:
@@ -392,40 +390,46 @@ def _analyze_threat_coverage(
     all_techniques: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """Analyze threat framework coverage."""
-    owasp_covered = set()
-    atlas_covered = set()
-    maestro_covered = set()
+    covered_sets = merge_framework_coverage_sets()
+    total_sets = merge_framework_coverage_sets()
+
+    for tech in all_techniques:
+        total_sets = merge_framework_coverage_sets(
+            total_sets,
+            extract_framework_coverage(parse_json_list(tech.get('defends_against', '[]'))),
+        )
 
     for tech in all_techniques:
         if tech['source_id'] not in implemented:
             continue
 
-        defends_against_str = tech.get('defends_against', '[]')
-        try:
-            defends_against = json.loads(defends_against_str) if isinstance(defends_against_str, str) else defends_against_str
+        covered_sets = merge_framework_coverage_sets(
+            covered_sets,
+            extract_framework_coverage(parse_json_list(tech.get('defends_against', '[]'))),
+        )
 
-            for framework_data in defends_against:
-                framework_name = framework_data.get('framework', '')
-                items = framework_data.get('items', [])
-
-                if 'OWASP' in framework_name:
-                    owasp_covered.update(items)
-                elif 'ATLAS' in framework_name or 'MITRE' in framework_name:
-                    atlas_covered.update(items)
-                elif 'MAESTRO' in framework_name:
-                    maestro_covered.update(items)
-
-        except (json.JSONDecodeError, TypeError):
-            pass
+    coverage_rate = {}
+    framework_totals = {}
+    for key, total in total_sets.items():
+        total_count = len(total)
+        framework_totals[key] = total_count
+        coverage_rate[key] = round(len(covered_sets.get(key, set())) / total_count, 3) if total_count else 0.0
 
     return {
-        "owasp_llm_covered": len(owasp_covered),
-        "mitre_atlas_covered": len(atlas_covered),
-        "maestro_covered": len(maestro_covered),
+        "owasp_llm_covered": len(covered_sets["owasp_llm"]),
+        "owasp_ml_covered": len(covered_sets["owasp_ml"]),
+        "owasp_agentic_covered": len(covered_sets["owasp_agentic"]),
+        "mitre_atlas_covered": len(covered_sets["atlas"]),
+        "maestro_covered": len(covered_sets["maestro"]),
+        "nist_aml_covered": len(covered_sets["nist_aml"]),
+        "cisco_covered": len(covered_sets["cisco"]),
+        "google_saif_covered": len(covered_sets["google_saif"]),
+        "databricks_covered": len(covered_sets["databricks"]),
+        "coverage_rate": coverage_rate,
+        "framework_totals": framework_totals,
         "coverage_details": {
-            "owasp_items": sorted(list(owasp_covered))[:10],  # Top 10
-            "atlas_items": sorted(list(atlas_covered))[:10],
-            "maestro_items": sorted(list(maestro_covered))[:10]
+            key: values[:10]
+            for key, values in coverage_lists_from_sets(covered_sets).items()
         }
     }
 
@@ -506,7 +510,7 @@ def _generate_next_steps(
 
     # Short-term: Fill remaining gaps
     short_term.append("Achieve 50%+ coverage in all tactics")
-    short_term.append("Cover top 5 OWASP LLM threats")
+    short_term.append("Improve coverage across the lowest-covered threat frameworks")
 
     # Long-term
     long_term.append("Achieve 80%+ overall coverage")

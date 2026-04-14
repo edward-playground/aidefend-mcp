@@ -11,6 +11,7 @@ from fastembed import TextEmbedding
 from app.logger import get_logger
 from app.config import settings
 from app.security import InputValidationError
+from app.framework_utils import is_actionable_record
 
 logger = get_logger(__name__)
 
@@ -87,12 +88,15 @@ async def get_quick_reference(
         model = await asyncio.to_thread(TextEmbedding, model_name=model_name)
         query_embedding = list(await asyncio.to_thread(model.embed, [topic]))[0]
 
-        # Search for relevant techniques
-        search_results = await asyncio.to_thread(
+        # Search actionable controls only. Parent techniques in the latest
+        # framework can be umbrella records that are not directly implementable.
+        raw_results = await asyncio.to_thread(
             lambda: table.search(query_embedding.tolist()).where(
-                "type = 'technique'"
-            ).limit(max_items * 2).to_pandas().to_dict('records')
+                "type = 'technique' OR type = 'subtechnique'"
+            ).limit(max_items * 4).to_pandas().to_dict('records')
         )
+        search_results = [record for record in raw_results if is_actionable_record(record)]
+        search_results = search_results[: max_items * 2]
 
         logger.info(f"Found {len(search_results)} relevant techniques")
 

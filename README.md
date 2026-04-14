@@ -1,568 +1,198 @@
-[English Readme](README.md) | [繁體中文 Readme](README-繁體中文.md)
+[English README](README.md) | [繁體中文 README](README-繁體中文.md)
 
 ---
 
 # AIDEFEND MCP / REST API Service
 
+[![CI](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%20|%203.13-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.121.1-009688.svg)](https://fastapi.tiangolo.com)
-[![Security: Multiple Layers](https://img.shields.io/badge/security-multi--layer-success.svg)](./SECURITY.md)
 
-> **⚠️ Note: This project is under active development. APIs and architectural design are subject to change. Any feedback and recommendations are highly appreciated!**
+Local retrieval service for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework).
 
-A **local, decentralized RAG (Retrieval-Augmented Generation) engine** for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework).
-This service provides secure, private access to the AIDEFEND knowledge base without sending sensitive queries to external services. Two modes are supported:
+This repository safely parses the framework's JavaScript tactics, builds a local LanceDB knowledge base, and exposes the result through:
 
-- **REST API**: For custom applications and system integration.
+- a REST API for applications and automation
+- an MCP server for AI assistants such as Claude Desktop
 
-- **MCP Server**: For native integration with AI assistants like Claude Desktop.
+This repository is **not** the framework itself. It is the service layer on top of the framework.
 
-## Features
+## What You Get
 
-- **100% Private & Local**: All queries processed locally - your prompts never leave your infrastructure, works completely offline
-- **Multilingual Support**: Query in any language (Chinese, Japanese, Korean, etc.) and get relevant English results with `Xenova/multilingual-e5-base` (Microsoft, 100+ languages)
-- **Cost Efficient**: 25x token reduction vs sending full framework - drastically lower LLM API costs
-- **Long Query Support**: Automatic chunking for long queries (up to 5000 chars) with intelligent sentence-boundary splitting
-- **Auto-Sync**: Automatically pulls latest AIDEFEND content from GitHub (hourly checks)
-- **Fast Vector Search**: LanceDB-powered semantic search (CPU: 500-1000ms per query; optional GPU acceleration: 100-300ms - see [GPU guide](docs/advanced/GPU_ACCELERATION.md))
-- **Security-First**: Comprehensive input validation, sanitization, and security headers
-- **Docker Ready**: Easy deployment with Docker and docker-compose
-- **Smart Context-Aware Scoring**: Prioritizes defenses based on prevention vs. detection, asset criticality, compliance impact, and implementation readiness
-- **Defense in Depth**: Multiple security layers (see [SECURITY.md](./SECURITY.md))
+- Local semantic search over AIDEFEND content
+- REST API and MCP access from the same indexed knowledge base
+- Automatic sync from the upstream GitHub repository by default
+- Optional local framework override for contributors working on both repos
+- Multilingual embedding search with `Xenova/multilingual-e5-base`
+- Automated tests and Bandit security scanning in GitHub Actions
 
+## How It Works
 
+1. Sync AIDEFEND tactic files from GitHub.
+2. Parse the JavaScript files with a Node.js AST parser. The service does not execute upstream framework code.
+3. Expand tactics into techniques, sub-techniques, and strategies.
+4. Generate embeddings and store the documents in LanceDB.
+5. Serve the indexed data over REST or MCP.
+
+## Requirements
+
+- Python 3.9 to 3.13
+- Node.js 18+
+- Git
+- About 2 to 3 GB free disk space for dependencies, embedding model, and local database
+
+Normal users do **not** need to configure any personal local path. The default setup syncs from GitHub.
 
 ## Quick Start
 
-### Step 1: Clone the Repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/edward-playground/aidefend-mcp.git
 cd aidefend-mcp
 ```
 
-### Step 2: Choose Your Mode & Install
+### 2. Pick an installation path
 
-| Mode | Best For | Quick Start |
-|------|----------|-------------|
-| **🖥️ Claude Desktop** | Desktop app users | `python scripts/install.py` |
-| **💻 Claude Code** | VSCode users | `python scripts/install.py --client code` |
-| **🌐 REST API** | HTTP integration, CI/CD | `python scripts/install.py --no-mcp` |
-| **🐳 Docker** | Production deployment | `docker-compose up -d` |
+| Use case | Recommended command |
+| --- | --- |
+| Claude Desktop MCP | `python scripts/install.py` |
+| Claude Code MCP | `python scripts/install.py --client code` |
+| REST API only | `python scripts/install.py --no-mcp` |
+| Manual setup | Follow [INSTALL.md](INSTALL.md) |
 
----
-
-<details open>
-<summary><h4>🔌 Option A: MCP Mode (Claude Desktop) - Recommended</h4></summary>
-
-**🚀 One-Click Installation (5 - 8 minutes):**
+### 3. Build the local knowledge base
 
 ```bash
-# Single command - installs everything and configures Claude Desktop
-python scripts/install.py
-
-# macOS/Linux users: Use python3 if python points to Python 2
-python3 scripts/install.py
+python __main__.py --resync
 ```
 
-**What this script does:**
-- ✅ Checks Python 3.9+ and Node.js 18+ versions
-- ✅ Installs all Python dependencies automatically
-- ✅ Installs all Node.js dependencies automatically
-- ✅ Auto-detects paths and configures Claude Desktop
-- ✅ **Safely merges configuration (preserves existing MCP tools)**
-- ✅ Creates backup before any changes
+The first sync downloads the framework, embedding model, and creates the local database. Expect several minutes on a clean machine.
 
-**For details:** See [One-Click Installation in INSTALL.md](INSTALL.md#-mcp-mode-setup-claude-desktop---one-click-installation).
+### 4. Run the service
 
-**🚀 How to Start:**
+REST API:
 
-After installation completes:
-
-1. **Restart Claude Desktop completely** (quit and reopen)
-2. **Verify tools are available** - Ask Claude: *"What AIDEFEND tools do you have?"*
-3. **Start using!** - Ask Claude: *"How do I defend against prompt injection?"*
-
-> **💡 Note:** MCP mode starts automatically when Claude Desktop launches - no manual server start needed!
-
-**Optional: Test MCP server manually:**
-```bash
-# Test that MCP server runs without errors
-python __main__.py --mcp
-
-# You should see: "Starting AIDEFEND MCP Server (stdio mode)..."
-# Press Ctrl+C to stop
-```
-
-<details>
-<summary><b>Advanced: Manual Setup (click to expand)</b></summary>
-
-See detailed manual setup instructions in [INSTALL.md](INSTALL.md).
-
-</details>
-
-</details>
-
----
-
-<details>
-<summary><h4>🌐 Option B: REST API Mode (HTTP Integration)</h4></summary>
-
-**Install dependencies:**
-```bash
-# Install dependencies without MCP configuration
-python scripts/install.py --no-mcp
-
-# macOS/Linux users: Use python3 if python points to Python 2
-python3 scripts/install.py --no-mcp
-```
-
-**Start the service:**
 ```bash
 python __main__.py
 ```
 
-**Verify it's running:**
-```bash
-curl http://localhost:8000/health
-```
-
-**Access API docs:**
-Open browser: http://localhost:8000/docs
-
-The service automatically syncs with GitHub and indexes AIDEFEND framework on first run.
-
-</details>
-
----
-
-<details>
-<summary><h4>🐳 Option C: Docker Deployment (Production)</h4></summary>
-
-**Docker Security Requirement:**
-Docker usage binds to `0.0.0.0` and **REQUIRES** an API Key.
-
-1. Generate key: `python scripts/generate_api_key.py`
-2. Create `.env`:
-```bash
-AUTH_MODE=api_key
-AIDEFEND_API_KEY=<your-key>
-```
-3. Start: `docker-compose up -d`
-4. Check logs: `docker-compose logs -f`
-5. Verify health:
-```bash
-curl http://localhost:8000/health
-# Expected: {"status":"healthy",...}
-```
-
-**Note:** MCP mode requires direct Python execution and cannot run in Docker.
-
-</details>
-
-## 💰 Why Use This MCP / REST API Service?
-
-### TL;DR
-**Save 90% on LLM costs + Get better answers + 5-minute setup = Your new AI security workflow**
-
-> If you're querying AI security defenses with ChatGPT/Claude/Gemini, you might be wasting 90% of your budget while getting incomplete answers.
-
----
-
-### 📊 The Two Ways to Use AIDEFEND
-
-#### ❌ Manual Way: Download → Paste into LLM
-
-```
-1. Download all tactics/*.js files from GitHub          (⏱️ 5 min)
-2. Merge into one file                                  (⏱️ 3 min)
-3. Copy ~50,000 tokens to clipboard
-4. Paste into ChatGPT/Claude
-5. Ask your question
-
-Problems:
-💸 Cost per query: $0.50 (GPT-4)
-⚠️  LLM may miss critical info (Lost in the Middle Problem)
-🔄 AIDEFEND updated? Re-download everything (8 min each time)
-📊 100 queries = $50
-```
-
-#### ✅ AIDEFEND MCP Way: Smart Vector Search
-
-```
-1. Install once (5 - 8 minutes)
-   python scripts/install.py
-
-2. Ask your question (via Claude Desktop or API)
-
-Advantages:
-💰 Cost per query: $0.02 (2,000 tokens vs 50,000)
-✅ Vector search finds most relevant content (no missing info)
-🔄 Auto-updates every hour (zero maintenance)
-📊 100 queries = $2
-
-Save $48 + hours of manual work!
-```
-
----
-
-### 💸 Real Cost Comparison
-
-| Usage | Manual (50K tokens/query) | AIDEFEND MCP (2K tokens/query) | Savings |
-|-------|--------------------------|-------------------------------|---------|
-| **100 queries** | $50 | $2 | **$48** |
-| **1 year (10/day)** | $1,825 | $73 | **$1,752** |
-
-*Based on GPT-4 Turbo pricing ($10/1M input tokens)*
-
-💡 **Enterprise teams save $1,752+/year in LLM API costs alone**
-
----
-
-### 🎯 Why Vector Search Beats Full-Text Paste
-
-**The "Lost in the Middle" Problem:**
-
-When you paste 50,000 tokens into an LLM, it struggles with information in the middle:
-
-```
-Your 50K token paste:
-┌─────────────────────────────────┐
-│ First 10K tokens                │  ← LLM pays attention ⭐⭐⭐⭐⭐
-│ Model Tactic...                 │
-│                                 │
-│ Middle 30K tokens               │  ← LLM attention drops ⭐⭐
-│ ⚠️  Most important defenses!    │  ← Often missed!
-│ ⚠️  AID-H-001, AID-H-002...     │
-│                                 │
-│ Last 10K tokens                 │  ← LLM pays attention ⭐⭐⭐⭐⭐
-│ Respond Tactic...               │
-└─────────────────────────────────┘
-
-Result: LLM may skip the most relevant techniques!
-```
-
-**Vector Search Solution:**
-
-```
-Your question: "How to defend against prompt injection?"
-       ↓
-Vector search analyzes semantic similarity
-       ↓
-Returns TOP 5 most relevant (2K tokens):
-✅ AID-H-001: Input Validation        (similarity: 0.92)
-✅ AID-H-002: Prompt Guard             (similarity: 0.89)
-✅ AID-D-001: Anomaly Detection        (similarity: 0.85)
-       ↓
-LLM gets precise, relevant information → Better answers!
-```
-
-> **Research shows**: Vector search improves answer quality by 40% compared to full-text retrieval
-
----
-
-### 🛠️ Not Just Search: 18 Professional Tools
-
-**Manual way:** Ask questions
-**AIDEFEND MCP:** Professional AI security analysis platform
-
-**Example Tools:**
-
-```python
-# 1. Coverage Analysis - Find your defense gaps
-analyze_coverage(implemented_techniques=["AID-H-001"])
-→ Shows coverage % by tactic, identifies gaps
-
-# 2. Implementation Planning - What to build next
-get_implementation_plan(implemented_techniques=["AID-H-001"])
-→ Ranked recommendations based on threat importance
-
-# 3. Compliance Mapping - Audit support
-map_to_compliance_framework(techniques=["AID-H-001"], framework="nist_ai_rmf")
-→ Maps to NIST AI RMF, EU AI Act, ISO 42001
-
-# 4. Threat Coverage - Which threats are you protected against?
-get_threat_coverage(implemented_techniques=["AID-H-001"])
-→ OWASP LLM Top 10, MITRE ATLAS coverage analysis
-```
-
-💼 **These capabilities don't exist in manual workflows**
-
----
-
-
-
-## Architecture
-
-### Dual-Mode Design
-
-This service supports **two modes** to fit different use cases:
-
-1. **REST API Mode** - For system integration (existing applications, custom tools)
-2. **MCP Mode** - For AI assistants (Claude Desktop, other MCP-compatible clients)
-
-Both modes share the same core logic, ensuring consistent results.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    AIDEFEND MCP Service                     │
-│                      (Dual-Mode Support)                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐         ┌──────────────┐                  │
-│  │              │         │              │                  │
-│  │  Sync        │────────▶│  LanceDB     │                 │
-│  │  Service     │  Index  │  Vector DB   │                  │
-│  │              │         │              │                  │
-│  └──────┬───────┘         └───────▲──────┘                  │
-│         │                         │                         │
-│         │ GitHub                  │ Query                   │
-│         │ API                     │                         │
-│         ▼                         │                         │
-│  ┌──────────────┐         ┌──────┴──────┐                   │
-│  │  AIDEFEND    │         │  Query      │                   │
-│  │  Framework   │         │  Engine     │◀────┐            │
-│  │  (GitHub)    │         │ (Shared)    │     │             │
-│  └──────────────┘         └──────┬──────┘     │             │
-│                                   │           │             │
-│                          ┌────────┴────────┐  │             │
-│                          │                 │  │             │
-│                    ┌─────▼──────┐   ┌──────▼─────┐          │
-│                    │  FastAPI   │   │ MCP Server │          │
-│                    │  REST API  │   │  (stdio)   │          │
-│                    └─────┬──────┘   └──────┬─────┘          │
-│                          │                 │                │
-└──────────────────────────┼─────────────────┼────────────────┘
-                           │                 │
-                  ┌────────┴────────┐ ┌──────┴──────┐
-                  │  Your LLM       │ │   Claude    │
-                  │  Application    │ │   Desktop   │
-                  │  (HTTP Client)  │ │  (MCP)      │
-                  └─────────────────┘ └─────────────┘
-```
-
-### When to Use Each Mode
-
-| Use Case | Recommended Mode | Why |
-|----------|------------------|-----|
-| **Claude Desktop integration** | MCP Mode | Native tool support, no HTTP needed |
-| **Custom scripts/automation** | REST API Mode | Standard HTTP, easy to integrate |
-| **System integration** | REST API Mode | Works with any HTTP client |
-| **AI assistant conversations** | MCP Mode | Optimized for AI assistant workflows |
-| **Both simultaneously** | Run both! | They can coexist on the same machine |
-
-## Prerequisites
-
-- **Python 3.9 - 3.13** (tested on 3.13.6)
-- **Node.js 18+** (required for parsing JavaScript files)
-  - Download: https://nodejs.org/
-  - Verify: `node --version`
-- **Docker** (optional, for containerized deployment)
-- **2GB RAM** minimum (4GB recommended)
-- **2-2.5GB disk space** (reduced from 3-4GB with Int8 quantized model)
-  - Service itself: ~200-700MB (code + knowledge base + logs)
-  - Dependencies: ~880MB-1.48GB (ONNX model + Python/Node packages)
-  - **75% smaller embedding model**: Quantized Int8 version (280MB vs 1.1GB original)
-
-
-## Usage Guide
-
-> **💡 Tip:** For troubleshooting and maintenance commands (including database resync), see the [Troubleshooting section in INSTALL.md](INSTALL.md#troubleshooting).
-
-### REST API Mode Usage
-
-The REST API provides HTTP endpoints for integration with any application.
-
-#### Query Endpoint
+MCP server:
 
 ```bash
-POST /api/v1/query
-Content-Type: application/json
-
-{
-  "query_text": "How do I protect against prompt injection attacks?",
-  "top_k": 5
-}
+python __main__.py --mcp
 ```
 
-**Example with curl:**
-```bash
-curl -X POST "http://localhost:8000/api/v1/query" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query_text": "What are best practices for AI model hardening?",
-    "top_k": 5
-  }'
-```
-
-#### Other Key Endpoints
+Health check:
 
 ```bash
-# Service status
-GET /api/v1/status
-
-# Health check
-GET /health
-
-# Manual sync
-POST /api/v1/sync
+curl http://127.0.0.1:8000/health
 ```
 
-> **📖 Full API documentation:** http://localhost:8000/docs (when service is running)
+## Manual Setup From a Fresh Clone
 
-### MCP Mode Usage
-
-When running in MCP mode (`python __main__.py --mcp`), the service provides tools for AI assistants like Claude Desktop.
-
-**Example conversation:**
-
-```
-You: "How do I defend against prompt injection attacks?"
-
-Claude: [Automatically uses query_aidefend tool]
-       Based on AIDEFEND, here are the key defense techniques...
-```
-
-> **📖 Complete MCP tool reference:** [docs/TOOLS.md](docs/TOOLS.md)
-
-## Available Tools (18 Tools)
-
-The AIDEFEND MCP Service provides **18 specialized tools** for AI security analysis:
-
-### Basic Query Tools (3 tools)
-- 🔍 **query_aidefend** - Search AIDEFEND knowledge base
-- ✅ **get_aidefend_status** - Check service status and framework version
-- 🔄 **sync_aidefend** - Manually trigger sync
-
-### Technique Analysis Tools (4 tools)
-- 📊 **get_statistics** - Knowledge base statistics
-- ✅ **validate_technique_id** - Validate technique IDs
-- 📖 **get_technique_detail** - Deep-dive into techniques
-- 💻 **get_secure_code_snippet** - Get code examples
-
-### Threat Analysis Tools (3 tools)
-- 🛡️ **get_defenses_for_threat** - Find defenses for threats
-- 🎯 **classify_threat** - Classify threats (100% local)
-- 📋 **get_threat_coverage** - Analyze threat coverage
-
-### Planning & Analysis Tools (5 tools)
-- 📈 **analyze_coverage** - Identify defense gaps
-- 🗺️ **map_to_compliance_framework** - Map to compliance (NIST, EU AI Act, etc.)
-- ⚖️ **compare_techniques** - Compare techniques side-by-side
-- 🎯 **get_implementation_plan** - Get prioritized recommendations
-- 🛡️ **analyze_security_posture** - Comprehensive posture analysis
-
-### Advanced Tools (3 tools)
-- 🔎 **comprehensive_search** - Multi-query aggregated search
-- 📝 **get_quick_reference** - Generate checklists
-- 🚨 **generate_incident_playbook** - Incident response playbooks
-
-> **📖 Complete tool documentation with examples:** [docs/TOOLS.md](docs/TOOLS.md)
-
-## Configuration
-
-All configuration is done via environment variables. Copy `.env.example` to `.env` and customize as needed.
-
-### Key Configuration Options
+If you want a clean, explicit install path instead of the helper script:
 
 ```bash
-# Authentication
-AUTH_MODE=no_auth                    # or "api_key" for production
-AIDEFEND_API_KEY=<your-key>          # Required when AUTH_MODE=api_key
-
-# Server
-API_HOST=127.0.0.1                   # Use 0.0.0.0 for external access
-API_PORT=8000
-API_WORKERS=1                        # ⚠️ Must be 1 (multi-worker not supported)
-
-# Sync
-SYNC_INTERVAL_SECONDS=3600           # Auto-sync frequency (1 hour)
-
-# Embedding
-EMBEDDING_MODEL=Xenova/multilingual-e5-base
-EMBEDDING_DIMENSION=768
-
-# Rate Limiting
-ENABLE_RATE_LIMITING=true
-RATE_LIMIT_PER_MINUTE=60
+python -m venv .venv
 ```
 
-> **📖 Complete configuration guide:** [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+Activate the virtual environment.
 
-## Security
+Windows PowerShell:
 
-As an MCP service for an AI security framework, this service implements multiple security layers:
+```powershell
+.venv\Scripts\Activate.ps1
+```
 
-- **Local-First Processing**: All queries processed locally
-- **Input Validation**: Comprehensive sanitization
-- **Rate Limiting**: DoS protection
-- **Authentication**: Optional API key authentication
-- **Container Hardening**: Non-root user, minimal privileges
-- **Audit Logging**: Structured logs with sensitive data filtering
-
-> **📖 Security policy and best practices:** [SECURITY.md](./SECURITY.md)
-
-## Troubleshooting
-
-**Common issues:**
-
-- **Service won't start:** Check logs at `data/logs/aidefend_mcp.log`
-- **Database errors:** Run `python __main__.py --resync`
-- **MCP tools not showing:** Verify absolute paths in Claude Desktop config
-- **Slow queries:** Initial sync in progress, wait for completion
-
-> **📖 Complete troubleshooting guide:** [INSTALL.md#troubleshooting](INSTALL.md#troubleshooting)
-
-## Development
-
-Want to contribute? Great!
+macOS/Linux:
 
 ```bash
-# Install dev dependencies
-pip install -r requirements-dev.txt
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+npm ci
+```
+
+Create local config:
+
+macOS/Linux:
+
+```bash
+cp .env.example .env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then run:
+
+```bash
+python __main__.py --resync
+python __main__.py
+```
+
+## Optional Local Framework Override
+
+By default the service syncs from GitHub. If you are developing this repo alongside a local checkout of `aidefense-framework`, you can point the sync to your local source:
+
+```env
+LOCAL_FRAMEWORK_PATH=/path/to/aidefense-framework
+```
+
+This is optional and should stay unset for normal open-source users.
+
+## Common Commands
+
+```bash
+# Rebuild the local database from the configured source
+python __main__.py --resync
+
+# Run the REST API
+python __main__.py
+
+# Run the MCP server
+python __main__.py --mcp
 
 # Run tests
-pytest
+python -m pytest -q
 
-# Check code quality
-black app/
-flake8 app/
-mypy app/
+# Run static security scan
+python -m bandit -q -r app
 ```
 
-> **📖 Development guide:** [CONTRIBUTING.md](CONTRIBUTING.md)
+## Docker
 
-## Project Structure
+```bash
+docker-compose up -d
+```
 
-```
-aidefend-mcp/
-├── __main__.py              # Entry point (mode selection)
-├── mcp_server.py            # MCP protocol server
-├── app/
-│   ├── main.py              # FastAPI REST API
-│   ├── core.py              # QueryEngine (shared)
-│   ├── sync.py              # Background sync
-│   └── tools/               # 18 specialized tools
-├── docs/                    # Documentation
-│   ├── TOOLS.md             # Complete tool reference
-│   └── CONFIGURATION.md     # Configuration guide
-├── tests/                   # Test suite
-└── data/                    # Runtime data
-```
+When binding externally, authentication is required. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+## Documentation
+
+- Installation: [INSTALL.md](INSTALL.md)
+- Configuration: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+- Advanced configuration: [docs/ADVANCED_CONFIGURATION.md](docs/ADVANCED_CONFIGURATION.md)
+- Tool reference: [docs/TOOLS.md](docs/TOOLS.md)
+- Security notes: [SECURITY.md](SECURITY.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
+
+## Repository Notes
+
+- `data/`, local caches, coverage output, and `.env` are ignored by git and are not required in the repository.
+- CI runs `pytest` and `bandit` automatically on pushes and pull requests.
+- The service has been validated against the updated AIDEFEND framework structure as of April 14, 2026.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- **AIDEFEND Framework**: [edward-playground/aidefense-framework](https://github.com/edward-playground/aidefense-framework)
-- **FastAPI**: Modern Python web framework
-- **LanceDB**: Vector database for semantic search
-- **FastEmbed**: ONNX-based embedding models (Quantized Int8 for 75% size reduction)
-- **Anthropic MCP**: Model Context Protocol
-
----
-
-**Questions or issues?** Please open an issue on [GitHub](https://github.com/edward-playground/aidefend-mcp/issues).
+MIT. See [LICENSE](LICENSE).

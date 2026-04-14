@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 from app.config import settings
-from app.security import validate_query_text, validate_top_k
+from app.security import validate_query_text, validate_top_k, validate_chunked_query
 
 
 def _utc_now() -> datetime:
@@ -24,7 +24,7 @@ class QueryRequest(BaseModel):
     query_text: str = Field(
         ...,
         min_length=3,
-        max_length=settings.MAX_QUERY_LENGTH,
+        max_length=settings.MAX_TOTAL_QUERY_LENGTH,
         description="Natural language query for AIDEFEND knowledge base",
         examples=["How to harden AI models against adversarial attacks?"]
     )
@@ -39,6 +39,9 @@ class QueryRequest(BaseModel):
     @classmethod
     def validate_and_sanitize_query(cls, v: str) -> str:
         """Validate and sanitize query text using security module."""
+        if len(v) > settings.MAX_QUERY_LENGTH:
+            sanitized, _ = validate_chunked_query(v)
+            return sanitized
         return validate_query_text(v)
 
     @field_validator("top_k")
@@ -322,10 +325,13 @@ class ThreatCoverageResponse(BaseModel):
         description="List of technique IDs that were not found"
     )
     covered: Dict[str, List[str]] = Field(
-        description="Covered threats grouped by framework (owasp, atlas, maestro)"
+        description="Covered threats grouped by framework key"
     )
     coverage_rate: Dict[str, float] = Field(
         description="Coverage percentage for each framework"
+    )
+    framework_totals: Dict[str, int] = Field(
+        description="Total normalized threat items available in each framework"
     )
     by_technique: List[Dict[str, Any]] = Field(
         description="Detailed threat coverage per technique"
@@ -344,14 +350,28 @@ class ThreatCoverageResponse(BaseModel):
                     "invalid_count": 0,
                     "invalid_techniques": [],
                     "covered": {
-                        "owasp": ["LLM01", "LLM02", "LLM03"],
+                        "owasp": ["LLM01", "ML02:2023", "ASI03:2026"],
+                        "owasp_llm": ["LLM01"],
+                        "owasp_ml": ["ML02:2023"],
+                        "owasp_agentic": ["ASI03:2026"],
                         "atlas": ["AML.T0020", "AML.T0043"],
                         "maestro": []
                     },
                     "coverage_rate": {
-                        "owasp": 0.3,
+                        "owasp": 0.1,
+                        "owasp_llm": 0.1,
+                        "owasp_ml": 0.1,
+                        "owasp_agentic": 0.1,
                         "atlas": 0.047,
                         "maestro": 0.0
+                    },
+                    "framework_totals": {
+                        "owasp": 30,
+                        "owasp_llm": 10,
+                        "owasp_ml": 10,
+                        "owasp_agentic": 10,
+                        "atlas": 43,
+                        "maestro": 54
                     },
                     "by_technique": [
                         {
@@ -360,6 +380,7 @@ class ThreatCoverageResponse(BaseModel):
                             "tactic": "Detect",
                             "threats_covered": {
                                 "owasp": ["LLM01"],
+                                "owasp_llm": ["LLM01"],
                                 "atlas": [],
                                 "maestro": []
                             }
@@ -695,7 +716,7 @@ class ClassifyThreatResponse(BaseModel):
         description="List of matched threat keywords with confidence scores"
     )
     normalized_threats: Dict[str, List[str]] = Field(
-        description="Normalized threat IDs grouped by framework (owasp, atlas, maestro)"
+        description="Normalized threat IDs grouped by framework key"
     )
     threat_details: List[Dict[str, Any]] = Field(
         description="Detailed threat information for each match"

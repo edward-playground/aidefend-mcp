@@ -36,7 +36,7 @@ OPTIONS:
                     - Configure in Claude Desktop's config.json
                     - See INSTALL.md for setup instructions
 
-    --resync        Delete existing database and resync from GitHub
+    --resync        Delete existing database and resync from configured source
                     - Deletes data/aidefend_kb.lancedb and data/local_version.json
                     - Then exits (you can then start any mode)
                     - Use this when upgrading embedding models or fixing database issues
@@ -104,7 +104,7 @@ def main():
     Supports multiple modes:
     1. REST API mode (default or --api): FastAPI server for HTTP queries
     2. MCP mode (--mcp): stdio-based server for Claude Desktop integration
-    3. Resync mode (--resync): Delete database and resync from GitHub
+    3. Resync mode (--resync): Delete database and resync from configured source
 
     The mode is selected via command-line argument.
     """

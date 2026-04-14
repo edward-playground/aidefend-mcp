@@ -40,6 +40,7 @@ from bs4 import BeautifulSoup  # Robust HTML parsing for Compound Tool optimizat
 from app.logger import get_logger
 from app.config import settings
 from app.security import InputValidationError
+from app.framework_utils import is_actionable_record
 
 logger = get_logger(__name__)
 
@@ -277,12 +278,16 @@ async def get_implementation_plan(
         db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
         table = await asyncio.to_thread(db.open_table, "aidefend")
 
-        # Get all techniques (excluding subtechniques and strategies)
+        # Get all technique-like records, then keep directly implementable items
+        # only (standalone techniques + sub-techniques).
         all_techniques = await asyncio.to_thread(
-            lambda: table.search().where("type = 'technique'").to_pandas().to_dict('records')
+            lambda: table.search().where(
+                "type = 'technique' OR type = 'subtechnique'"
+            ).to_pandas().to_dict('records')
         )
+        all_techniques = [tech for tech in all_techniques if is_actionable_record(tech)]
 
-        logger.info(f"Retrieved {len(all_techniques)} total techniques")
+        logger.info(f"Retrieved {len(all_techniques)} actionable techniques")
 
         # Filter: exclude already implemented and excluded tactics
         candidate_techniques = []

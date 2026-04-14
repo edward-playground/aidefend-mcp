@@ -14,6 +14,7 @@ from app.config import settings
 from app.security import validate_query_text, validate_chunked_query
 from app.chunking import smart_chunk_text
 from app.core import query_engine
+from app.schemas import QueryRequest
 
 logger = get_logger(__name__)
 
@@ -69,13 +70,13 @@ async def search_with_chunking(
         if not validation_meta['chunking_required']:
             # Query is short enough - use regular search
             logger.info("Query within single-chunk limit, using regular search")
+            if filters:
+                logger.debug("Search filters are not supported for chunked search; ignoring filters on short query path")
             results = await query_engine.search(
-                query_text=sanitized_text,
-                top_k=top_k,
-                filters=filters
+                QueryRequest(query_text=sanitized_text, top_k=top_k)
             )
             return {
-                "results": results,
+                "results": [_normalize_search_result(result) for result in results],
                 "metadata": {
                     "chunking_used": False,
                     "original_length": validation_meta['original_length'],
@@ -250,10 +251,10 @@ async def _search_single_chunk(
         )
 
         # Perform search
+        if filters:
+            logger.debug("Search filters are not supported for chunked search; ignoring filters on chunk search path")
         results = await query_engine.search(
-            query_text=sanitized_chunk,
-            top_k=top_k,
-            filters=filters
+            QueryRequest(query_text=sanitized_chunk, top_k=top_k)
         )
 
         logger.debug(
@@ -270,6 +271,29 @@ async def _search_single_chunk(
         )
         # Return empty results instead of failing entire search
         return []
+
+
+def _normalize_search_result(result: Any) -> Dict[str, Any]:
+    """Convert query results into a consistent dict shape for deduplication and API output."""
+    if hasattr(result, "model_dump"):
+        normalized = result.model_dump()
+    elif isinstance(result, dict):
+        normalized = dict(result)
+    else:
+        raise TypeError(f"Unsupported search result type: {type(result)!r}")
+
+    technique_id = normalized.get("technique_id") or normalized.get("source_id")
+    if technique_id:
+        normalized.setdefault("source_id", technique_id)
+
+    if "similarity_score" not in normalized:
+        distance = normalized.get("score", normalized.get("_distance"))
+        if isinstance(distance, (int, float)):
+            normalized["similarity_score"] = 1.0 / (1.0 + float(distance))
+        else:
+            normalized["similarity_score"] = 0.0
+
+    return normalized
 
 
 def _deduplicate_and_rank_results(
@@ -295,6 +319,7 @@ def _deduplicate_and_rank_results(
 
     for chunk_results in results_list:
         for result in chunk_results:
+            result = _normalize_search_result(result)
             technique_id = result.get('technique_id') or result.get('source_id')
 
             if not technique_id:

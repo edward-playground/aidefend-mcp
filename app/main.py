@@ -150,10 +150,10 @@ async def lifespan(app: FastAPI):
                 logger.error("❌ Initial sync failed - queries will fail")
                 logger.error("   User must manually run sync_aidefend tool or restart service")
         else:
-            # Warm start - database exists, trigger background sync to check for updates
+            # Warm start - database exists, serve immediately.
+            # Periodic sync loop will check for updates without blocking initial queries.
             logger.info("Warm start detected (database exists)")
-            logger.info("Triggering background sync check for updates...")
-            asyncio.create_task(run_sync())
+            logger.info("Serving existing database immediately; periodic sync loop will handle update checks")
 
         # Start background sync loop if enabled
         if settings.ENABLE_AUTO_SYNC:
@@ -231,7 +231,7 @@ async def limit_request_size_middleware(request: Request, call_next):
                     }
                 )
                 return JSONResponse(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                     content={
                         "error": "REQUEST_TOO_LARGE",
                         "message": f"Request body exceeds maximum allowed size of {MAX_REQUEST_SIZE} bytes (1MB)",
@@ -546,8 +546,7 @@ async def query_aidefend(request: Request, query_request: QueryRequest):
             try:
                 result = await search_with_chunking(
                     query_text=query_text,
-                    top_k=query_request.top_k,
-                    filters=query_request.filters
+                    top_k=query_request.top_k
                 )
 
                 # result contains: {results: [...], metadata: {...}}
@@ -768,8 +767,8 @@ async def api_get_defenses_for_threat(
     """
     Find AIDEFEND defense techniques for a specific threat.
 
-    Supports threat IDs from OWASP LLM Top 10, MITRE ATLAS, MAESTRO,
-    or natural language threat keywords.
+    Supports threat IDs from the mapped framework set or natural language
+    threat keywords.
     """
     start_time = datetime.now()
     audit_ctx = audit_tool_call(
@@ -1029,7 +1028,7 @@ async def api_get_threat_coverage(request: Request, coverage_request: ThreatCove
     Given a list of implemented AIDEFEND technique IDs, this endpoint:
     - Validates each technique ID against the database
     - Retrieves threat mappings from defends_against field
-    - Calculates coverage rates for OWASP LLM Top 10, MITRE ATLAS, and MAESTRO
+    - Calculates coverage rates for all mapped threat frameworks
     - Returns detailed per-technique threat mapping
 
     **Use Case**: Track which threats are covered by your implemented defenses
@@ -1048,7 +1047,7 @@ async def api_get_threat_coverage(request: Request, coverage_request: ThreatCove
         audit_tool_completion(
             audit_ctx,
             success=True,
-            result_summary=f"{result['valid_count']}/{result['input_count']} valid, OWASP: {len(result['covered']['owasp'])}, ATLAS: {len(result['covered']['atlas'])}"
+            result_summary=f"{result['valid_count']}/{result['input_count']} valid techniques analyzed"
         )
 
         return ThreatCoverageResponse(**result)
@@ -1140,8 +1139,8 @@ async def api_classify_threat(request: Request, classify_request: ClassifyThreat
     """
     Classify threats in text using static keyword dictionary matching.
 
-    Maps common threat terms to standard framework IDs (OWASP LLM Top 10,
-    MITRE ATLAS, MAESTRO) using simple keyword matching.
+    Maps common threat terms to the standard framework IDs used by the service
+    using simple keyword matching.
 
     **Method**: Static keyword dictionary with ~40 threat terms
     - Primary keyword matching (e.g., "prompt injection" -> LLM01)
@@ -1277,7 +1276,7 @@ async def api_analyze_security_posture(
     Comprehensive security posture analysis combining technical and threat perspectives.
 
     Provides unified view of security coverage including tactic/pillar/phase distribution,
-    threat framework coverage rates (OWASP/ATLAS/MAESTRO), and prioritized recommendations.
+    threat framework coverage rates across all mapped external frameworks, and prioritized recommendations.
     """
     start_time = datetime.now()
     audit_ctx = audit_tool_call(

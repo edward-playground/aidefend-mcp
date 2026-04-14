@@ -17,6 +17,11 @@ from app.config import settings
 from app.security import InputValidationError, sanitize_technique_id
 from app.core import query_engine
 from app.exceptions import QueryEngineNotInitializedError
+from app.framework_utils import (
+    FRAMEWORK_LABELS,
+    extract_framework_coverage,
+    merge_framework_coverage_sets,
+)
 
 logger = get_logger(__name__)
 
@@ -226,22 +231,18 @@ def _extract_technique_info(technique_doc: Dict[str, Any]) -> Dict[str, Any]:
     opensource_tools = _parse_json_field(technique_doc.get('tools_opensource', '[]'))
     commercial_tools = _parse_json_field(technique_doc.get('tools_commercial', '[]'))
 
-    # Count threats by framework
-    threat_summary = {"owasp": 0, "atlas": 0, "maestro": 0}
-
-    if isinstance(defends_against, list):
-        for defense_item in defends_against:
-            if isinstance(defense_item, dict):
-                framework = defense_item.get('framework', '').lower()
-                items = defense_item.get('items', [])
-                item_count = len(items) if isinstance(items, list) else 0
-
-                if 'owasp' in framework:
-                    threat_summary['owasp'] += item_count
-                elif 'atlas' in framework:
-                    threat_summary['atlas'] += item_count
-                elif 'maestro' in framework:
-                    threat_summary['maestro'] += item_count
+    coverage_sets = merge_framework_coverage_sets(
+        extract_framework_coverage(defends_against)
+    )
+    threat_summary = {
+        "owasp": len(coverage_sets["owasp"]),
+        "atlas": len(coverage_sets["atlas"]),
+        "maestro": len(coverage_sets["maestro"]),
+        "by_framework": {
+            key: len(coverage_sets.get(key, set()))
+            for key in FRAMEWORK_LABELS
+        }
+    }
 
     return {
         "source_id": technique_doc.get('source_id', ''),

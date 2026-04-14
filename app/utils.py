@@ -3,7 +3,8 @@ Utility functions for AIDEFEND MCP Service.
 """
 
 import json
-import subprocess
+import shutil
+import subprocess  # nosec B404
 import sys
 import re
 from pathlib import Path
@@ -22,6 +23,7 @@ logger = get_logger(__name__)
 
 # Path to Node.js parser script (in project root)
 NODE_PARSER_SCRIPT = Path(__file__).parent.parent / "parse_js_module.mjs"
+NODE_BINARY = shutil.which("node")
 
 
 class JavaScriptParserError(Exception):
@@ -61,12 +63,17 @@ def parse_js_file_with_node(js_file_path: Path) -> Dict[str, Any]:
             f"Node.js parser script not found at {NODE_PARSER_SCRIPT}. "
             f"Expected location: {NODE_PARSER_SCRIPT.resolve()}"
         )
+    if not NODE_BINARY:
+        raise JavaScriptParserError(
+            "Node.js executable not found in PATH. Install Node.js 18+ and ensure "
+            "the `node` command is available before syncing AIDEFEND content."
+        )
 
     try:
         # Execute Node.js parser
-        # Command: node parse_js_module.mjs /path/to/file.js
+        # Command: <absolute-node-path> parse_js_module.mjs /path/to/file.js
         result = subprocess.run(
-            ["node", str(NODE_PARSER_SCRIPT), str(validated_path.resolve())],
+            [NODE_BINARY, str(NODE_PARSER_SCRIPT), str(validated_path.resolve())],  # nosec B603
             capture_output=True,
             text=True,
             encoding='utf-8',

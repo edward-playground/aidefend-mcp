@@ -119,7 +119,7 @@ class TestInformationLeakagePrevention:
         # Request that will fail due to validation (controlled error)
         response = client.post(
             "/api/v1/query",
-            json={"query_text": "x" * 2000, "top_k": 5}  # Exceeds MAX_QUERY_LENGTH
+            json={"query_text": "x" * 6000, "top_k": 5}  # Exceeds MAX_TOTAL_QUERY_LENGTH
         )
 
         # Should return 4xx error (400, 401, 403, or 422 for Pydantic validation)

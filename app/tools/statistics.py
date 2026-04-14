@@ -13,6 +13,13 @@ from collections import defaultdict
 
 from app.logger import get_logger
 from app.config import settings
+from app.framework_utils import (
+    build_framework_metrics,
+    extract_framework_coverage,
+    is_actionable_record,
+    merge_framework_coverage_sets,
+    parse_json_list,
+)
 
 logger = get_logger(__name__)
 
@@ -96,10 +103,9 @@ async def get_statistics() -> Dict[str, Any]:
         techniques_with_commercial_tools = 0
         documents_with_code = 0
 
-        # Framework coverage tracking
-        owasp_items = set()
-        atlas_items = set()
-        maestro_items = set()
+        covered_framework_sets = merge_framework_coverage_sets()
+        total_framework_sets = merge_framework_coverage_sets()
+        actionable_total = 0
 
         # Scan documents
         for doc in all_docs:
@@ -108,9 +114,9 @@ async def get_statistics() -> Dict[str, Any]:
             pillar_raw = doc.get('pillar', '')
             phase_raw = doc.get('phase', '')
 
-            # Parse pillar and phase (now JSON arrays)
-            pillars = json.loads(pillar_raw) if isinstance(pillar_raw, str) and pillar_raw.strip() else []
-            phases = json.loads(phase_raw) if isinstance(phase_raw, str) and phase_raw.strip() else []
+            # Parse pillar and phase (stored as JSON arrays)
+            pillars = parse_json_list(pillar_raw)
+            phases = parse_json_list(phase_raw)
 
             # Count by type
             type_counts[doc_type] += 1
@@ -130,46 +136,24 @@ async def get_statistics() -> Dict[str, Any]:
                     if phase:
                         phase_counts[phase] += 1
 
-            # Enhanced features (only for techniques)
-            if doc_type == 'technique':
-                # Parse defends_against field
-                defends_against_str = doc.get('defends_against', '[]')
-                try:
-                    defends_against = json.loads(defends_against_str) if isinstance(defends_against_str, str) else defends_against_str
+            # Enhanced features (standalone techniques + sub-techniques)
+            if is_actionable_record(doc):
+                actionable_total += 1
 
-                    if defends_against:
-                        techniques_with_defenses += 1
+                defends_against = parse_json_list(doc.get('defends_against', '[]'))
+                tools_opensource = parse_json_list(doc.get('tools_opensource', '[]'))
+                tools_commercial = parse_json_list(doc.get('tools_commercial', '[]'))
 
-                        # Extract threat items by framework
-                        for framework_data in defends_against:
-                            framework_name = framework_data.get('framework', '')
-                            items = framework_data.get('items', [])
+                if defends_against:
+                    techniques_with_defenses += 1
+                    coverage = extract_framework_coverage(defends_against)
+                    covered_framework_sets = merge_framework_coverage_sets(covered_framework_sets, coverage)
+                    total_framework_sets = merge_framework_coverage_sets(total_framework_sets, coverage)
 
-                            if 'OWASP' in framework_name:
-                                owasp_items.update(items)
-                            elif 'ATLAS' in framework_name or 'MITRE' in framework_name:
-                                atlas_items.update(items)
-                            elif 'MAESTRO' in framework_name:
-                                maestro_items.update(items)
-
-                except (json.JSONDecodeError, TypeError):
-                    logger.warning(f"Failed to parse defends_against for {doc.get('source_id')}")
-
-                # Parse tools
-                tools_opensource_str = doc.get('tools_opensource', '[]')
-                tools_commercial_str = doc.get('tools_commercial', '[]')
-
-                try:
-                    tools_opensource = json.loads(tools_opensource_str) if isinstance(tools_opensource_str, str) else tools_opensource_str
-                    tools_commercial = json.loads(tools_commercial_str) if isinstance(tools_commercial_str, str) else tools_commercial_str
-
-                    if tools_opensource:
-                        techniques_with_opensource_tools += 1
-                    if tools_commercial:
-                        techniques_with_commercial_tools += 1
-
-                except (json.JSONDecodeError, TypeError):
-                    logger.warning(f"Failed to parse tools for {doc.get('source_id')}")
+                if tools_opensource:
+                    techniques_with_opensource_tools += 1
+                if tools_commercial:
+                    techniques_with_commercial_tools += 1
 
             # Check for code snippets
             has_code = doc.get('has_code_snippets', False)
@@ -181,6 +165,15 @@ async def get_statistics() -> Dict[str, Any]:
         version_info = load_version_info()
         last_synced = version_info.get("last_sync", "Unknown") if version_info else "Unknown"
 
+        threat_framework_coverage = build_framework_metrics(
+            covered_sets=covered_framework_sets,
+            total_sets=total_framework_sets,
+        )
+        threat_framework_coverage["techniques_with_threat_mappings"] = techniques_with_defenses
+        threat_framework_coverage["techniques_mapped_percentage"] = round(
+            (techniques_with_defenses / actionable_total) * 100, 1
+        ) if actionable_total > 0 else 0.0
+
         # Build response
         statistics = {
             "overview": {
@@ -188,6 +181,7 @@ async def get_statistics() -> Dict[str, Any]:
                 "total_techniques": type_counts.get('technique', 0),
                 "total_subtechniques": type_counts.get('subtechnique', 0),
                 "total_strategies": type_counts.get('strategy', 0),
+                "total_actionable_items": actionable_total,
                 "last_synced": last_synced,
                 "embedding_model": "Xenova/multilingual-e5-base (Quantized Int8)" if query_engine.active_embedding_model == "Xenova/multilingual-e5-base" else query_engine.active_embedding_model,
                 "database_path": str(settings.DB_PATH)
@@ -195,23 +189,13 @@ async def get_statistics() -> Dict[str, Any]:
             "by_tactic": dict(sorted(tactic_counts.items())),
             "by_pillar": dict(sorted(pillar_counts.items())),
             "by_phase": dict(sorted(phase_counts.items())),
-            "threat_framework_coverage": {
-                "owasp_llm_items_covered": len(owasp_items),
-                "owasp_llm_total_items": 10,
-                "owasp_llm_coverage_percentage": round((len(owasp_items) / 10) * 100, 1),
-                "mitre_atlas_items_covered": len(atlas_items),
-                "maestro_items_covered": len(maestro_items),
-                "techniques_with_threat_mappings": techniques_with_defenses,
-                "techniques_mapped_percentage": round(
-                    (techniques_with_defenses / type_counts.get('technique', 1)) * 100, 1
-                ) if type_counts.get('technique', 0) > 0 else 0
-            },
+            "threat_framework_coverage": threat_framework_coverage,
             "tools_availability": {
                 "techniques_with_opensource_tools": techniques_with_opensource_tools,
                 "techniques_with_commercial_tools": techniques_with_commercial_tools,
                 "opensource_coverage_percentage": round(
-                    (techniques_with_opensource_tools / type_counts.get('technique', 1)) * 100, 1
-                ) if type_counts.get('technique', 0) > 0 else 0
+                    (techniques_with_opensource_tools / actionable_total) * 100, 1
+                ) if actionable_total > 0 else 0
             },
             "implementation_resources": {
                 "documents_with_code_snippets": documents_with_code,

@@ -43,6 +43,10 @@ class Settings(BaseSettings):
         default="tactics",
         description="Path to tactics directory in repository"
     )
+    LOCAL_FRAMEWORK_PATH: Optional[Path] = Field(
+        default=None,
+        description="Optional local AIDEFEND framework repository path to use instead of GitHub sync"
+    )
 
     # AIDEFEND framework files to sync
     AIDEFEND_FILES: List[str] = Field(
@@ -294,7 +298,7 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid log level. Must be one of: {valid_levels}")
         return v
 
-    @field_validator("DATA_PATH", "DB_PATH", "RAW_PATH", "VERSION_FILE", "LOG_PATH")
+    @field_validator("DATA_PATH", "DB_PATH", "RAW_PATH", "VERSION_FILE", "LOG_PATH", "LOCAL_FRAMEWORK_PATH")
     @classmethod
     def validate_paths(cls, v: Optional[Path]) -> Optional[Path]:
         """
@@ -311,6 +315,22 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode='after')
+    def validate_local_framework_path(self):
+        """Validate optional local framework source path."""
+        if self.LOCAL_FRAMEWORK_PATH is None:
+            return self
+
+        if not self.LOCAL_FRAMEWORK_PATH.exists():
+            raise ValueError(
+                f"LOCAL_FRAMEWORK_PATH does not exist: {self.LOCAL_FRAMEWORK_PATH}"
+            )
+        if not self.LOCAL_FRAMEWORK_PATH.is_dir():
+            raise ValueError(
+                f"LOCAL_FRAMEWORK_PATH must be a directory: {self.LOCAL_FRAMEWORK_PATH}"
+            )
+        return self
+
+    @model_validator(mode='after')
     def validate_api_host_with_auth(self):
         """
         Validate API host binding with authentication mode.
@@ -322,7 +342,7 @@ class Settings(BaseSettings):
         before cross-field validation is performed.
         """
         # Check if binding to external interfaces (0.0.0.0 or empty string)
-        is_external_binding = self.API_HOST in ["0.0.0.0", ""]
+        is_external_binding = self.API_HOST in ["0.0.0.0", ""]  # nosec B104
 
         if is_external_binding and self.AUTH_MODE == "no_auth":
             raise ValueError(
@@ -426,6 +446,18 @@ class Settings(BaseSettings):
     def github_raw_base_url(self) -> str:
         """Construct GitHub raw content base URL."""
         return f"https://raw.githubusercontent.com/{self.GITHUB_REPO_OWNER}/{self.GITHUB_REPO_NAME}"
+
+    @property
+    def sync_source_mode(self) -> str:
+        """Return the active sync source mode."""
+        return "local" if self.LOCAL_FRAMEWORK_PATH else "github"
+
+    @property
+    def local_framework_tactics_path(self) -> Optional[Path]:
+        """Return local tactics directory when local source mode is enabled."""
+        if self.LOCAL_FRAMEWORK_PATH is None:
+            return None
+        return self.LOCAL_FRAMEWORK_PATH / self.GITHUB_TACTICS_PATH
 
     def get_raw_file_url(self, filename: str, commit_sha: str) -> str:
         """

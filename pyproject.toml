@@ -52,11 +52,16 @@ dependencies = [
     "pydantic==2.12.4",
     "pydantic-settings==2.7.1",
     "lancedb==0.25.3",
+    "pandas>=2.0.0",
     "fastembed==0.7.3",
     "mcp==1.21.0",
     "httpx==0.28.1",
     "slowapi==0.1.9",
-    "typing-extensions==4.15.0"
+    "typing-extensions==4.15.0",
+    "beautifulsoup4==4.12.3",
+    "rapidfuzz==3.10.1",
+    "aiorwlock==1.4.0",
+    "pywin32==311; sys_platform == 'win32'"
 ]
 
 [project.optional-dependencies]
@@ -84,6 +89,7 @@ aidefend-mcp = "__main__:main"
 
 [tool.setuptools]
 packages = ["app"]
+py-modules = ["__main__", "mcp_server"]
 include-package-data = true
 
 [tool.setuptools.package-data]
@@ -134,6 +140,9 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml"
+]
+filterwarnings = [
+    "ignore:Test functions should return None.*:pytest.PytestReturnNotNoneWarning"
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

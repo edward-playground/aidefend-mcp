@@ -21,14 +21,23 @@ class TestQueryInputValidation:
 
     @pytest.mark.asyncio
     async def test_query_too_long(self):
-        """Query longer than MAX_QUERY_LENGTH should raise error."""
+        """Query longer than MAX_TOTAL_QUERY_LENGTH should raise error."""
         from app.config import settings
 
         # Create query longer than limit
-        long_query = "A" * (settings.MAX_QUERY_LENGTH + 1)
+        long_query = "A" * (settings.MAX_TOTAL_QUERY_LENGTH + 1)
 
         with pytest.raises(Exception):  # Pydantic ValidationError
             QueryRequest(query_text=long_query, top_k=5)
+
+    def test_long_query_within_chunking_limit_is_allowed(self):
+        """Long queries within chunking limits should validate successfully."""
+        from app.config import settings
+
+        long_query = "A" * (settings.MAX_QUERY_LENGTH + 100)
+        request = QueryRequest(query_text=long_query, top_k=5)
+
+        assert len(request.query_text) == len(long_query)
 
     @pytest.mark.asyncio
     async def test_invalid_top_k_zero(self):

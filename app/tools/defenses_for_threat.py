@@ -13,6 +13,7 @@ from fastembed import TextEmbedding
 from app.logger import get_logger
 from app.config import settings
 from app.security import InputValidationError, sanitize_technique_id
+from app.framework_utils import is_actionable_record
 
 logger = get_logger(__name__)
 
@@ -53,7 +54,6 @@ async def get_defenses_for_threat(
     """
     import lancedb
     from app.core import query_engine
-    from app.exceptions import QueryEngineNotInitializedError
 
     # Input validation (check parameters BEFORE database check)
     if not threat_id and not threat_keyword:
@@ -67,12 +67,6 @@ async def get_defenses_for_threat(
 
     if top_k < 1 or top_k > 50:
         raise InputValidationError("top_k must be between 1 and 50")
-
-    # Pre-flight check: ensure query engine is ready (AFTER parameter validation)
-    if not query_engine.is_ready:
-        raise QueryEngineNotInitializedError(
-            "Database not initialized. Please run 'sync_aidefend' first to download the knowledge base."
-        )
 
     logger.info(f"Searching defenses for threat_id={threat_id}, threat_keyword={threat_keyword}")
 
@@ -150,8 +144,11 @@ async def get_defenses_for_threat(
                 logger.warning(f"Threat mappings index not available or no match, performing full table scan (slow path)")
 
                 all_techniques = await asyncio.to_thread(
-                    lambda: table.search().where("type = 'technique'").to_pandas().to_dict('records')
+                    lambda: table.search().where(
+                        "type = 'technique' OR type = 'subtechnique'"
+                    ).to_pandas().to_dict('records')
                 )
+                all_techniques = [tech for tech in all_techniques if is_actionable_record(tech)]
 
                 logger.info(f"Scanning {len(all_techniques)} techniques for threat mappings...")
 
@@ -219,8 +216,11 @@ async def get_defenses_for_threat(
 
             # Vector search
             search_results = await asyncio.to_thread(
-                lambda: table.search(query_embedding.tolist()).where("type = 'technique'").limit(top_k).to_pandas().to_dict('records')
+                lambda: table.search(query_embedding.tolist()).where(
+                    "type = 'technique' OR type = 'subtechnique'"
+                ).limit(top_k * 2).to_pandas().to_dict('records')
             )
+            search_results = [doc for doc in search_results if is_actionable_record(doc)]
 
             logger.info(f"Found {len(search_results)} results from semantic search")
 
@@ -294,10 +294,18 @@ def normalize_threat_id(threat_id: str) -> str:
     """
     threat_id = threat_id.upper().strip()
 
-    # Extract core ID from OWASP format
+    # Extract core IDs from OWASP formats
     if 'OWASP' in threat_id or 'LLM' in threat_id:
         # Extract LLM## pattern
         match = re.search(r'LLM\d{2}', threat_id)
+        if match:
+            return match.group(0)
+    if 'ML' in threat_id:
+        match = re.search(r'ML\d{2}:2023', threat_id)
+        if match:
+            return match.group(0)
+    if 'ASI' in threat_id:
+        match = re.search(r'ASI\d{2}:2026', threat_id)
         if match:
             return match.group(0)
 
@@ -305,6 +313,13 @@ def normalize_threat_id(threat_id: str) -> str:
     if threat_id.startswith('T') and re.match(r'^T\d{4}', threat_id):
         if not threat_id.startswith('AML.'):
             return f"AML.{threat_id}"
+
+    if threat_id.startswith('NISTAML.'):
+        return threat_id
+
+    cisco_match = re.search(r'AI(?:SUBTECH|TECH)-[\d\.]+', threat_id)
+    if cisco_match:
+        return cisco_match.group(0)
 
     return threat_id
 

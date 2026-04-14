@@ -115,6 +115,8 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
 
         # Add to normalized_threats
         for framework, threat_ids in frameworks.items():
+            if framework not in normalized_threats:
+                normalized_threats[framework] = set()
             normalized_threats[framework].update(threat_ids)
 
         # Build threat_details

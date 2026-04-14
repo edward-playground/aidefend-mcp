@@ -8,15 +8,21 @@ This tool performs reverse mapping: given a list of implemented techniques,
 it identifies which threats are covered and calculates coverage rates.
 """
 
-import json
 import asyncio
 import lancedb
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List
 from collections import defaultdict
 
 from app.logger import get_logger
 from app.config import settings
 from app.security import InputValidationError, sanitize_technique_id
+from app.framework_utils import (
+    coverage_lists_from_sets,
+    extract_framework_coverage,
+    is_actionable_record,
+    merge_framework_coverage_sets,
+    parse_json_list,
+)
 
 logger = get_logger(__name__)
 
@@ -81,95 +87,96 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
         db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
         table = await asyncio.to_thread(db.open_table, "aidefend")
 
-        # Initialize result structures
-        covered_threats = {"owasp": set(), "atlas": set(), "maestro": set()}
+        # Load all technique-like records once. We filter in Python because the
+        # latest framework distinguishes actionable sub-techniques from umbrella
+        # parent techniques.
+        all_records = await asyncio.to_thread(
+            lambda: table.search().where(
+                "type = 'technique' OR type = 'subtechnique'"
+            ).to_pandas().to_dict('records')
+        )
+
+        records_by_id = {record.get("source_id"): record for record in all_records}
+        actionable_records = {
+            record.get("source_id"): record
+            for record in all_records
+            if is_actionable_record(record)
+        }
+        parent_to_children = defaultdict(list)
+        total_threats = merge_framework_coverage_sets()
+
+        for record in actionable_records.values():
+            parent_id = record.get("parent_technique_id")
+            if parent_id:
+                parent_to_children[parent_id].append(record)
+
+            total_threats = merge_framework_coverage_sets(
+                total_threats,
+                extract_framework_coverage(parse_json_list(record.get("defends_against", "[]"))),
+            )
+
+        covered_threats = merge_framework_coverage_sets()
         by_technique = []
         valid_techniques = []
         invalid_techniques = []
 
-        # Process each technique
         for tech_id in normalized_techniques:
-            # Sanitize technique_id to prevent filter injection
             sanitized_id = sanitize_technique_id(tech_id)
 
-            # Query technique from database (using sanitized ID)
-            results = await asyncio.to_thread(
-                lambda tid=sanitized_id: table.search().where(
-                    f"source_id = '{tid}' AND type = 'technique'"
-                ).limit(1).to_pandas().to_dict('records')
-            )
+            docs_to_analyze = []
+            coverage_scope = "actionable_item"
 
-            if not results:
+            if sanitized_id in actionable_records:
+                docs_to_analyze = [actionable_records[sanitized_id]]
+            elif sanitized_id in parent_to_children:
+                docs_to_analyze = parent_to_children[sanitized_id]
+                coverage_scope = "aggregated_subtechniques"
+            else:
                 logger.warning(f"Technique not found: {tech_id}")
                 invalid_techniques.append(tech_id)
                 continue
 
-            tech = results[0]
             valid_techniques.append(tech_id)
+            technique_coverage = merge_framework_coverage_sets()
 
-            # Parse defends_against field
-            defends_against_str = tech.get('defends_against', '[]')
-            try:
-                defends_against = json.loads(defends_against_str) if isinstance(defends_against_str, str) else defends_against_str
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(f"Failed to parse defends_against for {tech_id}")
-                defends_against = []
+            for doc in docs_to_analyze:
+                technique_coverage = merge_framework_coverage_sets(
+                    technique_coverage,
+                    extract_framework_coverage(parse_json_list(doc.get("defends_against", "[]"))),
+                )
 
-            # Extract threats per technique
-            technique_threats = {"owasp": [], "atlas": [], "maestro": []}
+            covered_threats = merge_framework_coverage_sets(covered_threats, technique_coverage)
+            doc_for_label = records_by_id.get(sanitized_id, docs_to_analyze[0])
 
-            if defends_against:
-                for framework_data in defends_against:
-                    framework_name = framework_data.get('framework', '').upper()
-                    items = framework_data.get('items', [])
-
-                    for item in items:
-                        # Extract normalized threat IDs from item text
-                        extracted_ids = _extract_threat_ids(item)
-
-                        for framework_key, threat_ids in extracted_ids.items():
-                            technique_threats[framework_key].extend(threat_ids)
-                            covered_threats[framework_key].update(threat_ids)
-
-            # Add to by_technique list
             by_technique.append({
                 "technique_id": tech_id,
-                "technique_name": tech.get('name', 'Unknown'),
-                "tactic": tech.get('tactic', 'Unknown'),
-                "threats_covered": {
-                    "owasp": list(set(technique_threats["owasp"])),
-                    "atlas": list(set(technique_threats["atlas"])),
-                    "maestro": list(set(technique_threats["maestro"]))
-                }
+                "technique_name": doc_for_label.get('name', 'Unknown'),
+                "tactic": doc_for_label.get('tactic', 'Unknown'),
+                "coverage_scope": coverage_scope,
+                "threats_covered": coverage_lists_from_sets(technique_coverage)
             })
 
-        # Calculate coverage rates
-        # OWASP LLM Top 10: 10 items
-        # MITRE ATLAS: ~43 techniques (approximate)
-        # MAESTRO: TBD
-        coverage_rate = {
-            "owasp": round(len(covered_threats["owasp"]) / 10, 3) if covered_threats["owasp"] else 0.0,
-            "atlas": round(len(covered_threats["atlas"]) / 43, 3) if covered_threats["atlas"] else 0.0,
-            "maestro": round(len(covered_threats["maestro"]) / 7, 3) if covered_threats["maestro"] else 0.0  # MAESTRO has 7 layers (L1-L7)
-        }
+        coverage_rate = {}
+        framework_totals = {}
+        for key, total_set in total_threats.items():
+            total = len(total_set)
+            framework_totals[key] = total
+            coverage_rate[key] = round(len(covered_threats.get(key, set())) / total, 3) if total else 0.0
 
         result = {
             "input_count": len(normalized_techniques),
             "valid_count": len(valid_techniques),
             "invalid_count": len(invalid_techniques),
             "invalid_techniques": invalid_techniques,
-            "covered": {
-                "owasp": sorted(list(covered_threats["owasp"])),
-                "atlas": sorted(list(covered_threats["atlas"])),
-                "maestro": sorted(list(covered_threats["maestro"]))
-            },
+            "covered": coverage_lists_from_sets(covered_threats),
             "coverage_rate": coverage_rate,
+            "framework_totals": framework_totals,
             "by_technique": by_technique
         }
 
         logger.info(
             f"Coverage analysis complete: {len(valid_techniques)} valid techniques, "
-            f"OWASP: {len(covered_threats['owasp'])}, ATLAS: {len(covered_threats['atlas'])}"
+            f"OWASP(all): {len(covered_threats['owasp'])}, ATLAS: {len(covered_threats['atlas'])}"
         )
 
         return result
@@ -181,46 +188,3 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
     except Exception as e:
         logger.error(f"Failed to analyze threat coverage: {e}", exc_info=True)
         raise
-
-
-def _extract_threat_ids(item_text: str) -> Dict[str, List[str]]:
-    """
-    Extract normalized threat IDs from defends_against item text.
-
-    Examples:
-        "LLM01:2025 Prompt Injection" -> {"owasp": ["LLM01"]}
-        "AML.T0043 Adversarial Examples" -> {"atlas": ["AML.T0043"]}
-        "T0020 Data Poisoning" -> {"atlas": ["AML.T0020"]}
-
-    Args:
-        item_text: Item text from defends_against field
-
-    Returns:
-        Dict with {framework -> [threat_ids]}
-    """
-    import re
-
-    result = {"owasp": [], "atlas": [], "maestro": []}
-    item_upper = item_text.upper()
-
-    # Extract OWASP LLM IDs (LLM##)
-    llm_match = re.search(r'LLM\d{2}', item_upper)
-    if llm_match:
-        result["owasp"].append(llm_match.group(0))
-
-    # Extract MITRE ATLAS IDs (T#### or AML.T####)
-    # First try AML.T#### format
-    atlas_match = re.search(r'AML\.T\d{4}', item_upper)
-    if atlas_match:
-        result["atlas"].append(atlas_match.group(0))
-    else:
-        # Try T#### format and add AML. prefix
-        t_match = re.search(r'T\d{4}', item_upper)
-        if t_match:
-            t_id = t_match.group(0)
-            result["atlas"].append(f"AML.{t_id}")
-
-    # MAESTRO: Add logic when available
-    # (Currently AIDEFEND framework doesn't have MAESTRO mappings)
-
-    return result

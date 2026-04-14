@@ -16,10 +16,22 @@ from app.logger import get_logger
 from app.security import InputValidationError, validate_query_text
 from app.core import query_engine
 from app.exceptions import QueryEngineNotInitializedError
+from app.framework_utils import FRAMEWORK_LABELS
 from app.tools.classify_threat import classify_threat
 from app.tools.defenses_for_threat import get_defenses_for_threat
 
 logger = get_logger(__name__)
+
+
+def _framework_label_from_threat_id(threat_id: str) -> str:
+    """Convert prefixed threat detail IDs into human-friendly framework labels."""
+    prefix = threat_id.split("-", 1)[0].lower()
+    legacy_labels = {
+        "owasp": "OWASP",
+        "atlas": "MITRE ATLAS",
+        "maestro": "MAESTRO",
+    }
+    return legacy_labels.get(prefix, FRAMEWORK_LABELS.get(prefix, prefix.upper()))
 
 
 def _generate_immediate_actions(
@@ -138,22 +150,15 @@ def _generate_investigation_actions(
         threat_details = threat_classification['threat_details']
         threat_ids = [t.get('threat_id', '') for t in threat_details]
 
-        owasp_threats = [tid for tid in threat_ids if 'OWASP' in tid.upper()]
-        atlas_threats = [tid for tid in threat_ids if 'ATLAS' in tid.upper()]
+        grouped_threats: Dict[str, List[str]] = {}
+        for threat_id in threat_ids:
+            grouped_threats.setdefault(_framework_label_from_threat_id(threat_id), []).append(threat_id)
 
-        if owasp_threats:
+        for framework_label, matched_ids in grouped_threats.items():
             actions.append({
-                "action": "Review OWASP LLM Top 10 Mapping",
+                "action": f"Review {framework_label} Mapping",
                 "priority": "MEDIUM",
-                "description": f"Analyze incident against matched OWASP threats: {', '.join(owasp_threats)}",
-                "estimated_time": "15-20 minutes"
-            })
-
-        if atlas_threats:
-            actions.append({
-                "action": "Review MITRE ATLAS Tactics",
-                "priority": "MEDIUM",
-                "description": "Map attack techniques to ATLAS framework for comprehensive understanding",
+                "description": f"Analyze incident against matched threats: {', '.join(matched_ids[:5])}",
                 "estimated_time": "15-20 minutes"
             })
 

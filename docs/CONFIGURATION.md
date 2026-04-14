@@ -33,6 +33,7 @@ cp .env.example .env
 | `API_WORKERS` | `1` | ⚠️ **Must be 1** - Multi-worker mode not supported |
 | `ENABLE_FUZZY_MATCHING` | `true` | Enable Tier 2 fuzzy matching for typo tolerance (100% local) |
 | `FUZZY_MATCH_CUTOFF` | `0.70` | Minimum similarity score for fuzzy matches (0.0-1.0) |
+| `LOCAL_FRAMEWORK_PATH` | `None` | Optional local framework checkout path. Leave unset to sync from GitHub. |
 
 ## Critical: Single Worker Limitation
 

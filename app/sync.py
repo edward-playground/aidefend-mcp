@@ -4,11 +4,13 @@ Handles GitHub sync, parsing, embedding, and indexing with security.
 """
 
 import asyncio
+import hashlib
 import httpx
 import lancedb
 import time
 import re
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,6 +35,14 @@ from app.utils import (
     format_bytes
 )
 from app.embedding_cache import EmbeddingCache, compute_content_hash
+from app.framework_utils import (
+    build_framework_metrics,
+    extract_framework_coverage,
+    is_actionable_record,
+    merge_framework_coverage_sets,
+    normalize_framework_item,
+    parse_json_list,
+)
 
 logger = get_logger(__name__)
 
@@ -83,7 +93,7 @@ class SyncFileLock:
                     stat_info = os.stat(str(self.lock_path))
                     original_mtime = (stat_info.st_atime, stat_info.st_mtime)
                 except Exception:
-                    pass
+                    logger.debug("Could not read existing lockfile timestamps", exc_info=True)
 
             # Create lock file if doesn't exist, but don't truncate if it does
             self.lock_fd = os.open(
@@ -112,7 +122,7 @@ class SyncFileLock:
                 if original_mtime is not None:
                     os.utime(str(self.lock_path), original_mtime)
             except Exception:
-                pass  # Non-critical if PID write or mtime restore fails
+                logger.debug("Could not update lockfile metadata", exc_info=True)
 
             self._is_locked = True
             return True
@@ -123,7 +133,7 @@ class SyncFileLock:
                 try:
                     os.close(self.lock_fd)
                 except Exception:
-                    pass
+                    logger.debug("Could not close lockfile descriptor after contention", exc_info=True)
                 self.lock_fd = None
             return False
         except Exception as e:
@@ -132,7 +142,7 @@ class SyncFileLock:
                 try:
                     os.close(self.lock_fd)
                 except Exception:
-                    pass
+                    logger.debug("Could not close lockfile descriptor after error", exc_info=True)
                 self.lock_fd = None
             raise
 
@@ -515,7 +525,6 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
     Returns:
         Dict with pre-computed statistics matching get_statistics format
     """
-    import json
     from collections import defaultdict
 
     total_documents = len(records)
@@ -530,10 +539,9 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
     techniques_with_commercial_tools = 0
     documents_with_code = 0
 
-    # Framework coverage
-    owasp_items = set()
-    atlas_items = set()
-    maestro_items = set()
+    covered_framework_sets = merge_framework_coverage_sets()
+    total_framework_sets = merge_framework_coverage_sets()
+    actionable_total = 0
 
     for record in records:
         doc_type = record.get('type', 'unknown')
@@ -541,9 +549,9 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
         pillar_raw = record.get('pillar', '')
         phase_raw = record.get('phase', '')
 
-        # Parse pillar and phase (now JSON arrays)
-        pillars = json.loads(pillar_raw) if isinstance(pillar_raw, str) and pillar_raw.strip() else []
-        phases = json.loads(phase_raw) if isinstance(phase_raw, str) and phase_raw.strip() else []
+        # Parse pillar and phase (stored as JSON arrays)
+        pillars = parse_json_list(pillar_raw)
+        phases = parse_json_list(phase_raw)
 
         # Count by type
         type_counts[doc_type] += 1
@@ -563,51 +571,38 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
                 if phase:
                     phase_counts[phase] += 1
 
-        # Enhanced features (only for techniques)
-        if doc_type == 'technique':
-            # Parse defends_against field
-            defends_against_str = record.get('defends_against', '[]')
-            try:
-                defends_against = json.loads(defends_against_str) if isinstance(defends_against_str, str) else defends_against_str
+        # Enhanced features (standalone techniques + sub-techniques)
+        if is_actionable_record(record):
+            actionable_total += 1
 
-                if defends_against:
-                    techniques_with_defenses += 1
+            defends_against = parse_json_list(record.get('defends_against', '[]'))
+            tools_opensource = parse_json_list(record.get('tools_opensource', '[]'))
+            tools_commercial = parse_json_list(record.get('tools_commercial', '[]'))
 
-                    # Extract threat items by framework
-                    for framework_data in defends_against:
-                        framework_name = framework_data.get('framework', '')
-                        items = framework_data.get('items', [])
+            if defends_against:
+                techniques_with_defenses += 1
+                coverage = extract_framework_coverage(defends_against)
+                covered_framework_sets = merge_framework_coverage_sets(covered_framework_sets, coverage)
+                total_framework_sets = merge_framework_coverage_sets(total_framework_sets, coverage)
 
-                        if 'OWASP' in framework_name:
-                            owasp_items.update(items)
-                        elif 'ATLAS' in framework_name or 'MITRE' in framework_name:
-                            atlas_items.update(items)
-                        elif 'MAESTRO' in framework_name:
-                            maestro_items.update(items)
-
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(f"Failed to parse defends_against for {record.get('source_id')}")
-
-            # Parse tools
-            tools_opensource_str = record.get('tools_opensource', '[]')
-            tools_commercial_str = record.get('tools_commercial', '[]')
-
-            try:
-                tools_opensource = json.loads(tools_opensource_str) if isinstance(tools_opensource_str, str) else tools_opensource_str
-                tools_commercial = json.loads(tools_commercial_str) if isinstance(tools_commercial_str, str) else tools_commercial_str
-
-                if tools_opensource:
-                    techniques_with_opensource_tools += 1
-                if tools_commercial:
-                    techniques_with_commercial_tools += 1
-
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(f"Failed to parse tools for {record.get('source_id')}")
+            if tools_opensource:
+                techniques_with_opensource_tools += 1
+            if tools_commercial:
+                techniques_with_commercial_tools += 1
 
         # Check for code snippets
         has_code = record.get('has_code_snippets', False)
         if has_code:
             documents_with_code += 1
+
+    threat_framework_coverage = build_framework_metrics(
+        covered_sets=covered_framework_sets,
+        total_sets=total_framework_sets,
+    )
+    threat_framework_coverage["techniques_with_threat_mappings"] = techniques_with_defenses
+    threat_framework_coverage["techniques_mapped_percentage"] = round(
+        (techniques_with_defenses / actionable_total) * 100, 1
+    ) if actionable_total > 0 else 0.0
 
     # Build statistics object (matching get_statistics format)
     statistics = {
@@ -616,6 +611,7 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
             "total_techniques": type_counts.get('technique', 0),
             "total_subtechniques": type_counts.get('subtechnique', 0),
             "total_strategies": type_counts.get('strategy', 0),
+            "total_actionable_items": actionable_total,
             "last_synced": datetime.now(timezone.utc).isoformat(),
             "embedding_model": settings.EMBEDDING_MODEL,
             "database_path": settings.DB_PATH.name
@@ -623,23 +619,13 @@ def _calculate_statistics_from_records(records: List[Dict[str, Any]]) -> Dict[st
         "by_tactic": dict(sorted(tactic_counts.items())),
         "by_pillar": dict(sorted(pillar_counts.items())),
         "by_phase": dict(sorted(phase_counts.items())),
-        "threat_framework_coverage": {
-            "owasp_llm_items_covered": len(owasp_items),
-            "owasp_llm_total_items": 10,
-            "owasp_llm_coverage_percentage": round((len(owasp_items) / 10) * 100, 1),
-            "mitre_atlas_items_covered": len(atlas_items),
-            "maestro_items_covered": len(maestro_items),
-            "techniques_with_threat_mappings": techniques_with_defenses,
-            "techniques_mapped_percentage": round(
-                (techniques_with_defenses / type_counts.get('technique', 1)) * 100, 1
-            ) if type_counts.get('technique', 0) > 0 else 0
-        },
+        "threat_framework_coverage": threat_framework_coverage,
         "tools_availability": {
             "techniques_with_opensource_tools": techniques_with_opensource_tools,
             "techniques_with_commercial_tools": techniques_with_commercial_tools,
             "opensource_coverage_percentage": round(
-                (techniques_with_opensource_tools / type_counts.get('technique', 1)) * 100, 1
-            ) if type_counts.get('technique', 0) > 0 else 0
+                (techniques_with_opensource_tools / actionable_total) * 100, 1
+            ) if actionable_total > 0 else 0
         },
         "implementation_resources": {
             "documents_with_code_snippets": documents_with_code,
@@ -665,68 +651,145 @@ def _build_threat_mappings(records: List[Dict[str, Any]]) -> Dict[str, List[str]
     Returns:
         Dict mapping threat IDs to lists of technique IDs
     """
-    import json
-
     threat_mappings = {}
 
     for record in records:
-        # Only process techniques (not subtechniques or strategies)
-        if record.get('type') != 'technique':
+        # Only process actionable records so exact threat lookups return
+        # directly implementable controls instead of umbrella parents.
+        if not is_actionable_record(record):
             continue
 
         technique_id = record.get('source_id')
-        defends_against_str = record.get('defends_against', '[]')
+        defends_against = parse_json_list(record.get('defends_against', '[]'))
 
         try:
-            defends_against = json.loads(defends_against_str) if isinstance(defends_against_str, str) else defends_against_str
-
             if not defends_against:
                 continue
 
             # Extract all threat items
             for framework_data in defends_against:
+                framework_name = framework_data.get('framework', '')
                 items = framework_data.get('items', [])
 
                 for item in items:
-                    # Extract normalized threat IDs from item text
-                    # Example: "LLM01:2025 Prompt Injection" -> "LLM01"
-                    # Example: "AML.T0015" -> "AML.T0015"
-
-                    item_upper = item.upper()
-
-                    # Extract LLM IDs
-                    llm_match = re.search(r'LLM\d{2}', item_upper)
-                    if llm_match:
-                        threat_id = llm_match.group(0)
-                        if threat_id not in threat_mappings:
-                            threat_mappings[threat_id] = []
-                        if technique_id not in threat_mappings[threat_id]:
-                            threat_mappings[threat_id].append(technique_id)
-
-                    # Extract ATLAS IDs (T####)
-                    atlas_match = re.search(r'T\d{4}', item_upper)
-                    if atlas_match:
-                        t_id = atlas_match.group(0)
-                        # Store both with and without AML. prefix
-                        for threat_id in [t_id, f"AML.{t_id}"]:
-                            if threat_id not in threat_mappings:
-                                threat_mappings[threat_id] = []
-                            if technique_id not in threat_mappings[threat_id]:
-                                threat_mappings[threat_id].append(technique_id)
+                    normalized_id = normalize_framework_item(framework_name, item)
+                    if normalized_id:
+                        if normalized_id not in threat_mappings:
+                            threat_mappings[normalized_id] = []
+                        if technique_id not in threat_mappings[normalized_id]:
+                            threat_mappings[normalized_id].append(technique_id)
 
                     # Store full item text as well (for exact matches)
                     # Normalized: strip whitespace, uppercase
-                    normalized_item = item.strip().upper()
-                    if normalized_item:
-                        if normalized_item not in threat_mappings:
-                            threat_mappings[normalized_item] = []
-                        if technique_id not in threat_mappings[normalized_item]:
-                            threat_mappings[normalized_item].append(technique_id)
+                    normalized_text = item.strip().upper()
+                    if normalized_text:
+                        if normalized_text not in threat_mappings:
+                            threat_mappings[normalized_text] = []
+                        if technique_id not in threat_mappings[normalized_text]:
+                            threat_mappings[normalized_text].append(technique_id)
 
-        except (json.JSONDecodeError, TypeError) as e:
+        except (TypeError, AttributeError) as e:
             logger.warning(f"Failed to parse defends_against for {technique_id}: {e}")
 
     return threat_mappings
+
+
+def _merge_defends_against(*mapping_lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge parent/shared and child-specific framework mappings."""
+    merged: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+
+    for mappings in mapping_lists:
+        if not isinstance(mappings, list):
+            continue
+
+        for mapping in mappings:
+            framework_name = mapping.get("framework", "")
+            if not framework_name:
+                continue
+
+            if framework_name not in merged:
+                merged[framework_name] = {
+                    "framework": framework_name,
+                    "items": [],
+                }
+                order.append(framework_name)
+
+            for item in mapping.get("items", []):
+                if item and item not in merged[framework_name]["items"]:
+                    merged[framework_name]["items"].append(item)
+
+    return [merged[name] for name in order]
+
+
+def _using_local_framework_source() -> bool:
+    """Return True when sync should stage files from a local framework repo."""
+    return settings.LOCAL_FRAMEWORK_PATH is not None
+
+
+def _get_local_framework_file(filename: str) -> Path:
+    """Resolve a source file path inside the configured local framework repo."""
+    if settings.LOCAL_FRAMEWORK_PATH is None:
+        raise ValueError("LOCAL_FRAMEWORK_PATH is not configured")
+
+    safe_filename = sanitize_filename(filename)
+    if safe_filename == "aidefend-intro.js":
+        return settings.LOCAL_FRAMEWORK_PATH / safe_filename
+    return settings.local_framework_tactics_path / safe_filename
+
+
+def _compute_local_framework_signature() -> Optional[str]:
+    """Compute a stable content hash for the local framework source tree."""
+    digest = hashlib.sha1(usedforsecurity=False)
+    missing_required: List[str] = []
+
+    for filename in settings.AIDEFEND_FILES:
+        source_path = _get_local_framework_file(filename)
+        if not source_path.exists():
+            if filename == "aidefend-intro.js":
+                continue
+            missing_required.append(filename)
+            continue
+
+        digest.update(filename.encode("utf-8"))
+        digest.update(source_path.read_bytes())
+
+    if missing_required:
+        logger.error(
+            "Missing required files in local framework source",
+            extra={
+                "local_framework_path": str(settings.LOCAL_FRAMEWORK_PATH),
+                "missing_files": missing_required,
+            }
+        )
+        return None
+
+    return digest.hexdigest()
+
+
+def _stage_local_framework_file(filename: str) -> Optional[Path]:
+    """Copy a local framework file into RAW_PATH for normal parsing."""
+    safe_filename = sanitize_filename(filename)
+    source_path = _get_local_framework_file(safe_filename)
+
+    if not source_path.exists():
+        if safe_filename == "aidefend-intro.js":
+            logger.warning(f"Local source file missing (non-critical): {source_path}")
+        else:
+            logger.error(f"Local source file missing: {source_path}")
+        return None
+
+    file_path = settings.RAW_PATH / safe_filename
+    validated_path = validate_file_path(file_path, settings.RAW_PATH)
+    shutil.copyfile(source_path, validated_path)
+    set_secure_file_permissions(validated_path)
+
+    file_size = validated_path.stat().st_size
+    logger.info(
+        f"Staged {safe_filename} from local framework ({format_bytes(file_size)})",
+        extra={"file_name": safe_filename, "source_path": str(source_path), "size": file_size}
+    )
+    return validated_path
 
 
 async def fetch_latest_commit_sha() -> Optional[str]:
@@ -736,6 +799,22 @@ async def fetch_latest_commit_sha() -> Optional[str]:
     Returns:
         Commit SHA string or None if failed
     """
+    if _using_local_framework_source():
+        try:
+            signature = _compute_local_framework_signature()
+            if not signature:
+                return None
+            validated_signature = validate_commit_sha(signature)
+            logger.info(f"Latest local framework signature: {validated_signature[:8]}")
+            return validated_signature
+        except Exception as e:
+            error_detail = (
+                f"Unexpected error computing local framework signature: "
+                f"{type(e).__name__} - {str(e)}"
+            )
+            logger.error(error_detail)
+            return None
+
     url = f"{settings.github_repo_api_url}/commits/{settings.GITHUB_BRANCH}"
 
     try:
@@ -789,6 +868,9 @@ async def download_file(filename: str, commit_sha: str) -> Optional[Path]:
     Returns:
         Path to downloaded file or None if failed
     """
+    if _using_local_framework_source():
+        return await asyncio.to_thread(_stage_local_framework_file, filename)
+
     try:
         # Sanitize filename
         safe_filename = sanitize_filename(filename)
@@ -854,6 +936,9 @@ async def download_intro_file(commit_sha: str) -> Optional[Path]:
         Path to downloaded file or None if failed (non-critical)
     """
     filename = "aidefend-intro.js"
+    if _using_local_framework_source():
+        return await asyncio.to_thread(_stage_local_framework_file, filename)
+
     try:
         url = f"{settings.github_raw_base_url}/{commit_sha}/{filename}"
 
@@ -1051,6 +1136,12 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
             sub_desc = sub_tech.get("description", "")
             sub_pillar = sub_tech.get("pillar", "")
             sub_phase = sub_tech.get("phase", "")
+            sub_defends_against = _merge_defends_against(
+                defends_against,
+                sub_tech.get("defendsAgainst", []),
+            )
+            sub_tools_opensource = sub_tech.get("toolsOpenSource", [])
+            sub_tools_commercial = sub_tech.get("toolsCommercial", [])
 
             # Extract implementation strategies (preserve full HTML for code extraction)
             implementation_guidance = sub_tech.get("implementationGuidance", [])
@@ -1075,6 +1166,16 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                 f"Description: {sub_desc}"
             )
 
+            if sub_defends_against:
+                frameworks_text = []
+                for fw in sub_defends_against:
+                    fw_name = fw.get("framework", "")
+                    items = fw.get("items", [])
+                    if items:
+                        frameworks_text.append(f"{fw_name}: {', '.join(items)}")
+                if frameworks_text:
+                    sub_text += "\nDefends Against: " + "; ".join(frameworks_text)
+
             documents.append({
                 "text": sub_text,
                 "source_id": sub_id,
@@ -1083,9 +1184,9 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                 "name": sub_name,
                 "pillar": sub_pillar,
                 "phase": sub_phase,
-                "defends_against": [],  # Sub-techniques inherit from parent
-                "tools_opensource": [],
-                "tools_commercial": [],
+                "defends_against": sub_defends_against,
+                "tools_opensource": sub_tools_opensource,
+                "tools_commercial": sub_tools_commercial,
                 "parent_technique_id": tech_id,
                 "implementation_guidance": implementation_guidance,
                 "has_code_snippets": has_code
@@ -1117,6 +1218,16 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                     f"How-To: {clean_how_to}"
                 )
 
+                if sub_defends_against:
+                    frameworks_text = []
+                    for fw in sub_defends_against:
+                        fw_name = fw.get("framework", "")
+                        items = fw.get("items", [])
+                        if items:
+                            frameworks_text.append(f"{fw_name}: {', '.join(items)}")
+                    if frameworks_text:
+                        strategy_text += "\nDefends Against: " + "; ".join(frameworks_text)
+
                 documents.append({
                     "text": strategy_text,
                     "source_id": strategy_id,
@@ -1125,13 +1236,63 @@ def extract_documents_from_tactic(tactic_data: Dict[str, Any]) -> List[Dict[str,
                     "name": f"{sub_name} - {strategy_name}",
                     "pillar": sub_pillar,
                     "phase": sub_phase,
-                    "defends_against": [],
-                    "tools_opensource": [],
-                    "tools_commercial": [],
+                    "defends_against": sub_defends_against,
+                    "tools_opensource": sub_tools_opensource,
+                    "tools_commercial": sub_tools_commercial,
                     "parent_technique_id": sub_id,
                     "implementation_guidance": [{
                         "implementation": strategy_name,
                         "howTo": how_to_html  # Preserve full HTML
+                    }],
+                    "has_code_snippets": has_code
+                })
+
+        # Standalone techniques need their own strategy documents.
+        if not technique.get("subTechniques", []):
+            for i, strategy in enumerate(tech_implementation_strategies, 1):
+                strategy_name = strategy.get("implementation", "Implementation")
+                how_to_html = strategy.get("howTo", "")
+
+                soup = BeautifulSoup(how_to_html, 'html.parser')
+                has_code = bool(soup.find_all(['pre', 'code']))
+
+                for code_tag in soup.find_all(['pre', 'code']):
+                    code_tag.decompose()
+
+                clean_how_to = soup.get_text(separator=' ', strip=True)
+                strategy_id = f"{tech_id}.S{i}"
+                strategy_text = (
+                    f"Tactic: {tactic_name}. Technique: {tech_name}\n"
+                    f"Implementation Guidance: {strategy_name}\n"
+                    f"ID: {strategy_id}\n"
+                    f"How-To: {clean_how_to}"
+                )
+
+                if defends_against:
+                    frameworks_text = []
+                    for fw in defends_against:
+                        fw_name = fw.get("framework", "")
+                        items = fw.get("items", [])
+                        if items:
+                            frameworks_text.append(f"{fw_name}: {', '.join(items)}")
+                    if frameworks_text:
+                        strategy_text += "\nDefends Against: " + "; ".join(frameworks_text)
+
+                documents.append({
+                    "text": strategy_text,
+                    "source_id": strategy_id,
+                    "tactic": tactic_name,
+                    "type": "strategy",
+                    "name": f"{tech_name} - {strategy_name}",
+                    "pillar": technique.get("pillar", ""),
+                    "phase": technique.get("phase", ""),
+                    "defends_against": defends_against,
+                    "tools_opensource": tools_opensource,
+                    "tools_commercial": tools_commercial,
+                    "parent_technique_id": tech_id,
+                    "implementation_guidance": [{
+                        "implementation": strategy_name,
+                        "howTo": how_to_html
                     }],
                     "has_code_snippets": has_code
                 })
@@ -1473,7 +1634,7 @@ async def embed_and_index(documents: List[Dict[str, Any]]) -> Tuple[bool, Option
         try:
             del db
         except Exception:
-            pass
+            logger.debug("Could not explicitly release LanceDB handle", exc_info=True)
 
         # Set secure permissions on database directory
         db_dir = settings.DB_PATH
@@ -1547,22 +1708,38 @@ async def core_sync(force_rebuild: bool = False) -> bool:
         logger.info("=" * 60)
         logger.info("Starting AIDEFEND sync process")
         logger.info(f"Cache schema version: {settings.CACHE_SCHEMA_VERSION}")
+        if _using_local_framework_source():
+            logger.info(f"Sync source: local framework ({settings.LOCAL_FRAMEWORK_PATH})")
+        else:
+            logger.info(f"Sync source: GitHub {settings.github_repo_path}@{settings.GITHUB_BRANCH}")
         logger.info("=" * 60)
 
         # Fetch latest commit
         latest_sha = await fetch_latest_commit_sha()
         if not latest_sha:
-            error_msg = (
-                "Could not fetch latest commit from GitHub\n\n"
-                "Possible causes:\n"
-                "- Network connectivity issues (check internet connection)\n"
-                "- GitHub API rate limiting (wait a few minutes)\n"
-                "- GitHub service unavailable (check https://www.githubstatus.com)\n"
-                "- Repository URL configured incorrectly\n\n"
-                f"Repository: {settings.github_repo_path}\n"
-                f"Branch: {settings.GITHUB_BRANCH}\n\n"
-                "Check the logs for detailed HTTP error codes and network diagnostics."
-            )
+            if _using_local_framework_source():
+                error_msg = (
+                    "Could not read local AIDEFEND framework source\n\n"
+                    "Possible causes:\n"
+                    "- LOCAL_FRAMEWORK_PATH points to the wrong directory\n"
+                    "- Required tactic files are missing from the local repo\n"
+                    "- Files cannot be read due to permissions\n\n"
+                    f"Local framework path: {settings.LOCAL_FRAMEWORK_PATH}\n"
+                    f"Tactics path: {settings.local_framework_tactics_path}\n\n"
+                    "Check the logs for missing or unreadable files."
+                )
+            else:
+                error_msg = (
+                    "Could not fetch latest commit from GitHub\n\n"
+                    "Possible causes:\n"
+                    "- Network connectivity issues (check internet connection)\n"
+                    "- GitHub API rate limiting (wait a few minutes)\n"
+                    "- GitHub service unavailable (check https://www.githubstatus.com)\n"
+                    "- Repository URL configured incorrectly\n\n"
+                    f"Repository: {settings.github_repo_path}\n"
+                    f"Branch: {settings.GITHUB_BRANCH}\n\n"
+                    "Check the logs for detailed HTTP error codes and network diagnostics."
+                )
             logger.error(error_msg)
             _set_last_sync_error(error_msg)
             return False
@@ -1584,7 +1761,10 @@ async def core_sync(force_rebuild: bool = False) -> bool:
             logger.info(f"Update available: {local_sha[:8] if local_sha else 'None'} -> {latest_sha[:8]}")
 
         # Download all files in parallel (faster than serial downloads)
-        logger.info(f"📥 Downloading {len(settings.AIDEFEND_FILES)} files in parallel...")
+        if _using_local_framework_source():
+            logger.info(f"📥 Staging {len(settings.AIDEFEND_FILES)} files from local framework...")
+        else:
+            logger.info(f"📥 Downloading {len(settings.AIDEFEND_FILES)} files in parallel...")
 
         download_tasks = []
         for filename in settings.AIDEFEND_FILES:
@@ -1624,20 +1804,34 @@ async def core_sync(force_rebuild: bool = False) -> bool:
 
         # Check if any required files failed
         if failed_required:
-            error_msg = (
-                f"Failed to download {len(failed_required)} required file(s) from GitHub\n\n"
-                f"Failed files:\n" +
-                "\n".join([f"  - {f}" for f in failed_required]) + "\n\n"
-                "Possible causes:\n"
-                "- Network connectivity issues\n"
-                "- GitHub rate limiting (429 status code)\n"
-                "- Files moved/deleted in repository\n"
-                "- Firewall blocking raw.githubusercontent.com\n\n"
-                f"Repository: {settings.github_repo_path}\n"
-                f"Commit: {latest_sha[:8]}\n\n"
-                "Check the logs above for specific HTTP error codes (404, 403, 500, etc.) "
-                "and network error details for each failed file."
-            )
+            if _using_local_framework_source():
+                error_msg = (
+                    f"Failed to stage {len(failed_required)} required file(s) from local framework\n\n"
+                    f"Failed files:\n" +
+                    "\n".join([f"  - {f}" for f in failed_required]) + "\n\n"
+                    "Possible causes:\n"
+                    "- Files were renamed or removed in the local repo\n"
+                    "- LOCAL_FRAMEWORK_PATH points to the wrong checkout\n"
+                    "- File permissions prevent reading source files\n\n"
+                    f"Local framework path: {settings.LOCAL_FRAMEWORK_PATH}\n"
+                    f"Source signature: {latest_sha[:8]}\n\n"
+                    "Check the logs above for the specific missing or unreadable file."
+                )
+            else:
+                error_msg = (
+                    f"Failed to download {len(failed_required)} required file(s) from GitHub\n\n"
+                    f"Failed files:\n" +
+                    "\n".join([f"  - {f}" for f in failed_required]) + "\n\n"
+                    "Possible causes:\n"
+                    "- Network connectivity issues\n"
+                    "- GitHub rate limiting (429 status code)\n"
+                    "- Files moved/deleted in repository\n"
+                    "- Firewall blocking raw.githubusercontent.com\n\n"
+                    f"Repository: {settings.github_repo_path}\n"
+                    f"Commit: {latest_sha[:8]}\n\n"
+                    "Check the logs above for specific HTTP error codes (404, 403, 500, etc.) "
+                    "and network error details for each failed file."
+                )
             logger.error(error_msg)
             _set_last_sync_error(error_msg)
             return False
@@ -1875,6 +2069,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
             {
                 "framework_version": framework_version,  # AIDEFEND semantic version (e.g., "1.20251107")
                 "total_documents": len(all_documents),
+                "total_actionable_items": statistics.get("overview", {}).get("total_actionable_items"),
                 "embedding_model": settings.EMBEDDING_MODEL,  # Store model used for this sync
                 "embedding_dimension": settings.EMBEDDING_DIMENSION,  # Store dimension for this sync
                 "statistics": statistics  # Pre-computed statistics for get_statistics tool
@@ -1973,7 +2168,7 @@ async def _create_vector_index_if_needed() -> bool:
                 return True
         except Exception:
             # list_indices() might not be available or might error - proceed with creation
-            pass
+            logger.debug("Could not inspect existing LanceDB indices; continuing with creation", exc_info=True)
 
         # Get row count
         row_count = await asyncio.to_thread(table.count_rows)

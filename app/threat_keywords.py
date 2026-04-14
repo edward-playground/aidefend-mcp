@@ -1493,16 +1493,15 @@ def get_threat_frameworks() -> Dict[str, List[str]]:
     Returns:
         Dict with framework -> [threat_ids]
     """
-    frameworks = {"owasp": set(), "atlas": set(), "maestro": set()}
+    frameworks: Dict[str, set] = {}
 
     for keyword_data in THREAT_KEYWORDS.values():
         for framework, threat_ids in keyword_data["frameworks"].items():
-            # Ensure we only collect expected framework keys
             if framework not in frameworks:
-                continue
+                frameworks[framework] = set()
             frameworks[framework].update(threat_ids)
 
-    return {k: sorted(list(v)) for k, v in frameworks.items()}
+    return {k: sorted(list(v)) for k, v in sorted(frameworks.items())}
 
 
 def normalize_threat_keyword(keyword: str) -> str:

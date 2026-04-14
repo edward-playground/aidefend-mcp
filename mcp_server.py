@@ -20,11 +20,13 @@ from mcp.types import Tool, TextContent
 
 # AIDEFEND imports
 from app.core import query_engine, QueryEngineNotInitializedError
-from app.schemas import QueryRequest
+from app.schemas import QueryRequest, ContextChunk
+from app.config import settings
 from app.sync import run_sync, get_last_sync_error
 from app.logger import get_logger
 from app.security import InputValidationError, SecurityError
 from app.audit import audit_tool_call, audit_tool_completion
+from app.framework_utils import FRAMEWORK_LABELS
 from app.utils import load_version_info
 from datetime import datetime
 
@@ -217,8 +219,9 @@ async def serve():
                 name="get_defenses_for_threat",
                 description=(
                     "Find AIDEFEND defense techniques for a specific threat. "
-                    "Supports threat IDs from OWASP LLM Top 10 (e.g., 'LLM01'), "
-                    "MITRE ATLAS (e.g., 'T0043'), MAESTRO, or natural language threat keywords "
+                    "Supports threat IDs from the mapped framework set "
+                    "(e.g., 'LLM01', 'ML01:2023', 'ASI01:2026', 'T0043', 'NISTAML.031'), "
+                    "or natural language threat keywords "
                     "(e.g., 'prompt injection'). Essential for threat-driven defense planning."
                 ),
                 inputSchema={
@@ -226,7 +229,7 @@ async def serve():
                     "properties": {
                         "threat_id": {
                             "type": "string",
-                            "description": "Threat ID from OWASP/ATLAS/MAESTRO (e.g., 'LLM01', 'T0043')"
+                            "description": "Threat ID from a mapped framework (e.g., 'LLM01', 'ML01:2023', 'T0043', 'NISTAML.031')"
                         },
                         "threat_keyword": {
                             "type": "string",
@@ -366,7 +369,7 @@ async def serve():
                 description=(
                     "Analyze threat coverage for implemented defense techniques. "
                     "Given a list of AIDEFEND technique IDs, calculates which threats "
-                    "are covered (OWASP LLM Top 10, MITRE ATLAS, MAESTRO) and provides "
+                    "are covered across all mapped external frameworks and provides "
                     "coverage rates. Essential for tracking security posture and identifying gaps."
                 ),
                 inputSchema={
@@ -436,7 +439,7 @@ async def serve():
                     "2) Fuzzy matching for typo tolerance (free), "
                     "3) LLM semantic inference (optional, user-paid). "
                     "Maps common threat terms (prompt injection, model poisoning, etc.) to "
-                    "standard framework IDs (OWASP LLM, MITRE ATLAS, MAESTRO). "
+                    "standard framework IDs used by the service. "
                     "Gracefully degrades if user hasn't enabled/configured LLM fallback."
                 ),
                 inputSchema={
@@ -517,7 +520,7 @@ async def serve():
                     "This unified tool merges analyze_coverage + get_threat_coverage functionality.\n\n"
                     "✅ USE THIS to get holistic view of:\n"
                     "- Technical coverage: Tactics/pillars/phases distribution and gaps\n"
-                    "- Threat coverage: OWASP/ATLAS/MAESTRO frameworks coverage rates\n"
+                    "- Threat coverage: Coverage rates across all mapped threat frameworks\n"
                     "- Combined insights: Overall security posture assessment\n"
                     "- Prioritized recommendations: What to implement next\n\n"
                     "Supports 3 views:\n"
@@ -744,10 +747,10 @@ async def serve():
                 logger.error("❌ Initial sync failed - queries will fail")
                 logger.error("   User must manually run sync_aidefend tool")
         else:
-            # Warm start - database exists, trigger background sync to check for updates
+            # Warm start - database exists, serve immediately.
+            # Periodic/manual sync can refresh content without blocking initial tool calls.
             logger.info("Warm start detected (database exists)")
-            logger.info("Triggering background sync check for updates...")
-            asyncio.create_task(run_sync())
+            logger.info("Serving existing database immediately; periodic/manual sync will handle update checks")
 
         logger.info("MCP services initialized. Ready for connections.")
 
@@ -809,8 +812,31 @@ async def handle_query(arguments: Dict[str, Any]) -> List[TextContent]:
 
         logger.info(f"MCP query: '{query_text[:50]}...' (top_k={top_k})")
 
-        # Use the same QueryEngine as REST API
-        results = await query_engine.search(request)
+        if len(request.query_text) > settings.MAX_QUERY_LENGTH:
+            from app.tools.chunked_search import search_with_chunking
+
+            chunked_result = await search_with_chunking(
+                query_text=request.query_text,
+                top_k=request.top_k
+            )
+            results = [
+                ContextChunk(
+                    source_id=item.get("source_id", "N/A"),
+                    tactic=item.get("tactic", "N/A"),
+                    text=item.get("text", ""),
+                    metadata={
+                        "type": item.get("type", "N/A"),
+                        "name": item.get("name", "N/A"),
+                        "pillar": item.get("pillar", ""),
+                        "phase": item.get("phase", ""),
+                    },
+                    score=item.get("score", item.get("_distance", 0.0)),
+                )
+                for item in chunked_result.get("results", [])
+            ]
+        else:
+            # Use the same QueryEngine as REST API
+            results = await query_engine.search(request)
 
         if not results:
             return [TextContent(
@@ -1073,10 +1099,19 @@ async def handle_get_statistics(arguments: Dict[str, Any]) -> List[TextContent]:
 
         output += "\n## Threat Framework Coverage\n\n"
         tfc = result['threat_framework_coverage']
-        output += f"- **OWASP LLM Items:** {tfc['owasp_llm_items_covered']}/{tfc.get('owasp_llm_total_items', 10)} ({tfc.get('owasp_llm_coverage_percentage', 0)}%)\n"
-        output += f"- **MITRE ATLAS Items:** {tfc['mitre_atlas_items_covered']}\n"
-        output += f"- **MAESTRO Items:** {tfc.get('maestro_items_covered', 0)}\n"
-        output += f"- **Techniques with Threat Mappings:** {tfc.get('techniques_with_threat_mappings', 0)} ({tfc.get('techniques_mapped_percentage', 0)}%)\n"
+        by_framework = tfc.get("by_framework", {})
+        if by_framework:
+            for framework_meta in by_framework.values():
+                label = framework_meta.get("label", "Unknown Framework")
+                covered = framework_meta.get("items_covered", 0)
+                total = framework_meta.get("total_items", 0)
+                pct = framework_meta.get("coverage_percentage", 0)
+                output += f"- **{label}:** {covered}/{total} ({pct}%)\n"
+        else:
+            output += f"- **OWASP LLM Items:** {tfc['owasp_llm_items_covered']}/{tfc.get('owasp_llm_total_items', 10)} ({tfc.get('owasp_llm_coverage_percentage', 0)}%)\n"
+            output += f"- **MITRE ATLAS Items:** {tfc['mitre_atlas_items_covered']}\n"
+            output += f"- **MAESTRO Items:** {tfc.get('maestro_items_covered', 0)}\n"
+        output += f"- **Actionable Items with Threat Mappings:** {tfc.get('techniques_with_threat_mappings', 0)} ({tfc.get('techniques_mapped_percentage', 0)}%)\n"
 
         output += f"\n*Last synced: {result['overview']['last_synced']}*"
 
@@ -1414,30 +1449,43 @@ async def handle_get_threat_coverage(arguments: Dict[str, Any]) -> List[TextCont
             output += "\n"
 
         output += "## Threat Coverage by Framework\n\n"
-        output += f"### OWASP LLM Top 10\n"
-        output += f"**Coverage:** {result['coverage_rate']['owasp'] * 100:.1f}% ({len(result['covered']['owasp'])}/10)\n"
-        if result['covered']['owasp']:
-            output += f"**Threats Covered:** {', '.join(result['covered']['owasp'])}\n"
-        output += "\n"
-
-        output += f"### MITRE ATLAS\n"
-        output += f"**Coverage:** {result['coverage_rate']['atlas'] * 100:.1f}% ({len(result['covered']['atlas'])}/43)\n"
-        if result['covered']['atlas']:
-            output += f"**Threats Covered:** {', '.join(result['covered']['atlas'][:10])}"
-            if len(result['covered']['atlas']) > 10:
-                output += f" ... +{len(result['covered']['atlas']) - 10} more"
+        framework_labels = {
+            "owasp_llm": "OWASP LLM Top 10 2025",
+            "owasp_ml": "OWASP ML Top 10 2023",
+            "owasp_agentic": "OWASP Agentic AI Top 10 2026",
+            "atlas": "MITRE ATLAS",
+            "maestro": "MAESTRO",
+            "nist_aml": "NIST Adversarial Machine Learning 2025",
+            "cisco": "Cisco Integrated AI Security and Safety Framework",
+            "google_saif": "Google Secure AI Framework 2.0 - Risks",
+            "databricks": "Databricks AI Security Framework 3.0",
+        }
+        for key, label in framework_labels.items():
+            covered = result['covered'].get(key, [])
+            total = result.get('framework_totals', {}).get(key, 0)
+            rate = result['coverage_rate'].get(key, 0.0) * 100
+            output += f"### {label}\n"
+            output += f"**Coverage:** {rate:.1f}% ({len(covered)}/{total})\n"
+            if covered:
+                preview = covered[:10]
+                output += f"**Threats Covered:** {', '.join(preview)}"
+                if len(covered) > 10:
+                    output += f" ... +{len(covered) - 10} more"
+                output += "\n"
             output += "\n"
-        output += "\n"
 
         output += "## Coverage by Technique\n\n"
         for tech_data in result['by_technique'][:10]:
             output += f"### {tech_data['technique_id']}: {tech_data['technique_name']}\n"
-            owasp_threats = tech_data['threats_covered']['owasp']
-            atlas_threats = tech_data['threats_covered']['atlas']
-            if owasp_threats:
-                output += f"- **OWASP:** {', '.join(owasp_threats)}\n"
-            if atlas_threats:
-                output += f"- **ATLAS:** {', '.join(atlas_threats)}\n"
+            if tech_data.get("coverage_scope") == "aggregated_subtechniques":
+                output += "- **Scope:** Aggregated from child sub-techniques\n"
+            for key, label in framework_labels.items():
+                threats = tech_data['threats_covered'].get(key, [])
+                if threats:
+                    output += f"- **{label}:** {', '.join(threats[:5])}"
+                    if len(threats) > 5:
+                        output += f" ... +{len(threats) - 5} more"
+                    output += "\n"
             output += "\n"
 
         if len(result['by_technique']) > 10:
@@ -1577,7 +1625,7 @@ async def handle_classify_threat(arguments: Dict[str, Any]) -> List[TextContent]
         audit_tool_completion(
             audit_ctx,
             success=True,
-            result_summary=f"{len(result['keywords_found'])} keywords matched, OWASP: {len(result['normalized_threats']['owasp'])}, ATLAS: {len(result['normalized_threats']['atlas'])}"
+            result_summary=f"{len(result['keywords_found'])} keywords matched"
         )
 
         output = "# Threat Classification Results\n\n"
@@ -1603,14 +1651,16 @@ async def handle_classify_threat(arguments: Dict[str, Any]) -> List[TextContent]
             output += "\n"
 
         output += "## Normalized Threat IDs\n\n"
-        if result['normalized_threats']['owasp']:
-            output += f"**OWASP LLM Top 10:** {', '.join(result['normalized_threats']['owasp'])}\n"
-        if result['normalized_threats']['atlas']:
-            output += f"**MITRE ATLAS:** {', '.join(result['normalized_threats']['atlas'])}\n"
-        if result['normalized_threats']['maestro']:
-            output += f"**MAESTRO:** {', '.join(result['normalized_threats']['maestro'])}\n"
+        classify_labels = {"owasp": "OWASP", "atlas": "MITRE ATLAS", "maestro": "MAESTRO"}
+        has_normalized = False
+        for key, values in result['normalized_threats'].items():
+            if not values:
+                continue
+            has_normalized = True
+            label = classify_labels.get(key, FRAMEWORK_LABELS.get(key, key.upper()))
+            output += f"**{label}:** {', '.join(values)}\n"
 
-        if not any(result['normalized_threats'].values()):
+        if not has_normalized:
             output += "*No threat IDs identified*\n"
         output += "\n"
 
@@ -1776,8 +1826,12 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             pct = result['technical_coverage'].get('analysis_summary', {}).get('coverage_percentage', 0)
             summary_text = f"Technical: {pct:.1f}%"
         elif view == "threat" and result.get("threat_coverage"):
-            owasp = result['threat_coverage'].get('coverage_rate', {}).get('owasp', 0) * 100
-            summary_text = f"OWASP: {owasp:.1f}%"
+            framework_rates = [
+                result['threat_coverage'].get('coverage_rate', {}).get(key, 0) * 100
+                for key in FRAMEWORK_LABELS
+            ]
+            avg_framework_rate = sum(framework_rates) / len(framework_rates) if framework_rates else 0.0
+            summary_text = f"Threat coverage: {avg_framework_rate:.1f}% avg"
         else:
             summary_text = "Analysis complete"
 
@@ -1863,20 +1917,23 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             output += "## Threat Framework Coverage\n\n"
 
             coverage_rate = threat.get("coverage_rate", {})
-            output += f"**OWASP LLM Top 10:** {coverage_rate.get('owasp', 0) * 100:.1f}%\n"
-            output += f"**MITRE ATLAS:** {coverage_rate.get('atlas', 0) * 100:.1f}%\n"
-            output += f"**MAESTRO:** {coverage_rate.get('maestro', 0) * 100:.1f}%\n\n"
-
-            # Covered Threats (key is "covered", not "covered_threats")
             covered = threat.get("covered", {})
-            if covered.get("owasp"):
+            framework_totals = threat.get("framework_totals", {})
+            for key, label in FRAMEWORK_LABELS.items():
+                rate = coverage_rate.get(key, 0) * 100
+                count = len(covered.get(key, []))
+                total = framework_totals.get(key, 0)
+                output += f"**{label}:** {rate:.1f}% ({count}/{total})\n"
+            output += "\n"
+
+            if covered.get("owasp_llm"):
                 output += "### OWASP Threats Covered\n\n"
-                output += f"{', '.join(covered['owasp'])}\n\n"
+                output += f"{', '.join(covered['owasp_llm'])}\n\n"
 
             # Compute uncovered OWASP threats
             all_owasp = ["LLM01", "LLM02", "LLM03", "LLM04", "LLM05",
                          "LLM06", "LLM07", "LLM08", "LLM09", "LLM10"]
-            covered_owasp = covered.get("owasp", [])
+            covered_owasp = covered.get("owasp_llm", [])
             uncovered_owasp = [t for t in all_owasp if t not in covered_owasp]
             if uncovered_owasp:
                 output += "### OWASP Threats NOT Covered (High Priority)\n\n"
@@ -1992,8 +2049,18 @@ async def handle_compare_techniques(arguments: Dict[str, Any]) -> List[TextConte
             # Threat coverage
             threat_cov = tech['threat_coverage']
             if any(threat_cov.values()):
-                output += f"- **Threat Coverage:** OWASP ({threat_cov['owasp']}), "
-                output += f"ATLAS ({threat_cov['atlas']}), MAESTRO ({threat_cov['maestro']})\n"
+                by_framework = threat_cov.get("by_framework", {})
+                if by_framework:
+                    coverage_parts = [
+                        f"{FRAMEWORK_LABELS.get(key, key)} ({count})"
+                        for key, count in by_framework.items()
+                        if count
+                    ]
+                    if coverage_parts:
+                        output += f"- **Threat Coverage:** {', '.join(coverage_parts)}\n"
+                else:
+                    output += f"- **Threat Coverage:** OWASP ({threat_cov['owasp']}), "
+                    output += f"ATLAS ({threat_cov['atlas']}), MAESTRO ({threat_cov['maestro']})\n"
 
             # Implementation support
             if tech['has_implementation_guidance']:
