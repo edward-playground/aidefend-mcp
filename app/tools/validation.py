@@ -10,24 +10,35 @@ from typing import Dict, Any, List, Optional
 from difflib import SequenceMatcher
 
 from app.logger import get_logger
-from app.config import settings
 from app.security import InputValidationError, sanitize_technique_id
+from app.utils import sanitize_for_json
 
 logger = get_logger(__name__)
 
-# Valid technique ID pattern: AID-{TACTIC}-###[.###][.S#]
-# Examples: AID-H-001, AID-H-001.001, AID-H-001.001.S1
+# Canonical AIDEFEND ID shape. Tactic codes are taxonomy data, not a closed
+# application enum: future framework releases may add a code without requiring
+# an MCP/REST release. Keep the segment deliberately narrow (uppercase ASCII,
+# starts with a letter, followed by alphanumeric characters) while database
+# membership remains the authority for whether a well-formed ID exists.
+_TACTIC_CODE_PATTERN = r"[A-Z][A-Z0-9]*"
+CONTROL_ID_PATTERN = re.compile(
+    rf"^AID-{_TACTIC_CODE_PATTERN}-\d{{3}}(?:\.\d{{3}})?\Z"
+)
+GUIDANCE_ID_PATTERN = re.compile(
+    rf"^AID-{_TACTIC_CODE_PATTERN}-\d{{3}}(?:\.\d{{3}})?-G\d{{3}}\Z"
+)
 TECHNIQUE_ID_PATTERN = re.compile(
-    r'^AID-[MHDICER]-\d{3}(\.\d{3})*(\.S\d+)?$'
+    rf"^AID-{_TACTIC_CODE_PATTERN}-\d{{3}}(?:\.\d{{3}})?(?:-G\d{{3}})?\Z"
 )
 
-# Tactic letter codes
+# Friendly labels for tactic codes known to this release. This mapping is
+# intentionally informational and must not be used as an ID-validation enum.
 VALID_TACTIC_CODES = {
     'M': 'Model',
     'H': 'Harden',
     'D': 'Detect',
     'I': 'Isolate',
-    'C': 'Deceive',  # Note: Sometimes 'D' for Deceive
+    'DV': 'Deceive',
     'E': 'Evict',
     'R': 'Restore'
 }
@@ -63,8 +74,7 @@ async def validate_technique_id(technique_id: str) -> Dict[str, Any]:
         >>> if result["valid"]:
         ...     print(f"Found: {result['technique']['name']}")
     """
-    import lancedb
-    from app.core import query_engine
+    from app.core import decode_framework_record, query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
     # Input sanitization (before database check — fail fast on bad input)
@@ -83,16 +93,18 @@ async def validate_technique_id(technique_id: str) -> Dict[str, Any]:
             "valid": False,
             "technique": None,
             "reason": "INVALID_FORMAT",
-            "expected_format": "AID-{TACTIC}-###[.###][.S#]",
+            "expected_format": "AID-{TACTIC}-###[.###][-G###]",
             "examples": [
                 "AID-H-001 (Technique)",
-                "AID-H-001.001 (Sub-technique)",
-                "AID-H-001.001.S1 (Strategy)"
+                "AID-D-001.001 (Sub-technique)",
+                "AID-DV-001 (Deceive technique)",
+                "AID-D-001.001-G001 (Implementation guidance)"
             ],
             "message": (
                 f"Invalid format: '{technique_id}'. "
-                "Expected format: AID-{{TACTIC}}-###[.###][.S#] "
-                "(e.g., AID-H-001, AID-H-001.001, AID-H-001.001.S1)"
+                "Expected format: AID-{{TACTIC}}-###[.###][-G###] "
+                "(e.g., AID-H-001, AID-D-001.001, AID-DV-001, "
+                "AID-D-001.001-G001)"
             )
         }
 
@@ -110,21 +122,21 @@ async def validate_technique_id(technique_id: str) -> Dict[str, Any]:
         # This is defense-in-depth: format validation + sanitization
         sanitized_id = sanitize_technique_id(technique_id)
 
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         # Search for exact match (using sanitized ID)
         logger.info(f"Searching database for: {sanitized_id}")
-        results = await asyncio.to_thread(
-            lambda: table.search().where(f"source_id = '{sanitized_id}'").limit(1).to_pandas().to_dict('records')
+        results = await query_engine.read_table(
+            lambda table: table.search().where(
+                f"source_id = '{sanitized_id}'"
+            ).limit(1).to_pandas().to_dict('records')
         )
 
         if results:
-            doc = results[0]
+            doc = decode_framework_record(results[0])
             logger.info(f"Found technique: {doc.get('name')}")
 
-            return {
+            # Scrub NaN/Inf from DB-sourced fields (e.g. a top-level technique's
+            # parent_technique_id) so the REST JSONResponse (allow_nan=False) does not 500.
+            return sanitize_for_json({
                 "valid": True,
                 "technique": {
                     "id": doc.get('source_id'),
@@ -133,10 +145,17 @@ async def validate_technique_id(technique_id: str) -> Dict[str, Any]:
                     "tactic": doc.get('tactic'),
                     "pillar": doc.get('pillar', ''),
                     "phase": doc.get('phase', ''),
-                    "parent_technique_id": doc.get('parent_technique_id', '')
+                    "parent_technique_id": doc.get('parent_technique_id', ''),
+                    "guidance_id": doc.get('guidance_id', ''),
+                    "scope_boundary": doc.get('scope_boundary') or {},
+                    "tools_opensource": doc['tools_opensource'],
+                    "tools_source_available": doc['tools_source_available'],
+                    "tools_commercial": doc['tools_commercial'],
+                    "is_actionable": bool(doc.get('is_actionable', False)),
+                    "is_parent_family": bool(doc.get('is_parent_family', False)),
                 },
-                "message": f"Valid technique ID: {technique_id}"
-            }
+                "message": f"Valid AIDEFEND ID: {technique_id}"
+            })
 
         # Step 3: Not found - provide fuzzy matching suggestions
         logger.info(f"Technique ID not found: {technique_id}. Searching for similar IDs...")
@@ -148,8 +167,10 @@ async def validate_technique_id(technique_id: str) -> Dict[str, Any]:
         # Fallback: if cache not available, query database directly
         if all_docs is None:
             logger.warning("ID cache not available, performing full table scan (slow)")
-            all_docs = await asyncio.to_thread(
-                lambda: table.to_pandas()[['source_id', 'name', 'type', 'tactic']].to_dict('records')
+            all_docs = await query_engine.read_table(
+                lambda table: table.to_pandas()[
+                    ['source_id', 'name', 'type', 'tactic']
+                ].to_dict('records')
             )
         else:
             logger.info(f"Using ID cache for fuzzy matching: {len(all_docs)} entries")

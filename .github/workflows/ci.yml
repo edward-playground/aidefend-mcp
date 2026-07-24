@@ -3,6 +3,24 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      framework_ref:
+        description: AIDEFEND framework branch, tag, or commit to stage
+        required: false
+        default: main
+        type: string
+      run_current_snapshot:
+        description: Also run the exact 2026-07-24 snapshot assertions
+        required: false
+        default: false
+        type: boolean
+  repository_dispatch:
+    types: [aidefend-framework-release]
+  schedule:
+    # Exercise the rolling upstream contract every day. Exact snapshot tests
+    # remain an explicit manual gate and never pin this scheduled check.
+    - cron: "17 9 * * *"
 
 permissions:
   contents: read
@@ -11,37 +29,201 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    env:
+      GITHUB_BRANCH: ${{ github.event.client_payload.framework_ref || inputs.framework_ref || 'main' }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: "22.7.0"
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
 
-      - name: Install Node dependencies
-        run: npm ci
-
       - name: Build local knowledge base
         run: python __main__.py --resync
 
-      - name: Run pytest
-        run: python -m pytest -q
+      - name: Verify exact framework-to-index manifest
+        run: python scripts/verify_index_manifest.py
+
+      - name: Run rolling compatibility pytest without silent skips
+        run: |
+          mkdir -p test-artifacts
+          python -m pytest -q -m "not current_snapshot" --junitxml=test-artifacts/pytest.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          report = Path("test-artifacts/pytest.xml")
+          root = ET.parse(report).getroot()
+          skipped = sum(
+              int(suite.attrib.get("skipped", 0))
+              for suite in root.iter("testsuite")
+          )
+          if skipped:
+              raise SystemExit(f"Release test suite skipped {skipped} test(s)")
+          PY
+
+      - name: Run exact 2026-07-24 framework snapshot gate
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_current_snapshot }}
+        run: >-
+          python -m pytest -q -m current_snapshot
+          tests/test_current_framework_contract.py
+
+      - name: Exercise every MCP and REST tool
+        run: python scripts/smoke_all_tools.py --data-path data --transport both --timeout 180
+
+      - name: Build and smoke-test clean release artifacts
+        run: |
+          python -m pip install build
+          python scripts/build_release_artifacts.py --outdir dist
+          python scripts/verify_distribution_inventory.py dist
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          mkdir -p /tmp/aidefend-wheel-smoke/scripts
+          cp scripts/verify_index_manifest.py /tmp/aidefend-wheel-smoke/scripts/verify_index_manifest.py
+          cp scripts/smoke_all_tools.py /tmp/aidefend-wheel-smoke/scripts/smoke_all_tools.py
+          export PYTHONPATH=""
+          export DATA_PATH="$GITHUB_WORKSPACE/data"
+          cd /tmp/aidefend-wheel-smoke
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import app
+          import app.tools
+          import mcp_server
+          from app.utils import NODE_PARSER_SCRIPT, parse_js_file_with_node
+
+          assert NODE_PARSER_SCRIPT.exists(), NODE_PARSER_SCRIPT
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          assert not Path(app.__file__).resolve().is_relative_to(workspace)
+          assert not Path(app.tools.__file__).resolve().is_relative_to(workspace)
+          assert not Path(mcp_server.__file__).resolve().is_relative_to(workspace)
+          data_path = workspace / "data"
+          version = json.loads((data_path / "local_version.json").read_text(encoding="utf-8"))
+          source_files = version.get("source_files")
+          assert isinstance(source_files, list) and source_files
+          tactic_files = [name for name in source_files if name != "aidefend-intro.js"]
+          assert tactic_files
+          assert all(
+              isinstance(name, str)
+              and Path(name).name == name
+              and name.endswith(".js")
+              for name in tactic_files
+          )
+          parsed = parse_js_file_with_node(data_path / "raw_content" / tactic_files[0])
+          assert isinstance(parsed.get("name"), str) and parsed["name"].strip()
+          assert isinstance(parsed.get("techniques"), list) and parsed["techniques"]
+          PY
+          python scripts/verify_index_manifest.py
+          python scripts/smoke_all_tools.py \
+            --data-path "$DATA_PATH" \
+            --transport both \
+            --timeout 180
+
+  clean-install:
+    name: Clean wheel - ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    env:
+      PYTHONPATH: ""
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.7.0"
+
+      - name: Build wheel from a clean sdist extraction
+        run: |
+          python -m pip install --upgrade pip build
+          python scripts/build_release_artifacts.py --outdir dist
+          python scripts/verify_distribution_inventory.py dist
+
+      - name: Install wheel with all declared dependencies
+        run: >-
+          python -c "from pathlib import Path; import subprocess, sys;
+          wheels=list(Path('dist').glob('*.whl'));
+          assert len(wheels) == 1, wheels;
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install',
+          '--force-reinstall', str(wheels[0])])"
+
+      - name: Verify dependency and installed-wheel contracts outside the repo
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m pip check
+          python "${{ github.workspace }}/scripts/verify_clean_install.py"
+
+  container:
+    name: Container Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AIDEFEND_API_KEY: ci-container-contract-only
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Validate Dockerfile and Compose
+        run: |
+          docker compose config --quiet
+          LOCAL_FRAMEWORK_PATH=/native/host/framework docker compose config | grep -q 'LOCAL_FRAMEWORK_PATH:'
+          if LOCAL_FRAMEWORK_PATH=/native/host/framework docker compose config | grep -q /native/host/framework; then
+            echo Native LOCAL_FRAMEWORK_PATH leaked into the Linux container configuration
+            exit 1
+          fi
+          docker build --check .
+
+      - name: Build image
+        run: docker build --tag aidefend-mcp:ci .
+
+      - name: Smoke-test the final runtime
+        run: |
+          test $(docker run --rm --entrypoint id aidefend-mcp:ci -u) -ne 0
+          docker run --rm \
+            --env AUTH_MODE=api_key \
+            --env AIDEFEND_API_KEY=$AIDEFEND_API_KEY \
+            --entrypoint python \
+            aidefend-mcp:ci -c 'import app.main, mcp_server'
+          docker run --rm \
+            --mount type=bind,source=${{ github.workspace }}/tests/fixtures,target=/fixtures,readonly \
+            --entrypoint node \
+            aidefend-mcp:ci parse_js_module.mjs /fixtures/test_example.js \
+            | grep -q 'Test Tactic'
+
+      - name: Verify persisted data volume is writable by the service user
+        run: |
+          docker run --rm \
+            --mount type=volume,target=/app/data \
+            --entrypoint touch \
+            aidefend-mcp:ci /app/data/container-write-check
 
   bandit:
     name: Bandit
@@ -50,10 +232,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -64,4 +246,4 @@ jobs:
           python -m pip install bandit[toml]
 
       - name: Run Bandit
-        run: python -m bandit -q -r app
+        run: python -m bandit -q -r app mcp_server.py __main__.py

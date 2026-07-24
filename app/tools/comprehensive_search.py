@@ -12,12 +12,38 @@ from collections import Counter
 
 from app.logger import get_logger
 from app.config import settings
-from app.security import InputValidationError, validate_query_text
+from app.security import (
+    InputValidationError,
+    validate_bounded_integer,
+    validate_query_text,
+)
 from app.schemas import QueryRequest
-from app.core import query_engine
+from app.core import decode_framework_record, query_engine
 from app.exceptions import QueryEngineNotInitializedError
 
 logger = get_logger(__name__)
+
+
+def _available_tactic_names(records: Any) -> List[str]:
+    """Return unique tactic names in index order from cached framework records."""
+    if not isinstance(records, list):
+        return []
+
+    names: List[str] = []
+    seen: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        tactic = record.get("tactic")
+        if not isinstance(tactic, str) or not tactic.strip():
+            continue
+        tactic = tactic.strip()
+        key = tactic.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(tactic)
+    return names
 
 
 def generate_related_queries(topic: str, max_queries: int = 5) -> List[str]:
@@ -149,10 +175,11 @@ def compute_coverage_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     subtechnique_count = 0
 
     for result in results:
-        result_type = result.get("type", "unknown")
-        tactic = result.get("tactic", "unknown")
-        pillar = result.get("pillar", "unknown")
-        phase = result.get("phase", "unknown")
+        result = decode_framework_record(result)
+        result_type = result.get("type") or "unknown"
+        tactic = result.get("tactic") or "unknown"
+        pillars = result["pillar"] or ["unknown"]
+        phases = result["phase"] or ["unknown"]
 
         if result_type == "technique":
             technique_count += 1
@@ -161,8 +188,10 @@ def compute_coverage_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         tactics_counter[tactic] += 1
         types_counter[result_type] += 1
-        pillars_counter[pillar] += 1
-        phases_counter[phase] += 1
+        for pillar in pillars:
+            pillars_counter[pillar] += 1
+        for phase in phases:
+            phases_counter[phase] += 1
 
     return {
         "total_results": len(results),
@@ -234,8 +263,9 @@ async def comprehensive_search(
     if len(topic) > 200:
         raise InputValidationError("Topic must be less than 200 characters")
 
-    if max_results < 5 or max_results > 50:
-        raise InputValidationError("max_results must be between 5 and 50")
+    max_results = validate_bounded_integer(
+        max_results, "max_results", 5, 50
+    )
 
     if per_query_limit < 5 or per_query_limit > 20:
         per_query_limit = 10  # Use default if invalid
@@ -292,14 +322,24 @@ async def comprehensive_search(
 
             # Process each ContextChunk
             for chunk in chunks:
+                metadata = decode_framework_record(chunk.metadata)
                 result_dict = {
                     "source_id": chunk.source_id,
-                    "name": chunk.metadata.get("name", ""),
+                    "name": metadata.get("name", ""),
                     "tactic": chunk.tactic,
-                    "type": chunk.metadata.get("type", ""),
+                    "type": metadata.get("type", ""),
                     "description": chunk.text,
-                    "pillar": chunk.metadata.get("pillar", ""),
-                    "phase": chunk.metadata.get("phase", ""),
+                    "pillar": metadata["pillar"],
+                    "phase": metadata["phase"],
+                    "defends_against": metadata["defends_against"],
+                    "tools_opensource": metadata["tools_opensource"],
+                    "tools_source_available": metadata["tools_source_available"],
+                    "tools_commercial": metadata["tools_commercial"],
+                    "parent_technique_id": metadata["parent_technique_id"],
+                    "guidance_id": metadata["guidance_id"],
+                    "scope_boundary": metadata["scope_boundary"],
+                    "is_actionable": metadata["is_actionable"],
+                    "is_parent_family": metadata["is_parent_family"],
                     "_distance": chunk.score,
                     "matched_query": related_queries[i]
                 }
@@ -324,8 +364,14 @@ async def comprehensive_search(
             deduplicated_results = [
                 r for r in deduplicated_results
                 if r.get("type") != "subtechnique"
+                and not (
+                    r.get("type") == "strategy"
+                    and "." in r.get("parent_technique_id", "")
+                )
             ]
             logger.info(f"Filtered subtechniques: {len(deduplicated_results)} results remain")
+
+        total_after_type_filter = len(deduplicated_results)
 
         # Step 6: Limit to max_results
         final_results = deduplicated_results[:max_results]
@@ -340,8 +386,19 @@ async def comprehensive_search(
 
         # Suggest related topics based on what was found
         tactics_found = coverage.get("tactics_covered", [])
-        all_tactics = ["Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"]
-        missing_tactics = [t for t in all_tactics if t not in tactics_found]
+        get_id_cache = getattr(query_engine, "get_id_cache", None)
+        cached_records = get_id_cache() if callable(get_id_cache) else None
+        available_tactics = _available_tactic_names(cached_records)
+        tactics_found_keys = {
+            tactic.strip().casefold()
+            for tactic in tactics_found
+            if isinstance(tactic, str) and tactic.strip()
+        }
+        missing_tactics = [
+            tactic
+            for tactic in available_tactics
+            if tactic.casefold() not in tactics_found_keys
+        ]
 
         if missing_tactics:
             related_searches.append(
@@ -355,6 +412,7 @@ async def comprehensive_search(
             "queries_executed": successful_queries,
             "total_results_before_dedup": total_before_dedup,
             "total_results_after_dedup": total_after_dedup,
+            "total_results_after_type_filter": total_after_type_filter,
             "results": final_results,
             "coverage_summary": coverage,
             "related_searches": related_searches,

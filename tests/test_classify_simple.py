@@ -105,13 +105,13 @@ async def test_basic_functionality():
         print("  [OK] Source field added to responses")
         print("  [OK] Configuration settings working")
         print("\n*** Implementation is PRODUCTION-READY! ***")
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 if __name__ == "__main__":
     exit_code = asyncio.run(test_basic_functionality())

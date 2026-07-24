@@ -11,7 +11,9 @@ ensuring consistent results across both interfaces.
 
 import asyncio
 import sys
+from contextlib import suppress
 from typing import Any, Dict, List
+from bs4 import BeautifulSoup
 
 # MCP SDK imports
 from mcp.server import Server
@@ -22,12 +24,16 @@ from mcp.types import Tool, TextContent
 from app.core import query_engine, QueryEngineNotInitializedError
 from app.schemas import QueryRequest, ContextChunk
 from app.config import settings
-from app.sync import run_sync, get_last_sync_error
+from app.sync import run_sync, sync_loop, get_last_sync_error
 from app.logger import get_logger
-from app.security import InputValidationError, SecurityError
+from app.security import (
+    InputValidationError,
+    SecurityError,
+    validate_bounded_integer,
+)
 from app.audit import audit_tool_call, audit_tool_completion
-from app.framework_utils import FRAMEWORK_LABELS
-from app.utils import load_version_info
+from app.framework_utils import FRAMEWORK_LABELS, framework_coverage_label
+from app.utils import load_version_info, escape_markdown
 from datetime import datetime
 
 # Import all tools from unified package
@@ -52,6 +58,267 @@ from app.tools import (
 logger = get_logger(__name__)
 
 
+def _ordered_framework_coverage_keys(*mappings: Dict[str, Any]) -> List[str]:
+    """Keep legacy framework order, then append additive source labels."""
+    observed = {
+        key
+        for mapping in mappings
+        if isinstance(mapping, dict)
+        for key in mapping
+        if key != "owasp"
+    }
+    known = list(FRAMEWORK_LABELS)
+    dynamic = sorted(observed - set(known))
+    return [*known, *dynamic]
+
+
+async def _dispatch_tool_call(
+    name: str, arguments: Dict[str, Any]
+) -> List[TextContent]:
+    """Dispatch one MCP tool call without converting failures into successes."""
+    if name == "query_aidefend":
+        return await handle_query(arguments)
+    if name == "get_aidefend_status":
+        return await handle_status()
+    if name == "sync_aidefend":
+        return await handle_sync()
+    if name == "get_statistics":
+        return await handle_get_statistics(arguments)
+    if name == "validate_technique_id":
+        return await handle_validate_technique_id(arguments)
+    if name == "get_technique_detail":
+        return await handle_get_technique_detail(arguments)
+    if name == "get_defenses_for_threat":
+        return await handle_get_defenses_for_threat(arguments)
+    if name == "get_secure_code_snippet":
+        return await handle_get_secure_code_snippet(arguments)
+    if name == "analyze_coverage":
+        return await handle_analyze_coverage(arguments)
+    if name == "map_to_compliance_framework":
+        return await handle_map_to_compliance_framework(arguments)
+    if name == "get_quick_reference":
+        return await handle_get_quick_reference(arguments)
+    if name == "get_threat_coverage":
+        return await handle_get_threat_coverage(arguments)
+    if name == "get_implementation_plan":
+        return await handle_get_implementation_plan(arguments)
+    if name == "classify_threat":
+        return await handle_classify_threat(arguments)
+    if name == "comprehensive_search":
+        return await handle_comprehensive_search(arguments)
+    if name == "analyze_security_posture":
+        return await handle_analyze_security_posture(arguments)
+    if name == "compare_techniques":
+        return await handle_compare_techniques(arguments)
+    if name == "generate_incident_playbook":
+        return await handle_generate_incident_playbook(arguments)
+    raise ValueError(f"Unknown tool: {name}")
+
+
+def _register_call_tool_handler(server: Server):
+    """Register the production dispatcher and preserve MCP error semantics."""
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+        try:
+            return await _dispatch_tool_call(name, arguments)
+        except Exception as exc:
+            # The MCP SDK converts a raised exception to CallToolResult(isError=True).
+            # Returning an "Error: ..." TextContent here would incorrectly report
+            # a successful tool call to clients.
+            logger.error(
+                f"Error handling tool call '{name}': {exc}", exc_info=True
+            )
+            raise
+
+    return call_tool
+
+
+def _format_scope_boundary(
+    scope_boundary: Any, *, heading_level: int = 2
+) -> str:
+    """Render schema-2.3 scope metadata as readable, injection-safe Markdown."""
+    if not isinstance(scope_boundary, dict) or not scope_boundary:
+        return ""
+
+    responsibility = scope_boundary.get("responsibility")
+    if not isinstance(responsibility, str) or not responsibility.strip():
+        responsibility = ""
+
+    relationships = []
+    raw_relationships = scope_boundary.get("relatedTechniques", [])
+    if isinstance(raw_relationships, list):
+        for relationship in raw_relationships:
+            if not isinstance(relationship, dict):
+                continue
+            related_id = relationship.get("id")
+            comparison = relationship.get("comparison")
+            if not isinstance(related_id, str) or not related_id.strip():
+                continue
+            if not isinstance(comparison, str) or not comparison.strip():
+                continue
+            relationships.append(
+                (
+                    escape_markdown(related_id.strip()),
+                    escape_markdown(" ".join(comparison.split())),
+                )
+            )
+
+    if not responsibility and not relationships:
+        return ""
+
+    level = max(1, min(6, heading_level))
+    output = f"{'#' * level} Scope Boundary\n\n"
+    if responsibility:
+        output += (
+            f"**Responsibility:** {escape_markdown(responsibility.strip())}\n\n"
+        )
+    if relationships:
+        output += "**Related Techniques:**\n"
+        for related_id, comparison in relationships:
+            output += f"- **{related_id}:** {comparison}\n"
+        output += "\n"
+    return output
+
+
+def _format_resolution_diagnostics(
+    unrecognized_ids: Any,
+    expanded_parent_families: Any,
+    *,
+    heading_level: int = 2,
+) -> str:
+    """Render ID migration diagnostics supplied by framework-aware tools."""
+    invalid = (
+        [item for item in unrecognized_ids if isinstance(item, str) and item]
+        if isinstance(unrecognized_ids, list)
+        else []
+    )
+    expanded = (
+        expanded_parent_families
+        if isinstance(expanded_parent_families, dict)
+        else {}
+    )
+    valid_expansions = []
+    for parent_id, child_ids in expanded.items():
+        if not isinstance(parent_id, str) or not isinstance(child_ids, list):
+            continue
+        children = [child for child in child_ids if isinstance(child, str) and child]
+        if children:
+            valid_expansions.append((parent_id, children))
+
+    if not invalid and not valid_expansions:
+        return ""
+
+    level = max(1, min(6, heading_level))
+    output = f"{'#' * level} Technique ID Resolution\n\n"
+    if invalid:
+        output += "**Unrecognized Technique IDs:**\n"
+        for technique_id in invalid:
+            output += f"- {escape_markdown(technique_id)}\n"
+        output += "\n"
+    if valid_expansions:
+        output += "**Expanded Parent Families:**\n"
+        for parent_id, child_ids in valid_expansions:
+            rendered_children = ", ".join(escape_markdown(item) for item in child_ids)
+            output += f"- **{escape_markdown(parent_id)}** -> {rendered_children}\n"
+        output += "\n"
+    return output
+
+
+def _format_tool_inventory(tools: Any, *, heading_level: int = 2) -> str:
+    """Render every schema-2.3 tool category without silently dropping one."""
+    if not isinstance(tools, dict):
+        return ""
+    categories = (
+        ("opensource", "Open Source"),
+        ("source_available", "Source Available / Open Weight"),
+        ("commercial", "Commercial"),
+    )
+    populated = []
+    for key, label in categories:
+        values = tools.get(key)
+        if isinstance(values, list) and values:
+            populated.append((label, values))
+    if not populated:
+        return ""
+
+    level = max(1, min(6, heading_level))
+    output = f"{'#' * level} Tools\n\n"
+    for label, values in populated:
+        output += f"**{label}:**\n"
+        for value in values:
+            output += f"- {escape_markdown(str(value))}\n"
+        output += "\n"
+    return output
+
+
+def _format_record_tool_inventory(
+    record: Any, *, heading_level: int = 2
+) -> str:
+    """Render tool arrays stored as flat public-record fields."""
+    if not isinstance(record, dict):
+        return ""
+    return _format_tool_inventory(
+        {
+            "opensource": record.get("tools_opensource", []),
+            "source_available": record.get("tools_source_available", []),
+            "commercial": record.get("tools_commercial", []),
+        },
+        heading_level=heading_level,
+    )
+
+
+def _plain_strategy_text(value: Any) -> str:
+    """Convert trusted framework guidance HTML to compact Markdown-safe text."""
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    soup = BeautifulSoup(value, "html.parser")
+    for code_node in soup.find_all(["pre", "code"]):
+        code_node.decompose()
+    return escape_markdown(" ".join(soup.get_text(" ", strip=True).split()))
+
+
+def _format_implementation_strategies(
+    strategies: Any, *, heading_level: int = 2
+) -> str:
+    """Render guidance IDs, implementation text, how-to text, and code."""
+    if not isinstance(strategies, list):
+        return ""
+    strategies = [item for item in strategies if isinstance(item, dict)]
+    if not strategies:
+        return ""
+
+    level = max(1, min(5, heading_level))
+    output = f"{'#' * level} Implementation Guidance\n\n"
+    for index, strategy in enumerate(strategies, 1):
+        guidance_id = str(strategy.get("guidance_id") or f"Guidance {index}")
+        implementation = str(strategy.get("implementation") or "").strip()
+        output += f"{'#' * (level + 1)} {escape_markdown(guidance_id)}\n\n"
+        if implementation:
+            output += f"**Implementation:** {escape_markdown(implementation)}\n\n"
+        how_to = _plain_strategy_text(strategy.get("how_to"))
+        if how_to:
+            output += f"**How to:** {how_to}\n\n"
+        code_examples = strategy.get("code_examples")
+        if isinstance(code_examples, list):
+            for code_index, example in enumerate(code_examples, 1):
+                if not isinstance(example, dict):
+                    continue
+                code = example.get("code")
+                if not isinstance(code, str) or not code.strip():
+                    continue
+                language = str(example.get("language") or "text")
+                output += (
+                    f"**Code Example {code_index} "
+                    f"({escape_markdown(language)}):**\n\n"
+                )
+                output += "\n".join(
+                    f"    {line}" for line in code.strip().splitlines()
+                )
+                output += "\n\n"
+    return output
+
+
 async def serve():
     """
     Start the MCP server using stdio transport.
@@ -61,6 +328,7 @@ async def serve():
     """
     # Create MCP server instance
     server = Server("aidefend-mcp")
+    sync_task = None
 
     logger.info("Initializing AIDEFEND MCP Server...")
 
@@ -80,9 +348,14 @@ async def serve():
         await ensure_database_ready()
         logger.info("Database is ready")
     except Exception as e:
-        logger.error(f"Critical: Failed to ensure database ready: {e}")
-        # This is a fatal error - cannot start without database
-        raise RuntimeError("Database initialization/repair failed - cannot start MCP server")
+        # Do NOT crash the MCP server on a first-run/repair failure (transient network,
+        # proxy blocking GitHub/HuggingFace, etc.). Start in a degraded state: tools return a
+        # clear "not ready — run sync_aidefend" message and the user can call the
+        # sync_aidefend tool to build the knowledge base without restarting the client.
+        logger.error(
+            f"Database not ready at startup ({e}). Starting MCP server in DEGRADED mode; "
+            f"call the sync_aidefend tool to build the knowledge base."
+        )
 
     # Tool 1: Query AIDEFEND knowledge base
     @server.list_tools()
@@ -115,7 +388,7 @@ async def serve():
                             )
                         },
                         "top_k": {
-                            "type": "number",
+                            "type": "integer",
                             "description": "Number of results to return (default: 5, max: 20)",
                             "default": 5,
                             "minimum": 1,
@@ -141,7 +414,8 @@ async def serve():
             Tool(
                 name="sync_aidefend",
                 description=(
-                    "Manually trigger synchronization with the AIDEFEND GitHub repository "
+                    "Manually synchronize with the configured AIDEFEND source "
+                    "(the public GitHub repository by default) "
                     "to fetch the latest defense tactics and techniques. "
                     "Note: This may take a few minutes. Auto-sync runs every hour by default."
                 ),
@@ -198,7 +472,7 @@ async def serve():
                     "properties": {
                         "technique_id": {
                             "type": "string",
-                            "description": "Technique or sub-technique ID (e.g., 'AID-H-001', 'AID-H-001.001')"
+                            "description": "Technique or sub-technique ID (e.g., 'AID-H-001', 'AID-H-002.002')"
                         },
                         "include_code": {
                             "type": "boolean",
@@ -236,14 +510,18 @@ async def serve():
                             "description": "Natural language threat keyword (e.g., 'prompt injection', 'model poisoning')"
                         },
                         "top_k": {
-                            "type": "number",
+                            "type": "integer",
                             "description": "Number of defense techniques to return (1-50, default: 10)",
                             "default": 10,
                             "minimum": 1,
                             "maximum": 50
                         }
                     },
-                    "required": []
+                    "required": [],
+                    "anyOf": [
+                        {"required": ["threat_id"]},
+                        {"required": ["threat_keyword"]},
+                    ],
                 }
             ),
             # P0 Tool 5: Get Secure Code Snippet
@@ -270,14 +548,18 @@ async def serve():
                             "description": "Programming language filter (e.g., 'python', 'javascript')"
                         },
                         "max_snippets": {
-                            "type": "number",
+                            "type": "integer",
                             "description": "Maximum number of snippets (1-20, default: 5)",
                             "default": 5,
                             "minimum": 1,
                             "maximum": 20
                         }
                     },
-                    "required": []
+                    "required": [],
+                    "anyOf": [
+                        {"required": ["technique_id"]},
+                        {"required": ["topic"]},
+                    ],
                 }
             ),
             # P0 Tool 6: Analyze Coverage
@@ -353,7 +635,7 @@ async def serve():
                             "default": "checklist"
                         },
                         "max_items": {
-                            "type": "number",
+                            "type": "integer",
                             "description": "Maximum items (5-20, default: 10)",
                             "default": 10,
                             "minimum": 5,
@@ -379,8 +661,8 @@ async def serve():
                             "type": "array",
                             "items": {"type": "string"},
                             "description": "List of implemented technique IDs (e.g., ['AID-D-001', 'AID-H-002'])",
-                            "minItems": 1,
-                            "maxItems": 100
+                            "minItems": 0,
+                            "maxItems": 200
                         }
                     },
                     "required": ["implemented_techniques"]
@@ -414,7 +696,7 @@ async def serve():
                             "default": []
                         },
                         "top_k": {
-                            "type": "number",
+                            "type": "integer",
                             "description": "Number of recommendations to return (1-20, default: 10)",
                             "default": 10,
                             "minimum": 1,
@@ -430,17 +712,16 @@ async def serve():
                     "required": []
                 }
             ),
-            # New Tool 3: Classify Threat from Text (3-Tier: Static + Fuzzy + LLM)
+            # New Tool 3: Classify Threat from Text (local static + fuzzy matching)
             Tool(
                 name="classify_threat",
                 description=(
-                    "Classify threats in text using 3-tier matching system: "
+                    "Classify threats in text using a 2-tier local matching system: "
                     "1) Static keyword matching (free), "
-                    "2) Fuzzy matching for typo tolerance (free), "
-                    "3) LLM semantic inference (optional, user-paid). "
+                    "2) Fuzzy matching for typo tolerance (free). "
                     "Maps common threat terms (prompt injection, model poisoning, etc.) to "
                     "standard framework IDs used by the service. "
-                    "Gracefully degrades if user hasn't enabled/configured LLM fallback."
+                    "No external API or paid LLM inference is used."
                 ),
                 inputSchema={
                     "type": "object",
@@ -452,7 +733,7 @@ async def serve():
                             "maxLength": 10000
                         },
                         "top_k": {
-                            "type": "number",
+                            "type": "integer",
                             "description": "Maximum keywords to return (1-10, default: 5)",
                             "default": 5,
                             "minimum": 1,
@@ -497,7 +778,7 @@ async def serve():
                             "maxLength": 200
                         },
                         "max_results": {
-                            "type": "number",
+                            "type": "integer",
                             "description": "Maximum total results to return (5-50, default: 20)",
                             "default": 20,
                             "minimum": 5,
@@ -640,88 +921,7 @@ async def serve():
             )
         ]
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-        """
-        Handle MCP tool calls.
-
-        Args:
-            name: Name of the tool to call
-            arguments: Tool arguments as a dictionary
-
-        Returns:
-            List of TextContent responses
-
-        Raises:
-            ValueError: If tool name is unknown or arguments are invalid
-        """
-        try:
-            # Original tools
-            if name == "query_aidefend":
-                return await handle_query(arguments)
-
-            elif name == "get_aidefend_status":
-                return await handle_status()
-
-            elif name == "sync_aidefend":
-                return await handle_sync()
-
-            # P0 Tools
-            elif name == "get_statistics":
-                return await handle_get_statistics(arguments)
-
-            elif name == "validate_technique_id":
-                return await handle_validate_technique_id(arguments)
-
-            elif name == "get_technique_detail":
-                return await handle_get_technique_detail(arguments)
-
-            elif name == "get_defenses_for_threat":
-                return await handle_get_defenses_for_threat(arguments)
-
-            elif name == "get_secure_code_snippet":
-                return await handle_get_secure_code_snippet(arguments)
-
-            elif name == "analyze_coverage":
-                return await handle_analyze_coverage(arguments)
-
-            elif name == "map_to_compliance_framework":
-                return await handle_map_to_compliance_framework(arguments)
-
-            elif name == "get_quick_reference":
-                return await handle_get_quick_reference(arguments)
-
-            # New Tools
-            elif name == "get_threat_coverage":
-                return await handle_get_threat_coverage(arguments)
-
-            elif name == "get_implementation_plan":
-                return await handle_get_implementation_plan(arguments)
-
-            elif name == "classify_threat":
-                return await handle_classify_threat(arguments)
-
-            elif name == "comprehensive_search":
-                return await handle_comprehensive_search(arguments)
-
-            elif name == "analyze_security_posture":
-                return await handle_analyze_security_posture(arguments)
-
-            elif name == "compare_techniques":
-                return await handle_compare_techniques(arguments)
-
-            elif name == "generate_incident_playbook":
-                return await handle_generate_incident_playbook(arguments)
-
-            else:
-                raise ValueError(f"Unknown tool: {name}")
-
-        except Exception as e:
-            logger.error(f"Error handling tool call '{name}': {e}", exc_info=True)
-            return [TextContent(
-                type="text",
-                text=f"Error: {str(e)}\n\nPlease try again or check the service logs for details."
-            )]
+    _register_call_tool_handler(server)
 
     # Initialize services before accepting connections (prevents cold start timeout)
     try:
@@ -752,6 +952,14 @@ async def serve():
             logger.info("Warm start detected (database exists)")
             logger.info("Serving existing database immediately; periodic/manual sync will handle update checks")
 
+        if settings.ENABLE_AUTO_SYNC:
+            logger.info(
+                f"Starting MCP background sync loop (interval: {settings.SYNC_INTERVAL_SECONDS}s)"
+            )
+            sync_task = asyncio.create_task(sync_loop(), name="aidefend-mcp-sync")
+        else:
+            logger.info("MCP auto-sync disabled")
+
         logger.info("MCP services initialized. Ready for connections.")
 
     except Exception as e:
@@ -770,6 +978,10 @@ async def serve():
     finally:
         # Graceful shutdown: release resources
         logger.info("MCP server shutting down, cleaning up resources...")
+        if sync_task is not None:
+            sync_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await sync_task
         try:
             # Reset query engine state to release DB handles
             query_engine._initialized = False
@@ -795,15 +1007,9 @@ async def handle_query(arguments: Dict[str, Any]) -> List[TextContent]:
     top_k = arguments.get("top_k", 5)
 
     if not query_text:
-        return [TextContent(
-            type="text",
-            text="Error: Query text cannot be empty. Please provide a search query."
-        )]
+        raise InputValidationError("Query text cannot be empty")
 
-    # Validate top_k
-    if not isinstance(top_k, (int, float)):
-        top_k = 5
-    top_k = max(1, min(int(top_k), 20))
+    top_k = validate_bounded_integer(top_k, "top_k", 1, 20)
 
     try:
         # Validate input and create request
@@ -819,21 +1025,49 @@ async def handle_query(arguments: Dict[str, Any]) -> List[TextContent]:
                 query_text=request.query_text,
                 top_k=request.top_k
             )
-            results = [
-                ContextChunk(
-                    source_id=item.get("source_id", "N/A"),
-                    tactic=item.get("tactic", "N/A"),
-                    text=item.get("text", ""),
-                    metadata={
-                        "type": item.get("type", "N/A"),
-                        "name": item.get("name", "N/A"),
-                        "pillar": item.get("pillar", ""),
-                        "phase": item.get("phase", ""),
-                    },
-                    score=item.get("score", item.get("_distance", 0.0)),
+            results = []
+            for item in chunked_result.get("results", []):
+                item_metadata = item.get("metadata", {})
+                if not isinstance(item_metadata, dict):
+                    item_metadata = {}
+                results.append(
+                    ContextChunk(
+                        source_id=item.get("source_id", "N/A"),
+                        tactic=item.get("tactic", "N/A"),
+                        text=item.get("text", ""),
+                        metadata={
+                            "type": item.get(
+                                "type", item_metadata.get("type", "N/A")
+                            ),
+                            "name": item.get(
+                                "name", item_metadata.get("name", "N/A")
+                            ),
+                            "pillar": item.get(
+                                "pillar", item_metadata.get("pillar", "")
+                            ),
+                            "phase": item.get(
+                                "phase", item_metadata.get("phase", "")
+                            ),
+                            "tools_opensource": item.get(
+                                "tools_opensource",
+                                item_metadata.get("tools_opensource", []),
+                            ),
+                            "tools_source_available": item.get(
+                                "tools_source_available",
+                                item_metadata.get("tools_source_available", []),
+                            ),
+                            "tools_commercial": item.get(
+                                "tools_commercial",
+                                item_metadata.get("tools_commercial", []),
+                            ),
+                            "scope_boundary": item.get(
+                                "scope_boundary",
+                                item_metadata.get("scope_boundary", {}),
+                            ),
+                        },
+                        score=item.get("score", item.get("_distance", 0.0)),
+                    )
                 )
-                for item in chunked_result.get("results", [])
-            ]
         else:
             # Use the same QueryEngine as REST API
             results = await query_engine.search(request)
@@ -842,7 +1076,7 @@ async def handle_query(arguments: Dict[str, Any]) -> List[TextContent]:
             return [TextContent(
                 type="text",
                 text=(
-                    f"No results found for query: '{query_text}'\n\n"
+                    f"No results found for query: '{escape_markdown(query_text)}'\n\n"
                     "Try:\n"
                     "- Using different keywords\n"
                     "- Making the query more specific\n"
@@ -858,30 +1092,17 @@ async def handle_query(arguments: Dict[str, Any]) -> List[TextContent]:
     # Handle input validation errors
     except (InputValidationError, SecurityError) as e:
         logger.warning(f"MCP query validation failed: {e}")
-        return [TextContent(
-            type="text",
-            text=f"Invalid query: {str(e)}\n\nPlease check your input and try again."
-        )]
+        raise
 
     # Handle service not ready errors
     except QueryEngineNotInitializedError as e:
         logger.error(f"MCP query failed, engine not ready: {e}")
-        return [TextContent(
-            type="text",
-            text=(
-                f"Service not ready: {str(e)}\n\n"
-                "The knowledge base may not be initialized yet.\n"
-                "Try running 'sync_aidefend' first to download and index the AIDEFEND framework."
-            )
-        )]
+        raise
 
     # Handle all other errors
     except Exception as e:
         logger.error(f"Query failed: {e}", exc_info=True)
-        return [TextContent(
-            type="text",
-            text=f"Query failed: {str(e)}\n\nPlease check the service status or try again."
-        )]
+        raise
 
 
 async def handle_status() -> List[TextContent]:
@@ -906,7 +1127,14 @@ async def handle_status() -> List[TextContent]:
         version_info = load_version_info()
         if version_info:
             framework_version = version_info.get("framework_version")
-            commit_sha = version_info.get("commit_sha", "N/A")
+            source_revision = (
+                version_info.get("source_revision")
+                or version_info.get("commit_sha", "N/A")
+            )
+            source_kind = version_info.get("source_kind", "github")
+            revision_label = (
+                "Git Commit" if source_kind == "github" else "Local Content SHA-1"
+            )
             last_synced = version_info.get("last_synced_at", "N/A")
 
             if framework_version:
@@ -922,18 +1150,39 @@ async def handle_status() -> List[TextContent]:
 
                 status_text += (
                     f"**Framework Version:** {framework_version} (Released: {readable_date})\n"
-                    f"**Git Commit:** {commit_sha[:8] if len(commit_sha) >= 8 else commit_sha}\n"
+                    f"**{revision_label}:** "
+                    f"{source_revision[:8] if len(source_revision) >= 8 else source_revision}\n"
                     f"**Last Synced:** {last_synced}\n"
                 )
             else:
                 status_text += (
                     f"**Framework Version:** ⚠️ Not available\n"
-                    f"**Git Commit:** {commit_sha[:8] if len(commit_sha) >= 8 else commit_sha}\n"
+                    f"**{revision_label}:** "
+                    f"{source_revision[:8] if len(source_revision) >= 8 else source_revision}\n"
                     f"**Last Synced:** {last_synced}\n"
                 )
+            status_text += (
+                f"**Authoring Schema:** "
+                f"{version_info.get('framework_authoring_schema_version', 'N/A')}\n"
+                f"**Public Data Schema:** "
+                f"{version_info.get('framework_public_schema_version', 'N/A')}\n"
+                f"**MCP Index Schema:** {version_info.get('index_schema_version', 'N/A')}\n"
+                f"**Source:** {source_kind} "
+                f"({version_info.get('source_repository', 'N/A')}@"
+                f"{version_info.get('source_ref', 'N/A')})\n"
+                f"**Source Content SHA-256:** "
+                f"{version_info.get('source_content_sha256', 'N/A')}\n"
+                f"**Schema Metadata SHA-256:** "
+                f"{version_info.get('framework_schema_metadata_sha256', 'N/A')}\n"
+            )
         elif stats.get('framework_version'):
             # Fallback to stats if version_info not available
             status_text += f"**Framework Version:** {stats['framework_version']}\n"
+
+        status_text += (
+            "**Framework Content:** AIDEFEND AI Defense Framework, created by Edward Lee, "
+            "https://aidefend.net, licensed under CC BY 4.0.\n"
+        )
 
         status_text += (
             f"**Indexed Documents:** {stats['document_count']:,}\n"
@@ -969,10 +1218,7 @@ async def handle_status() -> List[TextContent]:
 
     except Exception as e:
         logger.error(f"Status check failed: {e}", exc_info=True)
-        return [TextContent(
-            type="text",
-            text=f"Failed to get status: {str(e)}"
-        )]
+        raise
 
 
 async def handle_sync() -> List[TextContent]:
@@ -990,9 +1236,14 @@ async def handle_sync() -> List[TextContent]:
     """
     logger.info("MCP sync request")
 
+    source_description = (
+        f"local framework working tree ({settings.LOCAL_FRAMEWORK_PATH})"
+        if settings.LOCAL_FRAMEWORK_PATH
+        else f"GitHub repository {settings.github_repo_path}@{settings.GITHUB_BRANCH}"
+    )
     sync_text = (
         "# Starting AIDEFEND Knowledge Base Sync\n\n"
-        "Synchronizing with GitHub repository...\n"
+        f"Synchronizing with {source_description}...\n"
         "This may take a few minutes.\n\n"
     )
 
@@ -1004,25 +1255,19 @@ async def handle_sync() -> List[TextContent]:
             sync_text += (
                 "**✅ Sync Completed Successfully!**\n\n"
                 "The knowledge base has been updated with the latest defense tactics.\n\n"
-                "⏳ **Query engine is reloading...** (takes ~2-3 seconds)\n"
-                "Please wait briefly before using `query_aidefend`.\n\n"
+                "✅ **Query engine reload verified.**\n"
+                "The updated index is ready for queries.\n\n"
                 "💡 Tip: Use `get_aidefend_status` to verify the service is ready."
             )
         else:
             error = get_last_sync_error() or "Unknown error - check logs for details"
-            sync_text += (
-                f"**❌ Sync Failed**\n\n"
-                f"{error}\n"
-            )
+            raise RuntimeError(f"AIDEFEND sync failed: {error}")
 
         return [TextContent(type="text", text=sync_text)]
 
     except Exception as e:
         logger.error(f"Sync failed: {e}", exc_info=True)
-        return [TextContent(
-            type="text",
-            text=f"**❌ Sync Failed**\n\nError: {str(e)}"
-        )]
+        raise
 
 
 def format_search_results(query: str, results: List, top_k: int) -> str:
@@ -1038,7 +1283,7 @@ def format_search_results(query: str, results: List, top_k: int) -> str:
         Formatted markdown string
     """
     output = f"# AIDEFEND Search Results\n\n"
-    output += f"**Query:** {query}\n"
+    output += f"**Query:** {escape_markdown(query)}\n"
     output += f"**Found:** {len(results)} result(s)\n\n"
     output += "---\n\n"
 
@@ -1058,6 +1303,10 @@ def format_search_results(query: str, results: List, top_k: int) -> str:
             output += f"**Phase:** {metadata['phase']}\n"
 
         output += f"\n### Description\n\n{result.text}\n\n"
+        output += _format_scope_boundary(
+            metadata.get('scope_boundary'), heading_level=3
+        )
+        output += _format_record_tool_inventory(metadata, heading_level=3)
         output += "---\n\n"
 
     # Add footer with usage hint
@@ -1088,14 +1337,93 @@ async def handle_get_statistics(arguments: Dict[str, Any]) -> List[TextContent]:
         # Format output
         import json
         output = "# AIDEFEND Knowledge Base Statistics\n\n"
-        output += f"**Total Documents:** {result['overview']['total_documents']}\n"
-        output += f"**Techniques:** {result['overview']['total_techniques']}\n"
-        output += f"**Sub-techniques:** {result['overview']['total_subtechniques']}\n"
-        output += f"**Strategies:** {result['overview']['total_strategies']}\n\n"
+        overview = result['overview']
+        output += f"**Total Documents:** {overview['total_documents']}\n"
+        output += f"**Techniques:** {overview['total_techniques']}\n"
+        output += f"**Sub-techniques:** {overview['total_subtechniques']}\n"
+        output += f"**Strategies:** {overview['total_strategies']}\n"
+        for field, label in (
+            ("total_actionable_items", "Actionable Controls"),
+            ("total_parent_families", "Parent Families"),
+            ("total_standalone_techniques", "Standalone Techniques"),
+        ):
+            if field in overview:
+                output += f"**{label}:** {overview[field]}\n"
+        output += "\n"
 
         output += "## Coverage by Tactic\n\n"
         for tactic, count in result['by_tactic'].items():
             output += f"- **{tactic}:** {count}\n"
+
+        actionable_by_tactic = result.get('actionable_by_tactic', {})
+        if actionable_by_tactic:
+            output += "\n## Actionable Controls by Tactic\n\n"
+            for tactic, count in actionable_by_tactic.items():
+                output += f"- **{tactic}:** {count}\n"
+
+        by_pillar = result.get('by_pillar', {})
+        if by_pillar:
+            output += "\n## Actionable Controls by Pillar\n\n"
+            for pillar, count in by_pillar.items():
+                output += f"- **{pillar}:** {count}\n"
+
+        by_phase = result.get('by_phase', {})
+        if by_phase:
+            output += "\n## Actionable Controls by Phase\n\n"
+            for phase, count in by_phase.items():
+                output += f"- **{phase}:** {count}\n"
+
+        tools = result.get('tools_availability', {})
+        if tools:
+            output += "\n## Tool and Scope Availability\n\n"
+            for label, count_key, coverage_key in (
+                (
+                    "Open Source",
+                    "techniques_with_opensource_tools",
+                    "opensource_coverage_percentage",
+                ),
+                (
+                    "Source Available / Open Weight",
+                    "techniques_with_source_available_tools",
+                    "source_available_coverage_percentage",
+                ),
+                (
+                    "Commercial",
+                    "techniques_with_commercial_tools",
+                    "commercial_coverage_percentage",
+                ),
+            ):
+                if count_key not in tools:
+                    continue
+                output += f"- **{label}:** {tools[count_key]} controls"
+                if coverage_key in tools:
+                    output += f" ({tools[coverage_key]}%)"
+                output += "\n"
+            for field, label in (
+                ("controls_with_scope_boundaries", "Controls with Scope Boundaries"),
+                (
+                    "actionable_controls_with_scope_boundaries",
+                    "Actionable Controls with Scope Boundaries",
+                ),
+            ):
+                if field in tools:
+                    output += f"- **{label}:** {tools[field]}\n"
+
+        resources = result.get('implementation_resources', {})
+        if resources:
+            output += "\n## Implementation Resources\n\n"
+            for field, label in (
+                ("strategies_total", "Guidance Records"),
+                ("canonical_guidance_documents", "Canonical Guidance IDs"),
+                ("documents_with_code_snippets", "Guidance Records with Code"),
+            ):
+                if field in resources:
+                    output += f"- **{label}:** {resources[field]}\n"
+            if "code_coverage_percentage" in resources:
+                output += (
+                    "- **Guidance Code Coverage:** "
+                    f"{resources['code_coverage_percentage']}%\n"
+                )
 
         output += "\n## Threat Framework Coverage\n\n"
         tfc = result['threat_framework_coverage']
@@ -1104,9 +1432,12 @@ async def handle_get_statistics(arguments: Dict[str, Any]) -> List[TextContent]:
             for framework_meta in by_framework.values():
                 label = framework_meta.get("label", "Unknown Framework")
                 covered = framework_meta.get("items_covered", 0)
-                total = framework_meta.get("total_items", 0)
-                pct = framework_meta.get("coverage_percentage", 0)
-                output += f"- **{label}:** {covered}/{total} ({pct}%)\n"
+                total = framework_meta.get("total_items")
+                pct = framework_meta.get("coverage_percentage")
+                if total is None or pct is None:
+                    output += f"- **{label}:** {covered} mapped items (authoritative total unavailable)\n"
+                else:
+                    output += f"- **{label}:** {covered}/{total} ({pct}%)\n"
         else:
             output += f"- **OWASP LLM Items:** {tfc['owasp_llm_items_covered']}/{tfc.get('owasp_llm_total_items', 10)} ({tfc.get('owasp_llm_coverage_percentage', 0)}%)\n"
             output += f"- **MITRE ATLAS Items:** {tfc['mitre_atlas_items_covered']}\n"
@@ -1149,6 +1480,24 @@ async def handle_validate_technique_id(arguments: Dict[str, Any]) -> List[TextCo
                 output += f"**Pillar:** {tech['pillar']}\n"
             if tech.get('phase'):
                 output += f"**Phase:** {tech['phase']}\n"
+            if 'is_actionable' in tech:
+                output += (
+                    f"**Actionable:** {'Yes' if tech['is_actionable'] else 'No'}\n"
+                )
+            if tech.get('is_parent_family'):
+                output += "**Parent Family:** Yes\n"
+            output += "\n"
+            output += _format_scope_boundary(
+                tech.get('scope_boundary'), heading_level=2
+            )
+            output += _format_tool_inventory(
+                {
+                    "opensource": tech.get("tools_opensource", []),
+                    "source_available": tech.get("tools_source_available", []),
+                    "commercial": tech.get("tools_commercial", []),
+                },
+                heading_level=2,
+            )
         else:
             output += f"❌ **Invalid/Not Found**\n\n"
             output += f"**Reason:** {result['reason']}\n\n"
@@ -1187,33 +1536,86 @@ async def handle_get_technique_detail(arguments: Dict[str, Any]) -> List[TextCon
         output = f"# {tech['name']}\n\n"
         output += f"**ID:** {tech['id']}\n"
         output += f"**Tactic:** {tech['tactic']}\n"
-        output += f"**Type:** {tech['type']}\n\n"
+        output += f"**Type:** {tech['type']}\n"
+        if tech.get('pillar'):
+            pillars = ", ".join(
+                escape_markdown(str(value)) for value in tech['pillar']
+            )
+            output += f"**Pillar:** {pillars}\n"
+        if tech.get('phase'):
+            phases = ", ".join(
+                escape_markdown(str(value)) for value in tech['phase']
+            )
+            output += f"**Phase:** {phases}\n"
+        output += "\n"
 
         output += "## Description\n\n"
         output += tech['description'] + "\n\n"
+        output += _format_scope_boundary(
+            tech.get('scope_boundary'), heading_level=2
+        )
+
+        if tech.get('warnings'):
+            output += "## Warnings and Scope Notes\n\n"
+            for warning in tech['warnings']:
+                level = warning.get('level', 'Important')
+                description = warning.get('description', '')
+                output += f"- **{level}:** {description}\n"
+            output += "\n"
 
         if tech.get('defends_against'):
             output += "## Defends Against\n\n"
             for fw in tech['defends_against']:
                 output += f"### {fw['framework']}\n"
-                for item in fw['items'][:5]:
+                for item in fw['items']:
                     output += f"- {item}\n"
                 output += "\n"
 
-        if tech.get('tools') and include_tools:
-            output += "## Tools\n\n"
-            if tech['tools'].get('opensource'):
-                output += "**Open Source:**\n"
-                for tool in tech['tools']['opensource'][:5]:
-                    output += f"- {tool}\n"
-                output += "\n"
+        if include_tools:
+            output += _format_tool_inventory(
+                tech.get('tools'), heading_level=2
+            )
+
+        output += _format_implementation_strategies(
+            result.get('strategies'), heading_level=2
+        )
 
         if result['subtechniques']:
             output += f"## Sub-Techniques ({len(result['subtechniques'])})\n\n"
-            for st in result['subtechniques'][:10]:
+            for st in result['subtechniques']:
                 output += f"### {st['id']}: {st['name']}\n"
                 output += f"- **Pillar:** {st['pillar']}\n"
-                output += f"- **Phase:** {st['phase']}\n\n"
+                output += f"- **Phase:** {st['phase']}\n"
+                for warning in st.get('warnings', []):
+                    output += (
+                        f"- **Warning — {warning.get('level', 'Important')}:** "
+                        f"{warning.get('description', '')}\n"
+                    )
+                output += "\n"
+                description = st.get('description')
+                if isinstance(description, str) and description.strip():
+                    output += "#### Description\n\n"
+                    output += f"{escape_markdown(description.strip())}\n\n"
+                output += _format_scope_boundary(
+                    st.get('scope_boundary'), heading_level=4
+                )
+                if st.get('defends_against'):
+                    output += "#### Defends Against\n\n"
+                    for framework in st['defends_against']:
+                        framework_name = escape_markdown(
+                            str(framework.get('framework', 'Unknown'))
+                        )
+                        output += f"**{framework_name}:**\n"
+                        for item in framework.get('items', []):
+                            output += f"- {escape_markdown(str(item))}\n"
+                        output += "\n"
+                if include_tools:
+                    output += _format_tool_inventory(
+                        st.get('tools'), heading_level=4
+                    )
+                output += _format_implementation_strategies(
+                    st.get('strategies'), heading_level=4
+                )
 
         return [TextContent(type="text", text=output)]
 
@@ -1238,14 +1640,27 @@ async def handle_get_defenses_for_threat(arguments: Dict[str, Any]) -> List[Text
 
         query = result['threat_query']
         output = "# Defense Techniques for Threat\n\n"
-        output += f"**Query:** {query.get('threat_id') or query.get('threat_keyword')}\n"
+        output += f"**Query:** {escape_markdown(query.get('threat_id') or query.get('threat_keyword') or '')}\n"
         output += f"**Results:** {result['total_results']}\n\n"
 
-        for i, tech in enumerate(result['defense_techniques'][:10], 1):
+        for i, tech in enumerate(result['defense_techniques'], 1):
             output += f"## {i}. {tech['technique']['name']}\n\n"
             output += f"**ID:** {tech['technique']['id']}\n"
             output += f"**Tactic:** {tech['technique']['tactic']}\n"
             output += f"**Relevance:** {tech['relevance_score']:.2f}\n\n"
+            output += _format_scope_boundary(
+                tech['technique'].get('scope_boundary'), heading_level=3
+            )
+            output += _format_tool_inventory(
+                {
+                    "opensource": tech['technique'].get("tools_opensource", []),
+                    "source_available": tech['technique'].get(
+                        "tools_source_available", []
+                    ),
+                    "commercial": tech['technique'].get("tools_commercial", []),
+                },
+                heading_level=3,
+            )
 
         return [TextContent(type="text", text=output)]
 
@@ -1271,7 +1686,7 @@ async def handle_get_secure_code_snippet(arguments: Dict[str, Any]) -> List[Text
         output = "# Secure Code Snippets\n\n"
         query = result['query']
         query_desc = query.get('technique_id') or query.get('topic') or str(query)
-        output += f"**Query:** {query_desc}\n"
+        output += f"**Query:** {escape_markdown(query_desc)}\n"
         output += f"**Snippets Found:** {result['total_snippets']}\n\n"
 
         for i, snippet in enumerate(result['code_snippets'], 1):
@@ -1279,6 +1694,10 @@ async def handle_get_secure_code_snippet(arguments: Dict[str, Any]) -> List[Text
             output += f"**Technique ID:** {snippet['technique_id']}\n"
             output += f"**Language:** {snippet['language']}\n"
             output += f"**Implementation:** {snippet['implementation']}\n\n"
+            output += _format_scope_boundary(
+                snippet.get('scope_boundary'), heading_level=3
+            )
+            output += _format_record_tool_inventory(snippet, heading_level=3)
             output += "```" + snippet['language'] + "\n"
             output += snippet['code'] + "\n"
             output += "```\n\n"
@@ -1310,6 +1729,10 @@ async def handle_analyze_coverage(arguments: Dict[str, Any]) -> List[TextContent
         output = "# Defense Coverage Analysis\n\n"
         output += f"**Coverage:** {summary['coverage_percentage']}% ({summary['coverage_level']})\n"
         output += f"**Implemented:** {summary['techniques_implemented']}/{summary['total_techniques_available']}\n\n"
+        output += _format_resolution_diagnostics(
+            summary.get('unrecognized_technique_ids'),
+            summary.get('expanded_parent_families'),
+        )
 
         output += "## Coverage by Tactic\n\n"
         for tactic, data in result['coverage_by_tactic'].items():
@@ -1350,7 +1773,13 @@ async def handle_map_to_compliance_framework(arguments: Dict[str, Any]) -> List[
 
         output = f"# Compliance Mapping: {result['framework']['name']}\n\n"
         output += f"**Framework Version:** {result['framework'].get('version', 'N/A')}\n"
+        if 'total_requested' in result:
+            output += f"**Technique IDs Requested:** {result['total_requested']}\n"
         output += f"**Total Techniques Mapped:** {result['total_mapped']}\n\n"
+        output += _format_resolution_diagnostics(
+            result.get('unrecognized_technique_ids'),
+            {},
+        )
 
         # Display coverage summary if available
         if result.get('summary'):
@@ -1371,6 +1800,9 @@ async def handle_map_to_compliance_framework(arguments: Dict[str, Any]) -> List[
 
         for mapping in result['mappings']:
             output += f"## {mapping['technique_id']}: {mapping['technique_name']}\n\n"
+            if mapping.get('error'):
+                output += f"**Not Mapped:** {mapping['error']}\n\n"
+                continue
             output += f"**Framework Controls:**\n\n"
 
             # Format control objects as readable Markdown
@@ -1386,6 +1818,9 @@ async def handle_map_to_compliance_framework(arguments: Dict[str, Any]) -> List[
                     output += f"- {control}\n"
 
             output += f"\n**Mapping Confidence:** {mapping['mapping_confidence']}\n\n"
+            output += _format_scope_boundary(
+                mapping.get('scope_boundary'), heading_level=3
+            )
 
         output += f"\n*{result['disclaimer']}*\n"
 
@@ -1413,6 +1848,43 @@ async def handle_get_quick_reference(arguments: Dict[str, Any]) -> List[TextCont
         output = f"# Quick Reference: {result['topic']}\n\n"
         output += result['formatted_output']
 
+        scoped_items = []
+        for category in ('quick_wins', 'must_haves', 'nice_to_haves'):
+            for item in result.get(category, []):
+                if item.get('scope_boundary'):
+                    scoped_items.append(item)
+        if scoped_items:
+            output += "\n\n## Scope Boundaries\n\n"
+            for item in scoped_items:
+                output += (
+                    f"### {item.get('technique_id', 'N/A')}: "
+                    f"{item.get('name', 'N/A')}\n\n"
+                )
+                output += _format_scope_boundary(
+                    item.get('scope_boundary'), heading_level=4
+                )
+
+        tool_items = []
+        for category in ('quick_wins', 'must_haves', 'nice_to_haves'):
+            for item in result.get(category, []):
+                if any(
+                    item.get(field)
+                    for field in (
+                        'tools_opensource',
+                        'tools_source_available',
+                        'tools_commercial',
+                    )
+                ):
+                    tool_items.append(item)
+        if tool_items:
+            output += "\n\n## Tool Inventories\n\n"
+            for item in tool_items:
+                output += (
+                    f"### {item.get('technique_id', 'N/A')}: "
+                    f"{item.get('name', 'N/A')}\n\n"
+                )
+                output += _format_record_tool_inventory(item, heading_level=4)
+
         return [TextContent(type="text", text=output)]
 
     except Exception as e:
@@ -1434,35 +1906,44 @@ async def handle_get_threat_coverage(arguments: Dict[str, Any]) -> List[TextCont
         audit_tool_completion(
             audit_ctx,
             success=True,
-            result_summary=f"{result['valid_count']}/{result['input_count']} valid, OWASP: {len(result['covered']['owasp'])}, ATLAS: {len(result['covered']['atlas'])}"
+            result_summary=(
+                f"{result['valid_count']}/{result['input_count']} valid, "
+                f"OWASP: {len(result['covered'].get('owasp', []))}, "
+                f"ATLAS: {len(result['covered'].get('atlas', []))}"
+            ),
         )
 
         output = "# Threat Coverage Analysis\n\n"
         output += f"**Techniques Analyzed:** {result['input_count']}\n"
         output += f"**Valid Techniques:** {result['valid_count']}\n"
         output += f"**Invalid Techniques:** {result['invalid_count']}\n\n"
+        if 'resolved_actionable_count' in result:
+            output += (
+                "**Actionable Controls Resolved:** "
+                f"{result['resolved_actionable_count']}\n\n"
+            )
 
         if result['invalid_techniques']:
             output += "## Invalid Technique IDs\n\n"
             for tech_id in result['invalid_techniques']:
                 output += f"- {tech_id}\n"
             output += "\n"
+        output += _format_resolution_diagnostics(
+            [], result.get('expanded_parent_families')
+        )
 
         output += "## Threat Coverage by Framework\n\n"
-        framework_labels = {
-            "owasp_llm": "OWASP LLM Top 10 2025",
-            "owasp_ml": "OWASP ML Top 10 2023",
-            "owasp_agentic": "OWASP Agentic AI Top 10 2026",
-            "atlas": "MITRE ATLAS",
-            "maestro": "MAESTRO",
-            "nist_aml": "NIST Adversarial Machine Learning 2025",
-            "cisco": "Cisco Integrated AI Security and Safety Framework",
-            "google_saif": "Google Secure AI Framework 2.0 - Risks",
-            "databricks": "Databricks AI Security Framework 3.0",
-        }
-        for key, label in framework_labels.items():
+        covered_by_framework = result["covered"]
+        framework_totals = result.get("framework_totals", {})
+        coverage_rates = result["coverage_rate"]
+        for key in _ordered_framework_coverage_keys(
+            covered_by_framework,
+            framework_totals,
+            coverage_rates,
+        ):
+            label = framework_coverage_label(key)
             covered = result['covered'].get(key, [])
-            total = result.get('framework_totals', {}).get(key, 0)
+            total = framework_totals.get(key, 0)
             rate = result['coverage_rate'].get(key, 0.0) * 100
             output += f"### {label}\n"
             output += f"**Coverage:** {rate:.1f}% ({len(covered)}/{total})\n"
@@ -1479,14 +1960,19 @@ async def handle_get_threat_coverage(arguments: Dict[str, Any]) -> List[TextCont
             output += f"### {tech_data['technique_id']}: {tech_data['technique_name']}\n"
             if tech_data.get("coverage_scope") == "aggregated_subtechniques":
                 output += "- **Scope:** Aggregated from child sub-techniques\n"
-            for key, label in framework_labels.items():
-                threats = tech_data['threats_covered'].get(key, [])
+            threats_by_framework = tech_data['threats_covered']
+            for key in _ordered_framework_coverage_keys(threats_by_framework):
+                threats = threats_by_framework.get(key, [])
                 if threats:
+                    label = framework_coverage_label(key)
                     output += f"- **{label}:** {', '.join(threats[:5])}"
                     if len(threats) > 5:
                         output += f" ... +{len(threats) - 5} more"
                     output += "\n"
             output += "\n"
+            output += _format_scope_boundary(
+                tech_data.get('scope_boundary'), heading_level=4
+            )
 
         if len(result['by_technique']) > 10:
             output += f"*... and {len(result['by_technique']) - 10} more techniques*\n"
@@ -1523,10 +2009,16 @@ async def handle_get_implementation_plan(arguments: Dict[str, Any]) -> List[Text
         )
 
         output = "# Defense Implementation Plan\n\n"
+        if 'requested_count' in result['input']:
+            output += f"**Requested Technique IDs:** {result['input']['requested_count']}\n"
         output += f"**Implemented Techniques:** {result['input']['implemented_count']}\n"
         if result['input']['exclude_tactics']:
             output += f"**Excluded Tactics:** {', '.join(result['input']['exclude_tactics'])}\n"
         output += f"**Recommendations Generated:** {len(result['recommendations'])}\n\n"
+        output += _format_resolution_diagnostics(
+            result['input'].get('unrecognized_technique_ids'),
+            result['input'].get('expanded_parent_families'),
+        )
 
         # Category summaries
         output += "## Priority Categories\n\n"
@@ -1554,7 +2046,13 @@ async def handle_get_implementation_plan(arguments: Dict[str, Any]) -> List[Text
             output += f"   - **Reasoning:** {rec['reasoning']}\n"
             if rec['has_opensource_tools']:
                 output += "   - ✅ **Open-source tools available**\n"
+            if rec.get('has_source_available_tools'):
+                output += "   - **Source-available / open-weight tools available**\n"
             output += "\n"
+            output += _format_record_tool_inventory(rec, heading_level=4)
+            output += _format_scope_boundary(
+                rec.get('scope_boundary'), heading_level=4
+            )
 
         # Add actionable strategies if detail_level is "standard" or "detailed"
         if 'actionable_strategies' in result and result['actionable_strategies']:
@@ -1635,11 +2133,10 @@ async def handle_classify_threat(arguments: Dict[str, Any]) -> List[TextContent]
         source_labels = {
             'static_keyword': '🔍 Static Keyword Match (Tier 1)',
             'fuzzy_match': '🔎 Fuzzy Match - Typo Tolerant (Tier 2)',
-            'llm_inferred': '🤖 LLM Semantic Inference (Tier 3)',
             'no_match': '❌ No Match Found'
         }
         output += f"**Classification Source:** {source_labels.get(source, source)}\n"
-        output += f"**Input Text:** {result['input_text_preview']}\n"
+        output += f"**Input Text:** {escape_markdown(result['input_text_preview'])}\n"
         output += f"**Keywords Matched:** {len(result['keywords_found'])}\n\n"
 
         if result['keywords_found']:
@@ -1664,6 +2161,16 @@ async def handle_classify_threat(arguments: Dict[str, Any]) -> List[TextContent]
             output += "*No threat IDs identified*\n"
         output += "\n"
 
+        mapping_status = result.get("mapping_status", {})
+        unresolved_claims = mapping_status.get("unresolved_claims", [])
+        if unresolved_claims:
+            output += (
+                "⚠️ **Current index mapping:** The following classifier claims "
+                "do not resolve to a defense in the synchronized framework: "
+                + ", ".join(escape_markdown(claim) for claim in unresolved_claims)
+                + "\n\n"
+            )
+
         if result['threat_details']:
             output += "## Threat Details\n\n"
             for detail in result['threat_details']:
@@ -1686,8 +2193,6 @@ async def handle_classify_threat(arguments: Dict[str, Any]) -> List[TextContent]
             output += "*Note: Direct keyword match found. High confidence result.*\n"
         elif source == 'fuzzy_match':
             output += "*Note: Fuzzy matching applied for typo tolerance. Verify match accuracy.*\n"
-        elif source == 'llm_inferred':
-            output += "*Note: LLM semantic inference used. Result based on AI understanding of context.*\n"
         else:
             output += "*Note: No threats matched. Consider rephrasing or check if threat is in keyword dictionary.*\n"
 
@@ -1735,13 +2240,13 @@ async def handle_comprehensive_search(arguments: Dict[str, Any]) -> List[TextCon
 
         # Format output for Claude Desktop
         output = "# Comprehensive Search Results\n\n"
-        output += f"**Topic:** {result['input_topic']}\n"
+        output += f"**Topic:** {escape_markdown(result['input_topic'])}\n"
         output += f"**Search Strategy:** Multi-query ({len(result['queries_executed'])} queries executed)\n"
         output += f"**Total Results:** {result['total_results_after_dedup']} (deduplicated from {result['total_results_before_dedup']})\n\n"
 
         output += "## Queries Executed\n\n"
         for i, query in enumerate(result['queries_executed'], 1):
-            output += f"{i}. {query}\n"
+            output += f"{i}. {escape_markdown(query)}\n"
         output += "\n"
 
         # Coverage summary
@@ -1771,7 +2276,7 @@ async def handle_comprehensive_search(arguments: Dict[str, Any]) -> List[TextCon
                 output += f"**Tactic:** {item['tactic']}\n"
                 output += f"**Type:** {item['type']}\n"
                 output += f"**Relevance Score:** {item['_distance']:.3f}\n"
-                output += f"**Matched Query:** {item['matched_query']}\n"
+                output += f"**Matched Query:** {escape_markdown(item['matched_query'])}\n"
 
                 if item.get('pillar'):
                     output += f"**Pillar:** {item['pillar']}\n"
@@ -1780,6 +2285,10 @@ async def handle_comprehensive_search(arguments: Dict[str, Any]) -> List[TextCon
 
                 desc = item['description']
                 output += f"\n**Description:**\n{desc[:300]}{'...' if len(desc) > 300 else ''}\n\n"
+                output += _format_scope_boundary(
+                    item.get('scope_boundary'), heading_level=4
+                )
+                output += _format_record_tool_inventory(item, heading_level=4)
                 output += "---\n\n"
         else:
             output += "*No results found for this topic.*\n\n"
@@ -1826,9 +2335,10 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             pct = result['technical_coverage'].get('analysis_summary', {}).get('coverage_percentage', 0)
             summary_text = f"Technical: {pct:.1f}%"
         elif view == "threat" and result.get("threat_coverage"):
+            coverage_rates = result['threat_coverage'].get('coverage_rate', {})
             framework_rates = [
-                result['threat_coverage'].get('coverage_rate', {}).get(key, 0) * 100
-                for key in FRAMEWORK_LABELS
+                coverage_rates.get(key, 0) * 100
+                for key in _ordered_framework_coverage_keys(coverage_rates)
             ]
             avg_framework_rate = sum(framework_rates) / len(framework_rates) if framework_rates else 0.0
             summary_text = f"Threat coverage: {avg_framework_rate:.1f}% avg"
@@ -1841,13 +2351,42 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             result_summary=summary_text
         )
 
+        technical_summary = result.get("technical_coverage", {}).get(
+            "analysis_summary", {}
+        )
+        threat_coverage = result.get("threat_coverage", {})
+        posture_invalid_ids = (
+            result.get("invalid_technique_ids")
+            or result.get("unrecognized_technique_ids")
+            or technical_summary.get("unrecognized_technique_ids")
+            or threat_coverage.get("invalid_techniques")
+            or []
+        )
+        posture_expansions = (
+            result.get("expanded_parent_families")
+            or technical_summary.get("expanded_parent_families")
+            or threat_coverage.get("expanded_parent_families")
+            or {}
+        )
+
         # Format output
         output = "# Security Posture Analysis\n\n"
         output += f"**View:** {view.title()}\n"
         output += f"**Techniques Analyzed:** {result['implemented_count']}\n"
+        if 'requested_count' in result:
+            output += f"**Requested Technique IDs:** {result['requested_count']}\n"
+        if 'implemented_actionable_count' in result:
+            output += (
+                "**Actionable Controls Resolved:** "
+                f"{result['implemented_actionable_count']}\n"
+            )
         if system_type:
             output += f"**System Type:** {system_type}\n"
         output += "\n"
+        output += _format_resolution_diagnostics(
+            posture_invalid_ids,
+            posture_expansions,
+        )
 
         # Unified summary (only for 'both' view)
         if view == "both" and result.get("summary"):
@@ -1919,7 +2458,12 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             coverage_rate = threat.get("coverage_rate", {})
             covered = threat.get("covered", {})
             framework_totals = threat.get("framework_totals", {})
-            for key, label in FRAMEWORK_LABELS.items():
+            for key in _ordered_framework_coverage_keys(
+                coverage_rate,
+                covered,
+                framework_totals,
+            ):
+                label = framework_coverage_label(key)
                 rate = coverage_rate.get(key, 0) * 100
                 count = len(covered.get(key, []))
                 total = framework_totals.get(key, 0)
@@ -1938,6 +2482,27 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             if uncovered_owasp:
                 output += "### OWASP Threats NOT Covered (High Priority)\n\n"
                 output += f"{', '.join(uncovered_owasp[:5])}\n\n"
+
+            scoped_techniques = [
+                item
+                for item in threat.get("by_technique", [])
+                if item.get("scope_boundary")
+            ]
+            if scoped_techniques:
+                output += "### Technique Scope Boundaries\n\n"
+                for item in scoped_techniques[:10]:
+                    output += (
+                        f"#### {item.get('technique_id', 'N/A')}: "
+                        f"{item.get('technique_name', 'N/A')}\n\n"
+                    )
+                    output += _format_scope_boundary(
+                        item.get("scope_boundary"), heading_level=5
+                    )
+                if len(scoped_techniques) > 10:
+                    output += (
+                        f"*... and {len(scoped_techniques) - 10} more scoped "
+                        "techniques*\n\n"
+                    )
 
         output += "---\n\n"
         output += "*Tip: Use `get_implementation_plan` to get prioritized recommendations for next steps.*\n"
@@ -2052,7 +2617,7 @@ async def handle_compare_techniques(arguments: Dict[str, Any]) -> List[TextConte
                 by_framework = threat_cov.get("by_framework", {})
                 if by_framework:
                     coverage_parts = [
-                        f"{FRAMEWORK_LABELS.get(key, key)} ({count})"
+                        f"{framework_coverage_label(key)} ({count})"
                         for key, count in by_framework.items()
                         if count
                     ]
@@ -2068,14 +2633,21 @@ async def handle_compare_techniques(arguments: Dict[str, Any]) -> List[TextConte
             if tech['has_code_snippets']:
                 output += "- ✅ Has code examples\n"
             if tech['has_opensource_tools']:
-                output += "- ✅ Opensource tools available\n"
+                output += "- ✅ Open-source tools available\n"
+            if tech.get('has_source_available_tools'):
+                output += "- Source-available / open-weight tools available\n"
             if tech['has_commercial_tools']:
-                output += "- 💰 Commercial tools required\n"
+                output += "- 💰 Commercial tools available\n"
 
             output += "\n"
 
+            output += _format_record_tool_inventory(tech, heading_level=4)
+
             # Brief description
             output += f"**Description:** {tech['description']}\n\n"
+            output += _format_scope_boundary(
+                tech.get('scope_boundary'), heading_level=4
+            )
             output += "---\n\n"
 
         # Recommendations
@@ -2133,7 +2705,7 @@ async def handle_generate_incident_playbook(arguments: Dict[str, Any]) -> List[T
         # Incident summary
         summary = result['incident_summary']
         output += "## 📋 Incident Summary\n\n"
-        output += f"**Description:** {summary['description']}\n\n"
+        output += f"**Description:** {escape_markdown(summary['description'])}\n\n"
 
         if summary.get('primary_threat'):
             threat = summary['primary_threat']
@@ -2196,6 +2768,10 @@ async def handle_generate_incident_playbook(arguments: Dict[str, Any]) -> List[T
                     output += f"   - **Tactic:** {tech.get('tactic', 'N/A')}\n"
                     desc = tech.get('description', 'N/A')
                     output += f"   - **Description:** {desc[:150]}{'...' if len(desc) > 150 else ''}\n\n"
+                    output += _format_scope_boundary(
+                        tech.get('scope_boundary'), heading_level=4
+                    )
+                    output += _format_record_tool_inventory(tech, heading_level=4)
 
                 output += "\n*Use `get_technique_detail` for implementation details.*\n\n"
             else:

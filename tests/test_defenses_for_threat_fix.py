@@ -1,95 +1,114 @@
-"""
-Test for get_defenses_for_threat relevance score fix
-
-Verifies that relevance scores are properly calculated from L2 distance.
-"""
+"""Regression tests for semantic-search relevance conversion."""
 
 import pytest
-from app.tools.defenses_for_threat import get_defenses_for_threat
+
+import app.core as core_module
+import app.tools.defenses_for_threat as defenses_module
 
 
-class TestRelevanceScoreFix:
-    """Test that relevance scores are calculated correctly."""
-
-    @pytest.mark.asyncio
-    async def test_semantic_search_returns_nonzero_relevance(self):
-        """
-        Test that semantic search returns non-zero relevance scores.
-
-        Previously, all scores were 0.00 due to incorrect distance conversion.
-        After fix, scores should be in range (0.0, 1.0].
-        """
-        # Use a common threat keyword that should have matches
-        result = await get_defenses_for_threat(
-            threat_keyword="prompt injection",
-            top_k=10
-        )
-
-        # Should return results
-        assert result['total_results'] > 0, "Should find at least one result"
-
-        # Check relevance scores
-        for defense in result['defense_techniques']:
-            relevance = defense['relevance_score']
-
-            # Relevance should be in valid range
-            assert 0.0 < relevance <= 1.0, \
-                f"Relevance score {relevance} out of range (0.0, 1.0] for {defense['technique']['id']}"
-
-            # Should not be all zeros (the bug we're fixing)
-            assert relevance > 0.0, \
-                f"Relevance score should not be 0.00 for {defense['technique']['id']}"
-
-        # Log scores for inspection
-        print("\nRelevance scores:")
-        for i, defense in enumerate(result['defense_techniques'][:5], 1):
-            print(f"  {i}. {defense['technique']['id']}: {defense['relevance_score']:.3f}")
-
-    @pytest.mark.asyncio
-    async def test_relevance_score_calculation_logic(self):
-        """
-        Test the relevance score calculation formula.
-
-        Formula: score = 1 / (1 + distance)
-
-        Expected behavior:
-        - distance = 0.0 → score = 1.0 (perfect match)
-        - distance = 1.0 → score = 0.5 (moderate match)
-        - distance = 3.0 → score = 0.25
-        - distance = 9.0 → score = 0.1
-        - distance = ∞ → score → 0.0
-        """
-        test_cases = [
-            (0.0, 1.0),    # Perfect match
-            (1.0, 0.5),    # Moderate
-            (3.0, 0.25),   # Low
-            (9.0, 0.1),    # Very low
-        ]
-
-        for distance, expected_score in test_cases:
-            calculated_score = 1.0 / (1.0 + distance)
-            assert abs(calculated_score - expected_score) < 0.001, \
-                f"Score calculation incorrect for distance={distance}: " \
-                f"expected {expected_score}, got {calculated_score}"
-
-    @pytest.mark.asyncio
-    async def test_results_sorted_by_relevance(self):
-        """
-        Test that results are sorted by relevance score (descending).
-        """
-        result = await get_defenses_for_threat(
-            threat_keyword="adversarial attacks",
-            top_k=10
-        )
-
-        if result['total_results'] > 1:
-            scores = [d['relevance_score'] for d in result['defense_techniques']]
-
-            # Check sorted in descending order
-            for i in range(len(scores) - 1):
-                assert scores[i] >= scores[i + 1], \
-                    f"Results not sorted: scores[{i}]={scores[i]}, scores[{i+1}]={scores[i+1]}"
+class FakeVector(list):
+    def tolist(self):
+        return list(self)
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v", "-s"])
+class FakeEmbedding:
+    def __init__(self, *, model_name):
+        self.model_name = model_name
+
+    def embed(self, texts):
+        assert texts
+        return iter([FakeVector([0.1, 0.2])])
+
+
+class FakeQueryEngine:
+    is_ready = True
+    active_embedding_model = "test-embedding"
+
+    def __init__(self, records):
+        self.records = records
+
+    async def read_table(self, operation):
+        return [dict(record) for record in self.records]
+
+
+@pytest.fixture
+def semantic_search_records(monkeypatch):
+    records = [
+        {
+            "source_id": "AID-H-001",
+            "name": "Closest defense",
+            "type": "technique",
+            "tactic": "Harden",
+            "text": "Closest semantic match",
+            "pillar": '["app"]',
+            "phase": '["validation"]',
+            "is_actionable": True,
+            "is_parent_family": False,
+            "_distance": 0.0,
+        },
+        {
+            "source_id": "AID-D-001",
+            "name": "Middle defense",
+            "type": "technique",
+            "tactic": "Detect",
+            "text": "Moderate semantic match",
+            "pillar": '["app"]',
+            "phase": '["operation"]',
+            "is_actionable": True,
+            "is_parent_family": False,
+            "_distance": 1.0,
+        },
+        {
+            "source_id": "AID-I-001",
+            "name": "Distant defense",
+            "type": "technique",
+            "tactic": "Isolate",
+            "text": "Distant semantic match",
+            "pillar": '["infra"]',
+            "phase": '["response"]',
+            "is_actionable": True,
+            "is_parent_family": False,
+            "_distance": 3.0,
+        },
+    ]
+    monkeypatch.setattr(core_module, "query_engine", FakeQueryEngine(records))
+    monkeypatch.setattr(defenses_module, "TextEmbedding", FakeEmbedding)
+    return records
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_returns_nonzero_relevance(semantic_search_records):
+    result = await defenses_module.get_defenses_for_threat(
+        threat_keyword="prompt injection",
+        top_k=10,
+    )
+
+    assert result["total_results"] == len(semantic_search_records)
+    assert [item["relevance_score"] for item in result["defense_techniques"]] == [
+        1.0,
+        0.5,
+        0.25,
+    ]
+    assert all(
+        0.0 < item["relevance_score"] <= 1.0
+        for item in result["defense_techniques"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("distance", "expected_score"),
+    [(0.0, 1.0), (1.0, 0.5), (3.0, 0.25), (9.0, 0.1)],
+)
+def test_relevance_score_calculation_logic(distance, expected_score):
+    assert 1.0 / (1.0 + distance) == pytest.approx(expected_score)
+
+
+@pytest.mark.asyncio
+async def test_results_sorted_by_relevance(semantic_search_records):
+    result = await defenses_module.get_defenses_for_threat(
+        threat_keyword="adversarial attacks",
+        top_k=10,
+    )
+
+    scores = [item["relevance_score"] for item in result["defense_techniques"]]
+    assert scores == sorted(scores, reverse=True)

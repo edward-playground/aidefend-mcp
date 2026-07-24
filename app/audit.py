@@ -31,26 +31,37 @@ class AuditLogger:
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False  # Don't propagate to root logger
 
-        # Create logs directory if it doesn't exist
-        log_dir = Path("logs")
-        log_dir.mkdir(exist_ok=True)
+        # Resolve the audit log directory from settings (PROJECT_ROOT-anchored) so logs land
+        # in the documented data/logs location regardless of the launch CWD. MCP clients
+        # (Claude Desktop/Code) launch with cwd != project root, so a bare Path("logs") would
+        # scatter logs to a stray folder or raise PermissionError on a read-only CWD — and
+        # because audit_tool_call() runs before each tool handler, that would break every
+        # audited tool. Setup is therefore best-effort and never fatal.
+        try:
+            if settings.LOG_PATH is not None:
+                log_dir = Path(settings.LOG_PATH).parent
+            else:
+                log_dir = Path(settings.DATA_PATH) / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create audit log file handler with daily rotation
-        audit_log_path = log_dir / "audit.log"
-
-        # Rotate daily, keep 30 days of logs
-        handler = TimedRotatingFileHandler(
-            filename=str(audit_log_path),
-            when="midnight",
-            interval=1,
-            backupCount=30,
-            encoding="utf-8"
-        )
-
-        # Use plain formatter (we'll format as JSON in log_event)
-        handler.setFormatter(logging.Formatter('%(message)s'))
-
-        self.logger.addHandler(handler)
+            # Rotate daily, keep 30 days of logs
+            handler = TimedRotatingFileHandler(
+                filename=str(log_dir / "audit.log"),
+                when="midnight",
+                interval=1,
+                backupCount=30,
+                encoding="utf-8"
+            )
+            # Use plain formatter (we'll format as JSON in log_event)
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            self.logger.addHandler(handler)
+        except Exception as e:
+            # Never let an audit-logging setup problem break tool calls: fall back to a
+            # no-op handler and surface a single warning on the application logger.
+            self.logger.addHandler(logging.NullHandler())
+            logging.getLogger("aidefend_mcp").warning(
+                f"Audit file logging disabled (could not initialize audit log): {e}"
+            )
 
     def log_event(
         self,

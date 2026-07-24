@@ -2,6 +2,21 @@
 
 This document provides detailed documentation for all **18 MCP tools** available in the AIDEFEND MCP Service.
 
+> **Live-data contract:** IDs, names, and corpus-size examples in this guide
+> are aligned to AIDEFEND 1.20260724 (authoring schema 1.7, public schema 2.3,
+> index schema 3.2: 92 techniques + 265 sub-techniques + 851 guidance records
+> = 1,208 documents). Rankings, scores, timestamps, framework-coverage totals,
+> and tool counts are illustrative because they are recomputed from the version
+> a customer has synchronized; these snapshot counts are examples, not runtime
+> acceptance thresholds. The service dynamically handles content, ID, title,
+> count, order, and compatible additive-field changes, including open-source,
+> source-available/open-weight, and commercial tool entries. A daily upstream
+> canary checks the rolling public source. Invalid or genuinely incompatible
+> candidates are not activated, so an existing installation continues serving
+> its last-known-good index; arbitrary breaking schemas require a service update.
+> Use get_aidefend_status and validate_technique_id before treating sample values
+> as a live result.
+
 ## Tool Categories
 
 ### Basic Query Tools (3 tools)
@@ -28,9 +43,9 @@ You: "How do I defend against prompt injection attacks?"
 Claude: [Uses query_aidefend tool]
         Based on AIDEFEND, here are the key defense techniques:
 
-        1. AID-H-001: Baseline Input Validation
-        2. AID-H-002: Prompt Guard
-        3. AID-D-001: Semantic Anomaly Detection
+        1. AID-H-001: Adversarial Robustness Training
+        2. AID-H-002: AI-Contextualized Data Sanitization & Input Validation
+        3. AID-D-001: Adversarial Input, Prompt Injection & Signal-Authenticity Detection
         ...
 ```
 
@@ -60,7 +75,7 @@ You: "What's the status of the AIDEFEND service?"
 
 Claude: [Uses get_aidefend_status tool]
         AIDEFEND Service Status:
-        - Total documents: 156
+        - Total documents: 1,208
         - Embedding model: Xenova/multilingual-e5-base
         - Last sync: 2 hours ago
         - Service ready: Yes
@@ -76,10 +91,10 @@ curl http://localhost:8000/api/v1/status
 ```json
 {
   "service_ready": true,
-  "total_documents": 156,
+  "total_documents": 1208,
   "embedding_model": "Xenova/multilingual-e5-base",
   "last_sync": "2025-01-18T10:30:00Z",
-  "framework_version": "1.20251107"
+  "framework_version": "1.20260724"
 }
 ```
 
@@ -103,7 +118,7 @@ Claude: [Uses sync_aidefend tool]
         Downloading latest content...
         Parsing techniques...
         Generating embeddings...
-        ✅ Sync complete! Knowledge base updated to version 1.20251118
+        ✅ Sync complete! Knowledge base updated to version 1.20260724
 ```
 
 #### REST API Example:
@@ -117,8 +132,8 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20251118",
-  "documents_synced": 158,
+  "framework_version": "1.20260724",
+  "documents_synced": 1208,
   "sync_duration_seconds": 42.3
 }
 ```
@@ -140,10 +155,11 @@ You: "Can you show me statistics about the AIDEFEND knowledge base?"
 
 Claude: [Uses get_statistics tool]
         The AIDEFEND knowledge base contains:
-        - 156 total documents (45 techniques, 78 sub-techniques, 33 strategies)
+        - 1,208 total documents (92 techniques, 265 sub-techniques, 851 strategies)
         - Coverage across 7 tactics: Model, Harden, Detect, Isolate, Deceive, Evict, Restore
         - Threat framework coverage: 10 OWASP LLM threats, 28 MITRE ATLAS techniques
-        - 34 techniques with open-source tools, 18 with commercial tools
+        - 299 controls with open-source tools, 34 with source-available/open-weight tools,
+          and 275 with commercial tools
         - 42 documents with code snippets
 ```
 
@@ -157,10 +173,11 @@ curl http://localhost:8000/api/v1/statistics
 ```json
 {
   "overview": {
-    "total_documents": 156,
-    "total_techniques": 45,
-    "total_subtechniques": 78,
-    "total_strategies": 33
+    "total_documents": 1208,
+    "total_techniques": 92,
+    "total_subtechniques": 265,
+    "total_strategies": 851,
+    "total_actionable_items": 300
   },
   "by_tactic": {
     "Harden": 18,
@@ -178,8 +195,9 @@ curl http://localhost:8000/api/v1/statistics
     "techniques_mapped_percentage": 88.9
   },
   "tools_availability": {
-    "techniques_with_opensource_tools": 34,
-    "techniques_with_commercial_tools": 18
+    "techniques_with_opensource_tools": 299,
+    "techniques_with_source_available_tools": 34,
+    "techniques_with_commercial_tools": 275
   },
   "code_snippets": {
     "documents_with_code_snippets": 42
@@ -189,7 +207,7 @@ curl http://localhost:8000/api/v1/statistics
 
 ---
 
-### Tool 6: Validate Technique ID
+### Tool 5: Validate Technique ID
 
 **Purpose**: Validate if a technique ID exists and is correctly formatted. Provides fuzzy matching suggestions if ID is not found.
 
@@ -202,7 +220,7 @@ You: "Is AID-H-001 a valid technique ID?"
 
 Claude: [Uses validate_technique_id tool]
         Yes, AID-H-001 is valid!
-        - Name: Baseline Input Validation
+        - Name: Adversarial Robustness Training
         - Type: technique
         - Tactic: Harden
 ```
@@ -213,8 +231,8 @@ You: "What about AID-H-999?"
 Claude: [Uses validate_technique_id tool]
         AID-H-999 is not found in the knowledge base.
         Did you mean:
-        - AID-H-001 (Baseline Input Validation) - 85% match
-        - AID-H-002 (Prompt Guard) - 78% match
+        - AID-H-001 (Adversarial Robustness Training) - 85% match
+        - AID-H-002 (AI-Contextualized Data Sanitization & Input Validation) - 78% match
 ```
 
 #### REST API Example:
@@ -230,7 +248,7 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
   "valid": true,
   "technique": {
     "id": "AID-H-001",
-    "name": "Baseline Input Validation",
+    "name": "Adversarial Robustness Training",
     "type": "technique",
     "tactic": "Harden"
   }
@@ -250,7 +268,7 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
   "suggestions": [
     {
       "id": "AID-H-001",
-      "name": "Baseline Input Validation",
+      "name": "Adversarial Robustness Training",
       "similarity_score": 0.85
     }
   ]
@@ -259,7 +277,7 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
 
 ---
 
-### Tool 7: Get Technique Detail
+### Tool 6: Get Technique Detail
 
 **Purpose**: Get complete details for a specific technique including all sub-techniques, implementation strategies with code examples, tool recommendations, and threat mappings.
 
@@ -268,58 +286,55 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
 #### MCP Mode Example (Claude Desktop):
 
 ```
-You: "Show me all details for technique AID-H-001"
+You: "Show me all details for technique AID-H-002"
 
 Claude: [Uses get_technique_detail tool]
-        Here's the complete breakdown of AID-H-001 (Baseline Input Validation):
+        Here's the complete breakdown of AID-H-002
+        (AI-Contextualized Data Sanitization & Input Validation):
 
         Main Technique:
         - Tactic: Harden
-        - Defends against: OWASP LLM01, LLM03, MITRE ATLAS AML.T0043
+        - Includes the complete parent and child threat mappings
 
-        Sub-Techniques (3):
-        1. AID-H-001.001: Schema Validation
-           - 2 implementation strategies with Python/JavaScript code
-        2. AID-H-001.002: Content Filtering
-           - 3 implementation strategies
-        3. AID-H-001.003: Rate Limiting
-           - 2 implementation strategies
+        Sub-Techniques (8):
+        1. AID-H-002.001: Training & Fine-Tuning Data Sanitization
+           - 4 implementation guidance records
+        2. AID-H-002.002: Inference-Time Prompt & Input Validation
+           - 8 implementation guidance records
+        3. AID-H-002.003: Multimodal Input Sanitization
+           - 4 implementation guidance records
+        ... plus 5 additional sub-techniques, returned without truncation
 
         Tools Available:
-        - Open-source: prompt-toolkit, guardrails-ai, nemo-guardrails
-        - Commercial: Microsoft Prompt Shield, AWS Bedrock Guardrails
+        - Open-source, source-available, and commercial entries are returned
+          from the synchronized framework without a fixed vendor list
 ```
 
 #### REST API Example:
 
 ```bash
-curl "http://localhost:8000/api/v1/technique/AID-H-001?include_code=true&include_tools=true"
+curl "http://localhost:8000/api/v1/technique/AID-H-002?include_code=true&include_tools=true"
 ```
 
 **Response** (abbreviated):
 ```json
 {
   "technique": {
-    "id": "AID-H-001",
-    "name": "Baseline Input Validation",
+    "id": "AID-H-002",
+    "name": "AI-Contextualized Data Sanitization & Input Validation",
     "type": "technique",
     "tactic": "Harden",
-    "description": "Implement baseline input validation...",
-    "defends_against": [
-      {
-        "framework": "OWASP LLM Top 10",
-        "items": ["LLM01", "LLM03"]
-      }
-    ],
+    "description": "AI-contextualized data sanitization and input validation...",
     "tools": {
-      "opensource": ["guardrails-ai", "nemo-guardrails"],
-      "commercial": ["Microsoft Prompt Shield"]
+      "opensource": [],
+      "source_available": [],
+      "commercial": []
     }
   },
   "subtechniques": [
     {
-      "id": "AID-H-001.001",
-      "name": "Schema Validation",
+      "id": "AID-H-002.002",
+      "name": "Inference-Time Prompt & Input Validation",
       "strategies": [
         {
           "strategy": "Pydantic-based validation",
@@ -335,8 +350,8 @@ curl "http://localhost:8000/api/v1/technique/AID-H-001?include_code=true&include
     }
   ],
   "metadata": {
-    "total_subtechniques": 3,
-    "total_strategies": 7
+    "total_subtechniques": 8,
+    "total_strategies": 32
   }
 }
 ```
@@ -356,7 +371,7 @@ Use get_technique_detail when you need:
 
 ---
 
-### Tool 8: Get Defenses for Threat
+### Tool 7: Get Defenses for Threat
 
 **Purpose**: Find AIDEFEND defense techniques for a specific threat. Supports threat IDs from OWASP LLM Top 10, MITRE ATLAS, MAESTRO, or natural language keywords.
 
@@ -371,10 +386,10 @@ Claude: [Uses get_defenses_for_threat tool]
         For OWASP LLM01 (Prompt Injection), AIDEFEND recommends 8 defense techniques:
 
         Top Defenses:
-        1. AID-H-001: Baseline Input Validation (100% match)
-        2. AID-H-002: Prompt Guard (100% match)
-        3. AID-D-001: Semantic Anomaly Detection (95% match)
-        4. AID-I-002: Prompt Isolation (90% match)
+        1. AID-H-001: Adversarial Robustness Training (100% match)
+        2. AID-H-002: AI-Contextualized Data Sanitization & Input Validation (100% match)
+        3. AID-D-001: Adversarial Input, Prompt Injection & Signal-Authenticity Detection (95% match)
+        4. AID-I-002: Network Segmentation & Isolation for AI Systems (90% match)
 ```
 
 ```
@@ -383,9 +398,9 @@ You: "How do I defend against model poisoning attacks?"
 Claude: [Uses get_defenses_for_threat with keyword search]
         For "model poisoning", here are the relevant defenses:
 
-        1. AID-M-001: Training Data Validation (semantic match: 0.89)
-        2. AID-D-003: Model Behavior Monitoring (semantic match: 0.85)
-        3. AID-H-004: Model Integrity Checks (semantic match: 0.82)
+        1. AID-M-001: AI Asset Inventory & Mapping (semantic match: 0.89)
+        2. AID-D-003: AI Output Monitoring & Policy-Violation Detection (semantic match: 0.85)
+        3. AID-H-004: Identity, Access & Trusted Communication for AI Systems (semantic match: 0.82)
 ```
 
 #### REST API Example:
@@ -407,7 +422,7 @@ curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_id=LLM01&t
     {
       "technique": {
         "id": "AID-H-001",
-        "name": "Baseline Input Validation",
+        "name": "Adversarial Robustness Training",
         "tactic": "Harden"
       },
       "relevance_score": 1.0,
@@ -426,7 +441,7 @@ curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_keyword=pr
 
 ---
 
-### Tool 9: Get Secure Code Snippet
+### Tool 8: Get Secure Code Snippet
 
 **Purpose**: Extract executable secure code snippets from AIDEFEND implementation strategies. Search by technique ID or topic keyword to get copy-paste ready code examples.
 
@@ -459,21 +474,21 @@ Claude: [Uses get_secure_code_snippet tool]
 
 ```bash
 # Get code for specific technique
-curl -X POST "http://localhost:8000/api/v1/code-snippets?technique_id=AID-H-001.001&max_snippets=5"
+curl -X POST "http://localhost:8000/api/v1/code-snippets?technique_id=AID-H-002.002&max_snippets=5"
 ```
 
 **Response:**
 ```json
 {
   "query": {
-    "technique_id": "AID-H-001.001",
+    "technique_id": "AID-H-002.002",
     "topic": null,
     "language_filter": null
   },
   "code_snippets": [
     {
-      "technique_id": "AID-H-001.001",
-      "technique_name": "Schema Validation",
+      "technique_id": "AID-H-002.002",
+      "technique_name": "Inference-Time Prompt & Input Validation",
       "tactic": "Harden",
       "code": "from pydantic import BaseModel, Field\n\nclass UserPrompt(BaseModel):\n    text: str = Field(max_length=500)",
       "language": "python",
@@ -513,7 +528,7 @@ Use get_secure_code_snippet when you need:
 
 ---
 
-### Tool 10: Analyze Coverage
+### Tool 9: Analyze Coverage
 
 **Purpose**: Analyze defense coverage based on implemented techniques and identify gaps. Provides coverage percentage by tactic/pillar/phase, threat framework coverage, and prioritized recommendations.
 
@@ -527,7 +542,7 @@ You: "I've implemented AID-H-001, AID-H-002, and AID-D-001. What's my coverage?"
 Claude: [Uses analyze_coverage tool]
         Your defense coverage analysis:
 
-        Overall Coverage: 18% (3 of 156 techniques implemented)
+        Overall Coverage: 1.0% (3 of 300 actionable controls implemented)
         Coverage Level: Minimal
 
         Coverage by Tactic:
@@ -541,8 +556,8 @@ Claude: [Uses analyze_coverage tool]
         2. No Model techniques - No model hardening defenses
 
         Recommended Next Steps:
-        1. Implement AID-I-001 (Prompt Isolation) - HIGH PRIORITY
-        2. Implement AID-M-001 (Training Data Validation) - HIGH PRIORITY
+        1. Implement AID-I-001 (AI Execution Sandboxing & Runtime Isolation) - HIGH PRIORITY
+        2. Implement AID-M-001 (AI Asset Inventory & Mapping) - HIGH PRIORITY
         3. Achieve 50%+ coverage in Harden tactic
 ```
 
@@ -561,9 +576,9 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
 ```json
 {
   "analysis_summary": {
-    "total_techniques_available": 156,
+    "total_techniques_available": 300,
     "techniques_implemented": 3,
-    "coverage_percentage": 18.0,
+    "coverage_percentage": 1.0,
     "coverage_level": "Minimal",
     "system_type": "rag"
   },
@@ -600,7 +615,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
     {
       "rank": 1,
       "technique_id": "AID-I-001",
-      "name": "Prompt Isolation",
+      "name": "AI Execution Sandboxing & Runtime Isolation",
       "tactic": "Isolate",
       "priority": "HIGH",
       "reason": "Fills Isolate tactic gap",
@@ -609,7 +624,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
   ],
   "next_steps": {
     "immediate": [
-      "Implement AID-I-001 (Prompt Isolation) - Fills Isolate tactic gap"
+      "Implement AID-I-001 (AI Execution Sandboxing & Runtime Isolation) - Fills Isolate tactic gap"
     ],
     "short_term": [
       "Achieve 50%+ coverage in all tactics",
@@ -625,7 +640,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
 
 ---
 
-### Tool 11: Map to Compliance Framework
+### Tool 10: Map to Compliance Framework
 
 **Purpose**: Map AIDEFEND techniques to compliance framework requirements (NIST AI RMF, EU AI Act, ISO 42001, CSA AI Controls, OWASP ASVS) using heuristic-based analysis.
 
@@ -641,12 +656,12 @@ You: "Map AID-H-001 and AID-D-001 to NIST AI RMF"
 Claude: [Uses map_to_compliance_framework tool]
         Compliance mapping to NIST AI RMF:
 
-        AID-H-001 (Baseline Input Validation):
+        AID-H-001 (Adversarial Robustness Training):
         - Maps to: GOVERN-1.2, MANAGE-2.1
         - Confidence: Medium
         - Rationale: Input validation aligns with risk management and governance controls
 
-        AID-D-001 (Semantic Anomaly Detection):
+        AID-D-001 (Adversarial Input, Prompt Injection & Signal-Authenticity Detection):
         - Maps to: MEASURE-2.1, MANAGE-4.1
         - Confidence: Medium
         - Rationale: Detection techniques align with measurement and incident management
@@ -675,7 +690,7 @@ curl -X POST "http://localhost:8000/api/v1/compliance-mapping" \
   "mappings": [
     {
       "technique_id": "AID-H-001",
-      "technique_name": "Baseline Input Validation",
+      "technique_name": "Adversarial Robustness Training",
       "technique_tactic": "Harden",
       "framework": "nist_ai_rmf",
       "framework_name": "NIST AI Risk Management Framework",
@@ -707,7 +722,7 @@ curl -X POST "http://localhost:8000/api/v1/compliance-mapping" \
 
 ---
 
-### Tool 12: Get Quick Reference
+### Tool 11: Get Quick Reference
 
 **Purpose**: Generate a quick reference guide for a specific security topic. Provides actionable checklist organized by priority (quick wins, must-haves, nice-to-haves).
 
@@ -722,21 +737,21 @@ Claude: [Uses get_quick_reference tool]
         Quick Reference: Prompt Injection Defense
 
         🚀 QUICK WINS (Low Effort, High Impact):
-        [ ] AID-H-001: Baseline Input Validation
+        [ ] AID-H-001: Adversarial Robustness Training
             Effort: Low | Impact: High
-        [ ] AID-H-002: Prompt Guard
+        [ ] AID-H-002: AI-Contextualized Data Sanitization & Input Validation
             Effort: Low | Impact: Critical
 
         ⚡ MUST-HAVES (Essential Defenses):
-        [ ] AID-D-001: Semantic Anomaly Detection
+        [ ] AID-D-001: Adversarial Input, Prompt Injection & Signal-Authenticity Detection
             Effort: Medium | Impact: High
-        [ ] AID-I-001: Prompt Isolation
+        [ ] AID-I-001: AI Execution Sandboxing & Runtime Isolation
             Effort: Medium | Impact: High
-        [ ] AID-H-003: Context-Aware Filtering
+        [ ] AID-H-003: Secure ML Supply Chain Management
             Effort: Medium | Impact: High
 
         ✨ NICE-TO-HAVES (Additional Depth):
-        [ ] AID-D-002: Behavioral Monitoring
+        [ ] AID-D-002: AI Model Anomaly & Performance Drift Detection
             Effort: High | Impact: Medium
 ```
 
@@ -756,7 +771,7 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=RAG%20security&
     {
       "priority": 1,
       "technique_id": "AID-H-001",
-      "name": "Baseline Input Validation",
+      "name": "Adversarial Robustness Training",
       "tactic": "Harden",
       "description": "Implement baseline input validation for RAG queries...",
       "estimated_effort": "Low",
@@ -767,7 +782,7 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=RAG%20security&
     {
       "priority": 1,
       "technique_id": "AID-H-003",
-      "name": "Document Validation",
+      "name": "Secure ML Supply Chain Management",
       "tactic": "Harden",
       "description": "Validate retrieved documents before sending to LLM...",
       "estimated_effort": "Medium",
@@ -778,14 +793,14 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=RAG%20security&
     {
       "priority": 1,
       "technique_id": "AID-D-004",
-      "name": "Retrieval Monitoring",
+      "name": "AI Artifact, Runtime Configuration, Route & Lifecycle Integrity Monitoring",
       "tactic": "Detect",
       "description": "Monitor retrieval patterns for anomalies...",
       "estimated_effort": "High",
       "estimated_impact": "Medium"
     }
   ],
-  "formatted_output": "# QUICK WINS (Low Effort, High Impact)\n[ ] AID-H-001: Baseline Input Validation\n    Effort: Low | Impact: High\n\n# MUST-HAVES (Essential Defenses)\n[ ] AID-H-003: Document Validation\n    Effort: Medium | Impact: High\n...",
+  "formatted_output": "# QUICK WINS (Low Effort, High Impact)\n[ ] AID-H-001: Adversarial Robustness Training\n    Effort: Low | Impact: High\n\n# MUST-HAVES (Essential Defenses)\n[ ] AID-H-003: Secure ML Supply Chain Management\n    Effort: Medium | Impact: High\n...",
   "total_items": 10,
   "usage_notes": {
     "quick_wins": "Low effort, high impact - implement first",
@@ -802,7 +817,7 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=model%20hardeni
 
 ---
 
-### Tool 13: Get Threat Coverage
+### Tool 12: Get Threat Coverage
 
 **Purpose**: Analyze threat coverage for implemented defense techniques. Given a list of AIDEFEND technique IDs, calculates which threats are covered (OWASP LLM Top 10, MITRE ATLAS, MAESTRO) and provides coverage rates.
 
@@ -832,15 +847,15 @@ Claude: [Uses get_threat_coverage tool]
 
         ## Coverage by Technique
 
-        ### AID-D-001: Input Validation
+        ### AID-D-001: Adversarial Input, Prompt Injection & Signal-Authenticity Detection
         - OWASP: LLM01
         - ATLAS:
 
-        ### AID-H-002: Prompt Guard
+        ### AID-H-002: AI-Contextualized Data Sanitization & Input Validation
         - OWASP: LLM01, LLM02
         - ATLAS: AML.T0043
 
-        ### AID-I-003: Context Isolation
+        ### AID-I-003: Quarantine & Throttling of AI Interactions
         - OWASP: LLM03
         - ATLAS: AML.T0020
 ```
@@ -890,7 +905,7 @@ curl -X POST "http://localhost:8000/api/v1/threat-coverage" \
 
 ---
 
-### Tool 14: Get Implementation Plan
+### Tool 13: Get Implementation Plan
 
 **Purpose**: Get ranked recommendations for next defense techniques to implement based on heuristic scoring (threat importance, ease of implementation, phase weight, pillar weight). Helps prioritize security investments.
 
@@ -933,7 +948,7 @@ Claude: [Uses get_implementation_plan tool]
 
         ## Top Recommendations
 
-        🥇 AID-D-014: Prompt Injection Detection
+        🥇 AID-D-014: RAG Content, Relevance & Retrieval-Provenance Monitoring
            - Score: 8.5/10
            - Tactic: Detect
            - Pillar: Detect | Phase: Development
@@ -946,13 +961,13 @@ Claude: [Uses get_implementation_plan tool]
            - Reasoning: Covers high-risk threats; Has open-source tools available; Detection adds defense-in-depth
            - ✅ Open-source tools available
 
-        🥈 AID-H-010: Model Input Sanitization
+        🥈 AID-H-010: Classifier-Free Guidance Hardening
            - Score: 7.5/10
            - Tactic: Harden
            - Pillar: Prevent | Phase: Design
            - Reasoning: Covers high-risk threats; Early-stage implementation (Design)
 
-        🥉 AID-I-005: Prompt Isolation
+        🥉 AID-I-005: Emergency "Kill-Switch" / AI System Halt
            - Score: 7.0/10
            - Tactic: Isolate
            - Pillar: Prevent | Phase: Development
@@ -1085,7 +1100,7 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 
 ---
 
-### Tool 15: Classify Threat (2-Tier Local Matching)
+### Tool 14: Classify Threat (2-Tier Local Matching)
 
 **Purpose**: Classify threats in text using a fast, local 2-tier matching system:
 1. **Tier 1 (Static Keyword)**: Direct keyword matching (instant)
@@ -1214,7 +1229,7 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
 
 ---
 
-### Tool 16: Comprehensive Search (Multi-Query Aggregation)
+### Tool 15: Comprehensive Search (Multi-Query Aggregation)
 
 **Purpose**: Execute multiple search queries in parallel and aggregate results intelligently. Auto-expands broad topics into specific queries for comprehensive coverage.
 
@@ -1236,9 +1251,9 @@ Claude: [Uses comprehensive_search tool]
         Query 3: "media authenticity" (5 results)
 
         Top Techniques:
-        1. AID-D-008: Deepfake Detection (Score: 0.92)
-        2. AID-H-015: Media Validation (Score: 0.88)
-        3. AID-D-009: Synthetic Content Analysis (Score: 0.85)
+        1. AID-D-008: Secondary AI Defender Fusion & Assurance (Score: 0.92)
+        2. AID-H-015: Certified Defenses (Score: 0.88)
+        3. AID-D-009: Fact Assurance & Multi-Agent Hallucination Detection (Score: 0.85)
         ...
 ```
 
@@ -1280,7 +1295,7 @@ curl -X POST "http://localhost:8000/api/v1/comprehensive-search" \
   "aggregated_results": [
     {
       "technique_id": "AID-H-003",
-      "name": "Document Validation",
+      "name": "Secure ML Supply Chain Management",
       "tactic": "Harden",
       "relevance_score": 0.91,
       "matched_queries": ["retrieval augmented generation security", "document injection prevention"]
@@ -1291,7 +1306,7 @@ curl -X POST "http://localhost:8000/api/v1/comprehensive-search" \
 
 ---
 
-### Tool 17: Analyze Security Posture
+### Tool 16: Analyze Security Posture
 
 **Purpose**: Unified security posture analysis combining technical coverage, threat framework coverage, and actionable recommendations. One-stop shop for comprehensive security assessment.
 
@@ -1309,7 +1324,7 @@ Claude: [Uses analyze_security_posture tool]
         Techniques Implemented: 4
 
         ## Technical Coverage
-        - Coverage: 25% (4/156 techniques)
+        - Coverage: 1.3% (4/300 actionable controls)
         - By Tactic:
           • Harden: 11% (2/18) ⚠️
           • Detect: 8% (1/12) ⚠️
@@ -1328,7 +1343,7 @@ Claude: [Uses analyze_security_posture tool]
 
         ## Top Priorities
         1. Implement AID-D-002 (Anomaly Detection) - Fills detection gap
-        2. Implement AID-M-001 (Training Data Validation) - Addresses Model tactic gap
+        2. Implement AID-M-001 (AI Asset Inventory & Mapping) - Addresses Model tactic gap
         3. Cover top ATLAS threats: AML.T0043, AML.T0020
 ```
 
@@ -1357,20 +1372,20 @@ curl -X POST "http://localhost:8000/api/v1/analyze-security-posture" \
     ],
     "top_priorities": [
       "Implement AID-D-002 (Anomaly Detection)",
-      "Implement AID-M-001 (Training Data Validation)"
+      "Implement AID-M-001 (AI Asset Inventory & Mapping)"
     ]
   },
   "technical_coverage": {
     "overall_coverage": {
       "percentage": 25.0,
       "implemented": 4,
-      "total": 156
+      "total": 300
     },
     "by_tactic": [
       {"tactic": "Harden", "percentage": 11.1, "implemented": 2, "total": 18}
     ],
     "critical_gaps": [
-      {"technique_id": "AID-M-001", "name": "Training Data Validation", "tactic": "Model"}
+      {"technique_id": "AID-M-001", "name": "AI Asset Inventory & Mapping", "tactic": "Model"}
     ]
   },
   "threat_coverage": {
@@ -1392,7 +1407,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-security-posture" \
 
 ---
 
-### Tool 18: Compare Techniques
+### Tool 17: Compare Techniques
 
 **Purpose**: Side-by-side comparison of multiple AIDEFEND techniques with heuristic scoring (effectiveness, complexity, cost). Helps make informed implementation decisions.
 
@@ -1472,7 +1487,7 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
   "comparison_matrix": [
     {
       "source_id": "AID-H-001",
-      "name": "Baseline Input Validation",
+      "name": "Adversarial Robustness Training",
       "tactic": "Harden",
       "effectiveness_score": 85,
       "complexity_score": 35,
@@ -1498,16 +1513,16 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
       "category": "Quick Wins",
       "description": "High effectiveness, low complexity, low cost",
       "techniques": [
-        {"id": "AID-H-001", "name": "Baseline Input Validation"}
+        {"id": "AID-H-001", "name": "Adversarial Robustness Training"}
       ]
     },
     {
       "category": "Implementation Priority",
       "description": "Ordered by effectiveness-to-complexity ratio",
       "techniques": [
-        {"id": "AID-H-001", "name": "Baseline Input Validation"},
-        {"id": "AID-D-001", "name": "Semantic Anomaly Detection"},
-        {"id": "AID-I-001", "name": "Prompt Isolation"}
+        {"id": "AID-H-001", "name": "Adversarial Robustness Training"},
+        {"id": "AID-D-001", "name": "Adversarial Input, Prompt Injection & Signal-Authenticity Detection"},
+        {"id": "AID-I-001", "name": "AI Execution Sandboxing & Runtime Isolation"}
       ]
     }
   ]
@@ -1516,7 +1531,7 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
 
 ---
 
-### Tool 19: Generate Incident Playbook
+### Tool 18: Generate Incident Playbook
 
 **Purpose**: Generate structured incident response playbooks for AI security incidents. Provides timeline-based action plans following NIST incident response phases.
 
@@ -1561,11 +1576,11 @@ Claude: [Uses generate_incident_playbook tool]
 
         ## Containment (2-8 hours)
 
-        1. 🔴 Deploy Defense: AID-H-001 (Baseline Input Validation)
+        1. 🔴 Deploy Defense: AID-H-001 (Adversarial Robustness Training)
            Priority: HIGH
            Time: 1-3 hours
 
-        2. 🔴 Deploy Defense: AID-H-002 (Prompt Guard)
+        2. 🔴 Deploy Defense: AID-H-002 (AI-Contextualized Data Sanitization & Input Validation)
            Priority: HIGH
            Time: 1-3 hours
 
@@ -1646,13 +1661,13 @@ curl -X POST "http://localhost:8000/api/v1/generate-incident-playbook" \
     "techniques": [
       {
         "source_id": "AID-H-001",
-        "name": "Baseline Input Validation",
+        "name": "Adversarial Robustness Training",
         "tactic": "Harden",
         "description": "Implement robust input validation..."
       },
       {
         "source_id": "AID-H-002",
-        "name": "Prompt Guard",
+        "name": "AI-Contextualized Data Sanitization & Input Validation",
         "tactic": "Harden",
         "description": "Deploy prompt injection detection..."
       }

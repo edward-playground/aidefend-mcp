@@ -156,9 +156,9 @@ Total search time: 285.42 ms (0.2854 s)
 Performance: ✅ EXCELLENT (< 500ms)
 
 Top 3 results:
-  1. AID-H-001: Input Validation (score: 0.1234)
-  2. AID-D-003: Prompt Injection Detection (score: 0.2456)
-  3. AID-M-002: Context Isolation (score: 0.3789)
+  1. AID-H-001: Adversarial Robustness Training (score: 0.1234)
+  2. AID-D-003: AI Output Monitoring & Policy-Violation Detection (score: 0.2456)
+  3. AID-M-002: Data, Artifact & Knowledge Provenance, Integrity & Risk Characterization (score: 0.3789)
 ============================================================
 ```
 

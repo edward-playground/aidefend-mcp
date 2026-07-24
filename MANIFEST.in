@@ -1,0 +1,12 @@
+# Acorn is distributed only from vendor/. Keeping node_modules out of the
+# source archive prevents an unpinned development install from being packaged
+# as a second parser runtime.
+prune node_modules
+
+# Local build/test output is never part of a release source archive.
+prune build
+prune dist
+prune test-artifacts
+prune htmlcov
+prune data
+prune logs

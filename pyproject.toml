@@ -1,18 +1,19 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "aidefend-mcp"
-version = "1.0.0"
+version = "1.2.0"
 description = "Local RAG service for AIDEFEND AI security knowledge base with dual-mode support (REST API + MCP)"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-    {name = "Edward Lee", email = "your.email@example.com"}
+    {name = "Edward Lee"}
 ]
 maintainers = [
-    {name = "Edward Lee", email = "your.email@example.com"}
+    {name = "Edward Lee"}
 ]
 keywords = [
     "ai-security",
@@ -31,10 +32,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -44,7 +43,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed"
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi==0.121.1",
     "uvicorn[standard]==0.38.0",
@@ -53,6 +52,7 @@ dependencies = [
     "pydantic-settings==2.7.1",
     "lancedb==0.25.3",
     "pandas>=2.0.0",
+    "numpy>=1.24,<3",
     "fastembed==0.7.3",
     "mcp==1.21.0",
     "httpx==0.28.1",
@@ -85,15 +85,31 @@ Repository = "https://github.com/edward-playground/aidefend-mcp"
 Changelog = "https://github.com/edward-playground/aidefend-mcp/blob/main/CHANGELOG.md"
 
 [project.scripts]
-aidefend-mcp = "__main__:main"
+aidefend-mcp = "app.cli:main"
 
 [tool.setuptools]
-packages = ["app"]
-py-modules = ["__main__", "mcp_server"]
+# mcp_server is a top-level module (not under app/), so it must be listed explicitly.
+# __main__ is intentionally NOT packaged: a top-level module named __main__ collides with the
+# console-script launcher at import time. The repo-root __main__.py shim is only for the
+# source-checkout `python __main__.py` flow.
+py-modules = ["mcp_server"]
 include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.json", "*.yaml", "*.yml", "*.txt", "*.md"]
+
+# NOTE: node_modules/ is gitignored and absent from a fresh clone / sdist, so it must NOT be
+# referenced here — doing so makes `pip install .` and `python -m build` fail with
+# The parser imports the pinned Acorn runtime from vendor/. The parser, runtime,
+# and upstream license are installed as data files so wheels work without a
+# post-install npm operation. Node.js itself remains a runtime dependency.
+[tool.setuptools.data-files]
+"." = ["parse_js_module.mjs", "package.json", "package-lock.json", "LICENSE", "THIRD_PARTY_CONTENT.md"]
+"vendor" = ["vendor/acorn.mjs", "vendor/ACORN-LICENSE", "vendor/README.md"]
 
 # Black configuration
 [tool.black]
@@ -128,6 +144,7 @@ skip_glob = ["data/*", ".venv/*", "build/*", "dist/*"]
 [tool.pytest.ini_options]
 minversion = "7.0"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
@@ -141,13 +158,11 @@ addopts = [
     "--cov-report=html",
     "--cov-report=xml"
 ]
-filterwarnings = [
-    "ignore:Test functions should return None.*:pytest.PytestReturnNotNoneWarning"
-]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests"
+    "unit: marks tests as unit tests",
+    "current_snapshot: pins the exact 2026-07-24 local AIDEFEND snapshot; rolling CI deselects it"
 ]
 
 # mypy configuration

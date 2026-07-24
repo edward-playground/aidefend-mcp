@@ -39,13 +39,13 @@ def test_imports():
         print("\n" + "=" * 60)
         print("*** IMPORT TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_parameter_validation():
@@ -63,7 +63,7 @@ def test_parameter_validation():
         try:
             asyncio.run(compare_techniques(technique_ids=[]))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -72,7 +72,7 @@ def test_parameter_validation():
         try:
             asyncio.run(compare_techniques(technique_ids=["AID-H-001"]))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -82,7 +82,7 @@ def test_parameter_validation():
             technique_ids = [f"AID-H-{i:03d}" for i in range(1, 12)]  # 11 techniques
             asyncio.run(compare_techniques(technique_ids=technique_ids))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -91,20 +91,20 @@ def test_parameter_validation():
         try:
             asyncio.run(compare_techniques(technique_ids="AID-H-001"))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
         print("\n" + "=" * 60)
         print("*** VALIDATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_scoring_algorithms():
@@ -124,6 +124,9 @@ def test_scoring_algorithms():
         # Test 1: Effectiveness score calculation
         print("\n[TEST 1] Effectiveness score calculation")
         mock_doc = {
+            "tactic": "Harden",
+            "text": "Validate and test input filtering controls",
+            "pillar": json.dumps(["model"]),
             "defends_against": json.dumps([
                 {"framework": "OWASP LLM Top 10", "items": ["LLM01", "LLM02"]},
                 {"framework": "MITRE ATLAS", "items": ["T0001"]},
@@ -143,8 +146,8 @@ def test_scoring_algorithms():
         mock_doc = {
             "source_id": "AID-H-001",
             "type": "technique",
-            "pillar": "infrastructure",
-            "phase": "building",
+            "pillar": json.dumps(["infra", "model"]),
+            "phase": json.dumps(["building"]),
             "implementation_guidance": json.dumps([{"implementation": "test"}])
         }
 
@@ -158,8 +161,8 @@ def test_scoring_algorithms():
         print("\n[TEST 3] Cost score calculation")
         mock_doc = {
             "tools_commercial": json.dumps(["Tool1", "Tool2"]),
-            "pillar": "infrastructure",
-            "phase": "building"
+            "pillar": json.dumps(["infra"]),
+            "phase": json.dumps(["building"])
         }
 
         score = _calculate_cost_score(mock_doc)
@@ -187,13 +190,13 @@ def test_scoring_algorithms():
         print("\n" + "=" * 60)
         print("*** SCORING ALGORITHM TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_deduplication():
@@ -231,13 +234,13 @@ def test_deduplication():
         print("\n" + "=" * 60)
         print("*** DEDUPLICATION TEST PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def main():

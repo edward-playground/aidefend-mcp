@@ -4,6 +4,8 @@ Uses Pydantic BaseSettings for environment variable management.
 """
 
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import List, Optional, Literal
 from pydantic import Field, field_validator, model_validator
@@ -17,13 +19,44 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
 
+def _resolve_default_data_path(project_root: Path = PROJECT_ROOT) -> Path:
+    """Choose a writable default without making source checkouts surprising.
+
+    A source checkout keeps its historical repo data location. A wheel lives
+    under site-packages, which is commonly read-only for the user who runs the
+    installed console script, so installed copies use the platform's per-user
+    application-data directory instead.
+    """
+    if (project_root / "pyproject.toml").is_file() and (project_root / "app").is_dir():
+        return project_root / "data"
+
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "AIDEFEND" / "aidefend-mcp"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "aidefend-mcp"
+
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg_data_home) if xdg_data_home else Path.home() / ".local" / "share"
+    return base / "aidefend-mcp"
+
+
+DEFAULT_DATA_PATH = _resolve_default_data_path()
+IS_SOURCE_CHECKOUT = (
+    (PROJECT_ROOT / "pyproject.toml").is_file()
+    and (PROJECT_ROOT / "app").is_dir()
+)
+RELATIVE_STORAGE_BASE = PROJECT_ROOT if IS_SOURCE_CHECKOUT else DEFAULT_DATA_PATH
+
+
 class Settings(BaseSettings):
     """
     Application settings loaded from environment variables.
 
-    IMPORTANT: All paths are resolved relative to PROJECT_ROOT to ensure
-    consistent behavior regardless of where the service is launched from.
-    This is critical for Claude Desktop integration where cwd may vary.
+    IMPORTANT: Source-checkout paths resolve relative to the repository.
+    Installed-wheel storage resolves under the platform's per-user application
+    data directory, never under a potentially read-only site-packages tree.
+    This keeps Claude Desktop behavior independent of its working directory.
     """
 
     # GitHub Repository Configuration
@@ -48,10 +81,11 @@ class Settings(BaseSettings):
         description="Optional local AIDEFEND framework repository path to use instead of GitHub sync"
     )
 
-    # AIDEFEND framework files to sync
+    # Legacy digest fallback retained for configuration compatibility. Runtime
+    # sync discovers the current ordered tactic list from framework main.js.
     AIDEFEND_FILES: List[str] = Field(
         default=[
-            "aidefend-intro.js",  # For extracting framework version
+            "aidefend-intro.js",  # Required framework release metadata
             "model.js",
             "harden.js",
             "detect.js",
@@ -60,29 +94,32 @@ class Settings(BaseSettings):
             "evict.js",
             "restore.js"
         ],
-        description="List of .js files to sync from tactics directory"
+        description=(
+            "Legacy source-file list used only when a digest caller does not provide the "
+            "main.js-derived manifest; runtime sync discovers tactics dynamically"
+        )
     )
 
     # Local Storage Paths
     # All paths resolved relative to PROJECT_ROOT for consistent behavior
     DATA_PATH: Path = Field(
-        default=PROJECT_ROOT / "data",
+        default=DEFAULT_DATA_PATH,
         description="Root data directory"
     )
     DB_PATH: Path = Field(
-        default=PROJECT_ROOT / "data" / "aidefend_kb.lancedb",
+        default=DEFAULT_DATA_PATH / "aidefend_kb.lancedb",
         description="LanceDB database path"
     )
     RAW_PATH: Path = Field(
-        default=PROJECT_ROOT / "data" / "raw_content",
+        default=DEFAULT_DATA_PATH / "raw_content",
         description="Directory for raw downloaded files"
     )
     VERSION_FILE: Path = Field(
-        default=PROJECT_ROOT / "data" / "local_version.json",
+        default=DEFAULT_DATA_PATH / "local_version.json",
         description="File storing current sync version"
     )
     LOG_PATH: Optional[Path] = Field(
-        default=PROJECT_ROOT / "data" / "logs" / "aidefend_mcp.log",
+        default=DEFAULT_DATA_PATH / "logs" / "aidefend_mcp.log",
         description="Log file path (None to disable file logging)"
     )
 
@@ -95,13 +132,29 @@ class Settings(BaseSettings):
         default=768,
         description="Embedding vector dimension (768 for multilingual-e5-base)"
     )
+    MODEL_CACHE_DIR: Optional[str] = Field(
+        default=None,
+        description=(
+            "Directory for the FastEmbed/ONNX model cache. Default (None) uses FastEmbed's "
+            "own cache location (unchanged behavior). Set to a path on a persisted volume "
+            "(in Docker: /app/data/models) so the ~280MB model is downloaded once and "
+            "survives container restarts instead of being re-fetched every time."
+        )
+    )
 
     # Cache Schema Version
     # Increment when metadata structure changes require cache rebuild
     # Version History:
     # 1.0 (2025-11): Initial version with JSON array format for pillar/phase
+    # 2.0 (2026-07): Preserve framework warnings in the searchable index
+    # 3.0 (2026-07): Support framework schema 2.3 (canonical guidance IDs,
+    #                source-available tools, scope boundaries, actionable flags)
+    # 3.1 (2026-07): Rebuild scope-aware embedding text and canonicalize every
+    #                list field as a JSON array in LanceDB.
+    # 3.2 (2026-07): Keep scope and all tool inventories inside the embedding
+    #                token window and verify exact tokenizer visibility.
     CACHE_SCHEMA_VERSION: str = Field(
-        default="1.0",
+        default="3.2",
         description="Cache schema version for automatic invalidation on breaking changes"
     )
 
@@ -159,7 +212,6 @@ class Settings(BaseSettings):
     API_WORKERS: int = Field(
         default=1,
         ge=1,
-        le=1,
         description="Number of API workers (MUST be 1 for sync safety - asyncio.Lock + LanceDB write conflicts)"
     )
 
@@ -249,8 +301,20 @@ class Settings(BaseSettings):
         description="Enable CORS middleware"
     )
     CORS_ORIGINS: List[str] = Field(
-        default=["http://localhost:*", "https://localhost:*"],
-        description="Allowed CORS origins"
+        default=[],
+        description=(
+            "Allowed CORS origins as EXACT strings (e.g. 'http://localhost:3000'). "
+            "Starlette matches these literally — port/host wildcards like "
+            "'http://localhost:*' do NOT work; use CORS_ORIGIN_REGEX for that."
+        )
+    )
+    CORS_ORIGIN_REGEX: str = Field(
+        default=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        description=(
+            "Regex matched against the request Origin for CORS. Default allows localhost / "
+            "127.0.0.1 on any port (any local dev UI). Set to '' to disable regex matching "
+            "and rely solely on CORS_ORIGINS."
+        )
     )
 
     # Logging Configuration
@@ -270,7 +334,10 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Anchor .env to PROJECT_ROOT (not the launch CWD) so the same file is loaded no
+        # matter where the service is started from — critical for MCP clients that launch
+        # with cwd != project root. Matches the PROJECT_ROOT policy used for every path above.
+        env_file=str(PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"  # Ignore extra environment variables
@@ -298,21 +365,55 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid log level. Must be one of: {valid_levels}")
         return v
 
-    @field_validator("DATA_PATH", "DB_PATH", "RAW_PATH", "VERSION_FILE", "LOG_PATH", "LOCAL_FRAMEWORK_PATH")
+    @field_validator("LOCAL_FRAMEWORK_PATH", mode="before")
     @classmethod
-    def validate_paths(cls, v: Optional[Path]) -> Optional[Path]:
+    def normalize_optional_local_framework_path(cls, v):
+        """Treat an unset/blank container override as remote-source mode."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("DATA_PATH", "DB_PATH", "RAW_PATH", "VERSION_FILE", "LOG_PATH")
+    @classmethod
+    def validate_storage_paths(cls, v: Optional[Path]) -> Optional[Path]:
         """
         Ensure paths are absolute.
 
-        Paths are already resolved relative to PROJECT_ROOT in defaults,
-        but this validator handles custom paths from environment variables.
+        Source checkouts preserve repository-relative behavior. Installed
+        wheels resolve relative values beneath the writable user-data root.
         """
         if v is None:
             return None
-        # If path is relative, resolve it relative to PROJECT_ROOT
+        # Never resolve an installed wheel's storage beneath site-packages.
         if not v.is_absolute():
-            return (PROJECT_ROOT / v).resolve()
+            return (RELATIVE_STORAGE_BASE / v).resolve()
         return v
+
+    @field_validator("LOCAL_FRAMEWORK_PATH")
+    @classmethod
+    def resolve_local_framework_path(cls, v: Optional[Path]) -> Optional[Path]:
+        """Resolve an explicit relative source path without using site-packages."""
+        if v is None or v.is_absolute():
+            return v
+        base = PROJECT_ROOT if IS_SOURCE_CHECKOUT else Path.cwd()
+        return (base / v).resolve()
+
+    @model_validator(mode='after')
+    def derive_paths_from_data_path(self):
+        """Keep default storage paths together when DATA_PATH is overridden."""
+        if "DATA_PATH" not in self.model_fields_set:
+            return self
+
+        derived_paths = {
+            "DB_PATH": self.DATA_PATH / "aidefend_kb.lancedb",
+            "RAW_PATH": self.DATA_PATH / "raw_content",
+            "VERSION_FILE": self.DATA_PATH / "local_version.json",
+            "LOG_PATH": self.DATA_PATH / "logs" / "aidefend_mcp.log",
+        }
+        for field_name, derived_path in derived_paths.items():
+            if field_name not in self.model_fields_set:
+                setattr(self, field_name, derived_path)
+        return self
 
     @model_validator(mode='after')
     def validate_local_framework_path(self):

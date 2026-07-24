@@ -5,6 +5,63 @@ All notable changes to AIDEFEND MCP Service will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-24
+
+### Added
+- Preserve and expose AIDEFEND public schema 2.3 metadata, including canonical guidance IDs,
+  multi-value pillar and phase fields, all three tool categories (open-source,
+  source-available/open-weight, and commercial), scope boundaries, and actionable versus
+  parent-family semantics.
+- Record source kind, repository, ref, revision kind, and staged content digest so local
+  development syncs and immutable GitHub deployments have explicit provenance.
+- Discover authoring and public schema versions from the optional same-source
+  `data-schema.md` and record its SHA-256 digest. Missing or unrecognized schema metadata
+  is non-fatal and may be reported as `unknown`.
+- Add end-to-end smoke coverage for all 18 MCP tools and their 18 REST counterparts.
+- Add an exact AIDEFEND 1.20260724 / authoring 1.7 / public 2.3 / index 3.2
+  release-snapshot gate plus a rolling daily canary against the latest upstream framework.
+
+### Changed
+- Rebuild and atomically swap validated LanceDB tables under coordinated read/write guards.
+  Version metadata is also replaced atomically; if that commit fails, the service restores
+  the last-known-good database or takes an uncommitted first-install database offline.
+- Align search, detail, statistics, threat classification, comparison, planning, and incident
+  outputs with the schema 2.3 hierarchy and canonical threat mappings.
+- Carry source-defined threat-framework labels through coverage analytics without constraining
+  runtime behavior to the exact set of labels in the release snapshot.
+- Align the canonical Agentic Top 10 label with
+  `OWASP Top 10 for Agentic Applications 2026` while preserving the stable
+  `owasp_agentic` API key and accepting the prior label as legacy input.
+- Package the static JavaScript parser and pinned Acorn runtime in wheel, sdist, and Docker
+  deployments without requiring a runtime npm install.
+- Treat content, ID, title, count, order, and compatible additive-field changes as dynamic
+  framework data rather than fixed runtime constraints. Snapshot corpus counts remain
+  examples, not acceptance thresholds.
+- Keep exact scope-boundary and tool values in structured metadata when unusually long
+  content exceeds the embedding token window; warn instead of rejecting a valid update.
+- Validate every candidate index before activation and keep the last-known-good MCP/REST
+  index online when a source is invalid or genuinely incompatible. Arbitrary breaking
+  schema changes still require an explicit service update.
+- Check for updates immediately at startup and then at the configurable
+  `SYNC_INTERVAL_SECONDS` cadence (one hour by default, from one minute to 24 hours), with
+  failure backoff. This runtime cadence is separate from the daily CI canary.
+
+## [1.1.0] - 2026-07-14
+
+### Fixed
+- Resolve `aidefendVersion` exported constants used by framework template literals.
+- Fail closed when any required tactic is missing, invalid, or cannot be parsed.
+- Start and gracefully stop automatic sync in both REST and stdio MCP modes.
+- Rebuild the index when the MCP index schema or embedding configuration changes.
+- Preserve framework warning and scope-note content in search and technique details.
+- Include the `response` lifecycle phase in implementation-plan scoring.
+- Correct strategy code-coverage statistics and avoid fabricated framework totals.
+- Package `app.tools`, the static parser, and its Acorn runtime in Python wheels.
+
+### Changed
+- Validate the complete manifest-defined tactic source contract before publishing a new database.
+- Clarify the separate MIT service-code and CC BY 4.0 framework-content licenses.
+
 ## [1.0.1] - 2026-03-20
 
 ### Fixed

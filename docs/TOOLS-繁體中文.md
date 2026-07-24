@@ -2,6 +2,18 @@
 
 本文件提供 AIDEFEND MCP Service 中所有 **18 個 MCP 工具**的詳細文件。
 
+> **即時資料說明：** 本文件中的 ID、名稱與語料筆數已對齊 AIDEFEND
+> 1.20260724（authoring schema 1.7、public schema 2.3、index schema
+> 3.2：92 個 techniques + 265 個 sub-techniques + 851 筆 guidance =
+> 1,208 份文件）。排名、分數、時間、framework coverage 總數與工具數量
+> 都會依客戶實際同步的版本重新計算；這些快照筆數只是範例，不是 runtime
+> 驗收門檻。服務會動態處理內容、ID、標題、筆數、順序與相容的新增欄位，
+> 包含開源、source-available/open-weight 與商業工具。daily upstream canary
+> 會驗證持續更新的公開來源；無效或確實不相容的候選資料不會啟用，既有安裝
+> 會繼續使用 last-known-good index。任意破壞性 schema 仍需要服務版本明確
+> 支援。要引用為即時結果前，請先呼叫 get_aidefend_status 與
+> validate_technique_id。
+
 ## 工具分類
 
 ### 基礎查詢工具（3 個工具）
@@ -28,9 +40,9 @@
 Claude：[使用 query_aidefend 工具]
         根據 AIDEFEND，以下是主要的防禦技術：
 
-        1. AID-H-001：Baseline Input Validation
-        2. AID-H-002：Prompt Guard
-        3. AID-D-001：Semantic Anomaly Detection
+        1. AID-H-001：Adversarial Robustness Training
+        2. AID-H-002：AI-Contextualized Data Sanitization & Input Validation
+        3. AID-D-001：Adversarial Input, Prompt Injection & Signal-Authenticity Detection
         ...
 ```
 
@@ -60,7 +72,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 Claude：[使用 get_aidefend_status 工具]
         AIDEFEND 服務狀態：
-        - 文件總數：156
+        - 文件總數：1,208
         - Embedding 模型：Xenova/multilingual-e5-base
         - 上次同步：2 小時前
         - 服務就緒：是
@@ -76,10 +88,10 @@ curl http://localhost:8000/api/v1/status
 ```json
 {
   "service_ready": true,
-  "total_documents": 156,
+  "total_documents": 1208,
   "embedding_model": "Xenova/multilingual-e5-base",
   "last_sync": "2025-01-18T10:30:00Z",
-  "framework_version": "1.20251107"
+  "framework_version": "1.20260724"
 }
 ```
 
@@ -103,7 +115,7 @@ Claude：[使用 sync_aidefend 工具]
         下載最新內容...
         解析技術...
         生成 embeddings...
-        ✅ 同步完成！知識庫已更新至版本 1.20251118
+        ✅ 同步完成！知識庫已更新至版本 1.20260724
 ```
 
 #### REST API 範例：
@@ -117,8 +129,8 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20251118",
-  "documents_synced": 158,
+  "framework_version": "1.20260724",
+  "documents_synced": 1208,
   "sync_duration_seconds": 42.3
 }
 ```
@@ -140,10 +152,11 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 
 Claude：[使用 get_statistics 工具]
         AIDEFEND 知識庫包含：
-        - 156 份文件總數（45 個 techniques、78 個 sub-techniques、33 個 strategies）
+        - 1,208 份文件總數（92 個 techniques、265 個 sub-techniques、851 個 strategies）
         - 涵蓋 7 個 tactics：Model、Harden、Detect、Isolate、Deceive、Evict、Restore
         - 威脅 framework 涵蓋範圍：10 個 OWASP LLM 威脅、28 個 MITRE ATLAS 技術
-        - 34 個技術有開源工具、18 個有商業工具
+        - 299 個 controls 有開源工具、34 個有 source-available/open-weight 工具、
+          275 個有商業工具
         - 42 份文件包含程式碼片段
 ```
 
@@ -157,10 +170,11 @@ curl http://localhost:8000/api/v1/statistics
 ```json
 {
   "overview": {
-    "total_documents": 156,
-    "total_techniques": 45,
-    "total_subtechniques": 78,
-    "total_strategies": 33
+    "total_documents": 1208,
+    "total_techniques": 92,
+    "total_subtechniques": 265,
+    "total_strategies": 851,
+    "total_actionable_items": 300
   },
   "by_tactic": {
     "Harden": 18,
@@ -178,8 +192,9 @@ curl http://localhost:8000/api/v1/statistics
     "techniques_mapped_percentage": 88.9
   },
   "tools_availability": {
-    "techniques_with_opensource_tools": 34,
-    "techniques_with_commercial_tools": 18
+    "techniques_with_opensource_tools": 299,
+    "techniques_with_source_available_tools": 34,
+    "techniques_with_commercial_tools": 275
   },
   "code_snippets": {
     "documents_with_code_snippets": 42
@@ -189,7 +204,7 @@ curl http://localhost:8000/api/v1/statistics
 
 ---
 
-### 工具 6：驗證技術 ID
+### 工具 5：驗證技術 ID
 
 **用途**：驗證技術 ID 是否存在且格式正確。如果找不到 ID，提供模糊比對建議。
 
@@ -202,7 +217,7 @@ curl http://localhost:8000/api/v1/statistics
 
 Claude：[使用 validate_technique_id 工具]
         是的，AID-H-001 是有效的！
-        - 名稱：Baseline Input Validation
+        - 名稱：Adversarial Robustness Training
         - 類型：technique
         - Tactic：Harden
 ```
@@ -213,8 +228,8 @@ Claude：[使用 validate_technique_id 工具]
 Claude：[使用 validate_technique_id 工具]
         在知識庫中找不到 AID-H-999。
         您是否要找：
-        - AID-H-001（Baseline Input Validation）- 85% 符合
-        - AID-H-002（Prompt Guard）- 78% 符合
+        - AID-H-001（Adversarial Robustness Training）- 85% 符合
+        - AID-H-002（AI-Contextualized Data Sanitization & Input Validation）- 78% 符合
 ```
 
 #### REST API 範例：
@@ -230,7 +245,7 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
   "valid": true,
   "technique": {
     "id": "AID-H-001",
-    "name": "Baseline Input Validation",
+    "name": "Adversarial Robustness Training",
     "type": "technique",
     "tactic": "Harden"
   }
@@ -250,7 +265,7 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
   "suggestions": [
     {
       "id": "AID-H-001",
-      "name": "Baseline Input Validation",
+      "name": "Adversarial Robustness Training",
       "similarity_score": 0.85
     }
   ]
@@ -259,7 +274,7 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
 
 ---
 
-### 工具 7：取得技術詳情
+### 工具 6：取得技術詳情
 
 **用途**：取得特定技術的完整詳情，包含所有 sub-techniques、實作策略（含程式碼範例）、工具建議和威脅對應。
 
@@ -268,58 +283,55 @@ curl -X POST "http://localhost:8000/api/v1/validate-technique-id?technique_id=AI
 #### MCP 模式範例（Claude Desktop）：
 
 ```
-你：「顯示技術 AID-H-001 的所有詳情」
+你：「顯示技術 AID-H-002 的所有詳情」
 
 Claude：[使用 get_technique_detail 工具]
-        以下是 AID-H-001（Baseline Input Validation）的完整分解：
+        以下是 AID-H-002
+        （AI-Contextualized Data Sanitization & Input Validation）的完整分解：
 
         主要技術：
         - Tactic：Harden
-        - 防禦對象：OWASP LLM01、LLM03、MITRE ATLAS AML.T0043
+        - 完整列出 parent 與每個 child 的威脅對應
 
-        Sub-Techniques（3 個）：
-        1. AID-H-001.001：Schema Validation
-           - 2 個實作策略，含 Python/JavaScript 程式碼
-        2. AID-H-001.002：Content Filtering
-           - 3 個實作策略
-        3. AID-H-001.003：Rate Limiting
-           - 2 個實作策略
+        Sub-Techniques（8 個）：
+        1. AID-H-002.001：Training & Fine-Tuning Data Sanitization
+           - 4 筆 implementation guidance
+        2. AID-H-002.002：Inference-Time Prompt & Input Validation
+           - 8 筆 implementation guidance
+        3. AID-H-002.003：Multimodal Input Sanitization
+           - 4 筆 implementation guidance
+        ...另有 5 個 sub-techniques，完整回傳、不截斷
 
         可用工具：
-        - 開源：prompt-toolkit、guardrails-ai、nemo-guardrails
-        - 商業：Microsoft Prompt Shield、AWS Bedrock Guardrails
+        - 開源、source-available 與商業工具皆依已同步 framework 完整回傳，
+          不在文件中固定列出 vendor
 ```
 
 #### REST API 範例：
 
 ```bash
-curl "http://localhost:8000/api/v1/technique/AID-H-001?include_code=true&include_tools=true"
+curl "http://localhost:8000/api/v1/technique/AID-H-002?include_code=true&include_tools=true"
 ```
 
 **回應**（縮寫）：
 ```json
 {
   "technique": {
-    "id": "AID-H-001",
-    "name": "Baseline Input Validation",
+    "id": "AID-H-002",
+    "name": "AI-Contextualized Data Sanitization & Input Validation",
     "type": "technique",
     "tactic": "Harden",
-    "description": "Implement baseline input validation...",
-    "defends_against": [
-      {
-        "framework": "OWASP LLM Top 10",
-        "items": ["LLM01", "LLM03"]
-      }
-    ],
+    "description": "AI-contextualized data sanitization and input validation...",
     "tools": {
-      "opensource": ["guardrails-ai", "nemo-guardrails"],
-      "commercial": ["Microsoft Prompt Shield"]
+      "opensource": [],
+      "source_available": [],
+      "commercial": []
     }
   },
   "subtechniques": [
     {
-      "id": "AID-H-001.001",
-      "name": "Schema Validation",
+      "id": "AID-H-002.002",
+      "name": "Inference-Time Prompt & Input Validation",
       "strategies": [
         {
           "strategy": "Pydantic-based validation",
@@ -335,8 +347,8 @@ curl "http://localhost:8000/api/v1/technique/AID-H-001?include_code=true&include
     }
   ],
   "metadata": {
-    "total_subtechniques": 3,
-    "total_strategies": 7
+    "total_subtechniques": 8,
+    "total_strategies": 32
   }
 }
 ```
@@ -356,7 +368,7 @@ curl "http://localhost:8000/api/v1/technique/AID-H-001?include_code=true&include
 
 ---
 
-### 工具 8：取得威脅防禦
+### 工具 7：取得威脅防禦
 
 **用途**：針對特定威脅尋找 AIDEFEND 防禦技術。支援 OWASP LLM Top 10、MITRE ATLAS、MAESTRO 的威脅 ID，或自然語言關鍵字。
 
@@ -371,10 +383,10 @@ Claude：[使用 get_defenses_for_threat 工具]
         針對 OWASP LLM01（Prompt Injection），AIDEFEND 建議 8 個防禦技術：
 
         頂級防禦：
-        1. AID-H-001：Baseline Input Validation（100% 符合）
-        2. AID-H-002：Prompt Guard（100% 符合）
-        3. AID-D-001：Semantic Anomaly Detection（95% 符合）
-        4. AID-I-002：Prompt Isolation（90% 符合）
+        1. AID-H-001：Adversarial Robustness Training（100% 符合）
+        2. AID-H-002：AI-Contextualized Data Sanitization & Input Validation（100% 符合）
+        3. AID-D-001：Adversarial Input, Prompt Injection & Signal-Authenticity Detection（95% 符合）
+        4. AID-I-002：Network Segmentation & Isolation for AI Systems（90% 符合）
 ```
 
 ```
@@ -383,9 +395,9 @@ Claude：[使用 get_defenses_for_threat 工具]
 Claude：[使用 get_defenses_for_threat 工具，使用關鍵字搜尋]
         針對「模型投毒」，以下是相關防禦：
 
-        1. AID-M-001：Training Data Validation（語意符合度：0.89）
-        2. AID-D-003：Model Behavior Monitoring（語意符合度：0.85）
-        3. AID-H-004：Model Integrity Checks（語意符合度：0.82）
+        1. AID-M-001：AI Asset Inventory & Mapping（語意符合度：0.89）
+        2. AID-D-003：AI Output Monitoring & Policy-Violation Detection（語意符合度：0.85）
+        3. AID-H-004：Identity, Access & Trusted Communication for AI Systems（語意符合度：0.82）
 ```
 
 #### REST API 範例：
@@ -407,7 +419,7 @@ curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_id=LLM01&t
     {
       "technique": {
         "id": "AID-H-001",
-        "name": "Baseline Input Validation",
+        "name": "Adversarial Robustness Training",
         "tactic": "Harden"
       },
       "relevance_score": 1.0,
@@ -426,7 +438,7 @@ curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_keyword=pr
 
 ---
 
-### 工具 9：取得安全程式碼片段
+### 工具 8：取得安全程式碼片段
 
 **用途**：從 AIDEFEND 實作策略中提取可執行的安全程式碼片段。依技術 ID 或主題關鍵字搜尋，取得可直接複製貼上的程式碼範例。
 
@@ -459,21 +471,21 @@ Claude：[使用 get_secure_code_snippet 工具]
 
 ```bash
 # 取得特定技術的程式碼
-curl -X POST "http://localhost:8000/api/v1/code-snippets?technique_id=AID-H-001.001&max_snippets=5"
+curl -X POST "http://localhost:8000/api/v1/code-snippets?technique_id=AID-H-002.002&max_snippets=5"
 ```
 
 **回應：**
 ```json
 {
   "query": {
-    "technique_id": "AID-H-001.001",
+    "technique_id": "AID-H-002.002",
     "topic": null,
     "language_filter": null
   },
   "code_snippets": [
     {
-      "technique_id": "AID-H-001.001",
-      "technique_name": "Schema Validation",
+      "technique_id": "AID-H-002.002",
+      "technique_name": "Inference-Time Prompt & Input Validation",
       "tactic": "Harden",
       "code": "from pydantic import BaseModel, Field\n\nclass UserPrompt(BaseModel):\n    text: str = Field(max_length=500)",
       "language": "python",
@@ -512,7 +524,7 @@ curl -X POST "http://localhost:8000/api/v1/code-snippets?topic=RAG%20security&la
 
 ---
 
-### 工具 10：分析涵蓋範圍
+### 工具 9：分析涵蓋範圍
 
 **用途**：根據已實作的技術分析防禦涵蓋範圍並找出缺口。提供依 tactic/pillar/phase 的涵蓋百分比、威脅 framework 涵蓋範圍，以及優先順序建議。
 
@@ -526,7 +538,7 @@ curl -X POST "http://localhost:8000/api/v1/code-snippets?topic=RAG%20security&la
 Claude：[使用 analyze_coverage 工具]
         您的防禦涵蓋範圍分析：
 
-        整體涵蓋範圍：18%（已實作 156 個技術中的 3 個）
+        整體涵蓋範圍：1.0%（已實作 300 個可執行控制中的 3 個）
         涵蓋等級：最低
 
         依 Tactic 的涵蓋範圍：
@@ -540,8 +552,8 @@ Claude：[使用 analyze_coverage 工具]
         2. 無 Model 技術 - 無模型強化防禦
 
         建議後續步驟：
-        1. 實作 AID-I-001（Prompt Isolation）- 高優先順序
-        2. 實作 AID-M-001（Training Data Validation）- 高優先順序
+        1. 實作 AID-I-001（AI Execution Sandboxing & Runtime Isolation）- 高優先順序
+        2. 實作 AID-M-001（AI Asset Inventory & Mapping）- 高優先順序
         3. 在 Harden tactic 達成 50%+ 涵蓋率
 ```
 
@@ -560,9 +572,9 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
 ```json
 {
   "analysis_summary": {
-    "total_techniques_available": 156,
+    "total_techniques_available": 300,
     "techniques_implemented": 3,
-    "coverage_percentage": 18.0,
+    "coverage_percentage": 1.0,
     "coverage_level": "Minimal",
     "system_type": "rag"
   },
@@ -599,7 +611,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
     {
       "rank": 1,
       "technique_id": "AID-I-001",
-      "name": "Prompt Isolation",
+      "name": "AI Execution Sandboxing & Runtime Isolation",
       "tactic": "Isolate",
       "priority": "HIGH",
       "reason": "Fills Isolate tactic gap",
@@ -608,7 +620,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
   ],
   "next_steps": {
     "immediate": [
-      "Implement AID-I-001 (Prompt Isolation) - Fills Isolate tactic gap"
+      "Implement AID-I-001 (AI Execution Sandboxing & Runtime Isolation) - Fills Isolate tactic gap"
     ],
     "short_term": [
       "Achieve 50%+ coverage in all tactics",
@@ -624,7 +636,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
 
 ---
 
-### 工具 11：對應至合規 Framework
+### 工具 10：對應至合規 Framework
 
 **用途**：使用啟發式分析將 AIDEFEND 技術對應至合規 framework 要求（NIST AI RMF、EU AI Act、ISO 42001、CSA AI Controls、OWASP ASVS）。
 
@@ -640,12 +652,12 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
 Claude：[使用 map_to_compliance_framework 工具]
         對應至 NIST AI RMF 的合規對應：
 
-        AID-H-001（Baseline Input Validation）：
+        AID-H-001（Adversarial Robustness Training）：
         - 對應至：GOVERN-1.2、MANAGE-2.1
         - 信心度：中
         - 理由：輸入驗證與風險管理和治理控制相符
 
-        AID-D-001（Semantic Anomaly Detection）：
+        AID-D-001（Adversarial Input, Prompt Injection & Signal-Authenticity Detection）：
         - 對應至：MEASURE-2.1、MANAGE-4.1
         - 信心度：中
         - 理由：偵測技術與量測和事故管理相符
@@ -674,7 +686,7 @@ curl -X POST "http://localhost:8000/api/v1/compliance-mapping" \
   "mappings": [
     {
       "technique_id": "AID-H-001",
-      "technique_name": "Baseline Input Validation",
+      "technique_name": "Adversarial Robustness Training",
       "technique_tactic": "Harden",
       "framework": "nist_ai_rmf",
       "framework_name": "NIST AI Risk Management Framework",
@@ -696,7 +708,7 @@ curl -X POST "http://localhost:8000/api/v1/compliance-mapping" \
 
 ---
 
-### 工具 12：取得快速參考
+### 工具 11：取得快速參考
 
 **用途**：為特定安全主題生成快速參考指南。提供依優先順序組織的可執行檢查清單（快速成效、必備項目、加分項目）。
 
@@ -711,21 +723,21 @@ Claude：[使用 get_quick_reference 工具]
         快速參考：Prompt Injection 防禦
 
         🚀 快速成效（低成本、高影響）：
-        [ ] AID-H-001：Baseline Input Validation
+        [ ] AID-H-001：Adversarial Robustness Training
             成本：低 | 影響：高
-        [ ] AID-H-002：Prompt Guard
+        [ ] AID-H-002：AI-Contextualized Data Sanitization & Input Validation
             成本：低 | 影響：重大
 
         ⚡ 必備項目（必要防禦）：
-        [ ] AID-D-001：Semantic Anomaly Detection
+        [ ] AID-D-001：Adversarial Input, Prompt Injection & Signal-Authenticity Detection
             成本：中 | 影響：高
-        [ ] AID-I-001：Prompt Isolation
+        [ ] AID-I-001：AI Execution Sandboxing & Runtime Isolation
             成本：中 | 影響：高
-        [ ] AID-H-003：Context-Aware Filtering
+        [ ] AID-H-003：Secure ML Supply Chain Management
             成本：中 | 影響：高
 
         ✨ 加分項目（額外深度）：
-        [ ] AID-D-002：Behavioral Monitoring
+        [ ] AID-D-002：AI Model Anomaly & Performance Drift Detection
             成本：高 | 影響：中
 ```
 
@@ -745,7 +757,7 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=RAG%20security&
     {
       "priority": 1,
       "technique_id": "AID-H-001",
-      "name": "Baseline Input Validation",
+      "name": "Adversarial Robustness Training",
       "tactic": "Harden",
       "description": "為 RAG 查詢實作基準輸入驗證...",
       "estimated_effort": "Low",
@@ -756,7 +768,7 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=RAG%20security&
     {
       "priority": 1,
       "technique_id": "AID-H-003",
-      "name": "Document Validation",
+      "name": "Secure ML Supply Chain Management",
       "tactic": "Harden",
       "description": "在傳送至 LLM 前驗證檢索的文件...",
       "estimated_effort": "Medium",
@@ -767,7 +779,7 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=RAG%20security&
     {
       "priority": 1,
       "technique_id": "AID-D-004",
-      "name": "Retrieval Monitoring",
+      "name": "AI Artifact, Runtime Configuration, Route & Lifecycle Integrity Monitoring",
       "tactic": "Detect",
       "description": "監控檢索模式以偵測異常...",
       "estimated_effort": "High",
@@ -780,7 +792,7 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=RAG%20security&
 
 ---
 
-### 工具 13：取得威脅涵蓋範圍
+### 工具 12：取得威脅涵蓋範圍
 
 **用途**：分析已實作防禦技術的威脅涵蓋範圍。給定 AIDEFEND 技術 ID 清單，計算涵蓋哪些威脅（OWASP LLM Top 10、MITRE ATLAS、MAESTRO）並提供涵蓋率。
 
@@ -810,15 +822,15 @@ Claude：[使用 get_threat_coverage 工具]
 
         ## 依技術的涵蓋範圍
 
-        ### AID-D-001：Input Validation
+        ### AID-D-001：Adversarial Input, Prompt Injection & Signal-Authenticity Detection
         - OWASP：LLM01
         - ATLAS：
 
-        ### AID-H-002：Prompt Guard
+        ### AID-H-002：AI-Contextualized Data Sanitization & Input Validation
         - OWASP：LLM01、LLM02
         - ATLAS：AML.T0043
 
-        ### AID-I-003：Context Isolation
+        ### AID-I-003：Quarantine & Throttling of AI Interactions
         - OWASP：LLM03
         - ATLAS：AML.T0020
 ```
@@ -867,7 +879,7 @@ curl -X POST "http://localhost:8000/api/v1/threat-coverage" \
 
 ---
 
-### 工具 14：取得實作計劃
+### 工具 13：取得實作計劃
 
 **用途**：基於啟發式評分（威脅重要性、實作難易度、階段權重、支柱權重）取得下一個要實作的防禦技術排名建議。協助優先化安全投資。
 
@@ -910,7 +922,7 @@ Claude：[使用 get_implementation_plan 工具]
 
         ## 頂級建議
 
-        🥇 AID-D-014：Prompt Injection Detection
+        🥇 AID-D-014：RAG Content, Relevance & Retrieval-Provenance Monitoring
            - 評分：8.5/10
            - Tactic：Detect
            - Pillar：Detect | Phase：Development
@@ -923,13 +935,13 @@ Claude：[使用 get_implementation_plan 工具]
            - 理由：涵蓋高風險威脅；有開源工具；偵測增加縱深防禦
            - ✅ 有開源工具
 
-        🥈 AID-H-010：Model Input Sanitization
+        🥈 AID-H-010：Classifier-Free Guidance Hardening
            - 評分：7.5/10
            - Tactic：Harden
            - Pillar：Prevent | Phase：Design
            - 理由：涵蓋高風險威脅；早期階段實作（Design）
 
-        🥉 AID-I-005：Prompt Isolation
+        🥉 AID-I-005：Emergency "Kill-Switch" / AI System Halt
            - 評分：7.0/10
            - Tactic：Isolate
            - Pillar：Prevent | Phase：Development
@@ -1062,7 +1074,7 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 
 ---
 
-### 工具 15：分類威脅（雙層本地比對）
+### 工具 14：分類威脅（雙層本地比對）
 
 **用途**：使用快速本地雙層比對系統在文字中分類威脅：
 1. **第一層（靜態關鍵字）**：直接關鍵字比對（即時）
@@ -1178,7 +1190,7 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
 
 ---
 
-### 工具 16：全面搜尋（多查詢聚合）
+### 工具 15：全面搜尋（多查詢聚合）
 
 **用途**：並行執行多個搜尋查詢並智慧聚合結果。自動將廣泛主題展開為特定查詢以達成全面涵蓋。
 
@@ -1200,9 +1212,9 @@ Claude：[使用 comprehensive_search 工具]
         查詢 3：「media authenticity」（5 個結果）
 
         頂級技術：
-        1. AID-D-008：Deepfake Detection（評分：0.92）
-        2. AID-H-015：Media Validation（評分：0.88）
-        3. AID-D-009：Synthetic Content Analysis（評分：0.85）
+        1. AID-D-008：Secondary AI Defender Fusion & Assurance（評分：0.92）
+        2. AID-H-015：Certified Defenses（評分：0.88）
+        3. AID-D-009：Fact Assurance & Multi-Agent Hallucination Detection（評分：0.85）
         ...
 ```
 
@@ -1244,7 +1256,7 @@ curl -X POST "http://localhost:8000/api/v1/comprehensive-search" \
   "aggregated_results": [
     {
       "technique_id": "AID-H-003",
-      "name": "Document Validation",
+      "name": "Secure ML Supply Chain Management",
       "tactic": "Harden",
       "relevance_score": 0.91,
       "matched_queries": ["retrieval augmented generation security", "document injection prevention"]
@@ -1255,7 +1267,7 @@ curl -X POST "http://localhost:8000/api/v1/comprehensive-search" \
 
 ---
 
-### 工具 17：分析安全狀態
+### 工具 16：分析安全狀態
 
 **用途**：整合技術涵蓋範圍、威脅 framework 涵蓋範圍和可執行建議的統一安全狀態分析。全面安全評估的一站式工具。
 
@@ -1273,7 +1285,7 @@ Claude：[使用 analyze_security_posture 工具]
         已實作技術：4
 
         ## 技術涵蓋範圍
-        - 涵蓋率：25%（4/156 個技術）
+        - 涵蓋率：1.3%（4/300 個可執行控制）
         - 依 Tactic：
           • Harden：11%（2/18）⚠️
           • Detect：8%（1/12）⚠️
@@ -1292,7 +1304,7 @@ Claude：[使用 analyze_security_posture 工具]
 
         ## 優先事項
         1. 實作 AID-D-002（Anomaly Detection）- 填補偵測缺口
-        2. 實作 AID-M-001（Training Data Validation）- 解決 Model tactic 缺口
+        2. 實作 AID-M-001（AI Asset Inventory & Mapping）- 解決 Model tactic 缺口
         3. 涵蓋頂級 ATLAS 威脅：AML.T0043、AML.T0020
 ```
 
@@ -1321,20 +1333,20 @@ curl -X POST "http://localhost:8000/api/v1/analyze-security-posture" \
     ],
     "top_priorities": [
       "實作 AID-D-002（Anomaly Detection）",
-      "實作 AID-M-001（Training Data Validation）"
+      "實作 AID-M-001（AI Asset Inventory & Mapping）"
     ]
   },
   "technical_coverage": {
     "overall_coverage": {
       "percentage": 25.0,
       "implemented": 4,
-      "total": 156
+      "total": 300
     },
     "by_tactic": [
       {"tactic": "Harden", "percentage": 11.1, "implemented": 2, "total": 18}
     ],
     "critical_gaps": [
-      {"technique_id": "AID-M-001", "name": "Training Data Validation", "tactic": "Model"}
+      {"technique_id": "AID-M-001", "name": "AI Asset Inventory & Mapping", "tactic": "Model"}
     ]
   },
   "threat_coverage": {
@@ -1356,7 +1368,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-security-posture" \
 
 ---
 
-### 工具 18：比較技術
+### 工具 17：比較技術
 
 **用途**：多個 AIDEFEND 技術的並排比較，含啟發式評分（效能、複雜度、成本）。協助做出明智的實作決策。
 
@@ -1437,7 +1449,7 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
   "comparison_matrix": [
     {
       "source_id": "AID-H-001",
-      "name": "Baseline Input Validation",
+      "name": "Adversarial Robustness Training",
       "tactic": "Harden",
       "effectiveness_score": 85,
       "complexity_score": 35,
@@ -1463,7 +1475,7 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
       "category": "快速成效",
       "description": "高效能、低複雜度、低成本",
       "techniques": [
-        {"id": "AID-H-001", "name": "Baseline Input Validation"}
+        {"id": "AID-H-001", "name": "Adversarial Robustness Training"}
       ]
     }
   ]
@@ -1472,7 +1484,7 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
 
 ---
 
-### 工具 19：生成事故處理手冊
+### 工具 18：生成事故處理手冊
 
 **用途**：為 AI 安全事故生成結構化事故回應手冊。提供遵循 NIST 事故回應階段的基於時間軸的行動計劃。
 
@@ -1517,11 +1529,11 @@ Claude：[使用 generate_incident_playbook 工具]
 
         ## 遏制（2-8 小時）
 
-        1. 🔴 部署防禦：AID-H-001（Baseline Input Validation）
+        1. 🔴 部署防禦：AID-H-001（Adversarial Robustness Training）
            優先順序：高
            時間：1-3 小時
 
-        2. 🔴 部署防禦：AID-H-002（Prompt Guard）
+        2. 🔴 部署防禦：AID-H-002（AI-Contextualized Data Sanitization & Input Validation）
            優先順序：高
            時間：1-3 小時
 
@@ -1602,13 +1614,13 @@ curl -X POST "http://localhost:8000/api/v1/generate-incident-playbook" \
     "techniques": [
       {
         "source_id": "AID-H-001",
-        "name": "Baseline Input Validation",
+        "name": "Adversarial Robustness Training",
         "tactic": "Harden",
         "description": "實作強健的輸入驗證..."
       },
       {
         "source_id": "AID-H-002",
-        "name": "Prompt Guard",
+        "name": "AI-Contextualized Data Sanitization & Input Validation",
         "tactic": "Harden",
         "description": "部署 prompt injection 偵測..."
       }

@@ -6,14 +6,37 @@ Maps AIDEFEND techniques to compliance frameworks using heuristic-based analysis
 100% LOCAL - No external API calls, all processing happens locally.
 """
 
-import asyncio
+import re
 from typing import Dict, Any, List
 
 from app.logger import get_logger
-from app.config import settings
+from app.core import decode_framework_record
 from app.security import InputValidationError, sanitize_technique_id
 
 logger = get_logger(__name__)
+
+TACTIC_SEGMENT_TO_MAPPING_BUCKET = {
+    "M": "Model",
+    "H": "Harden",
+    "D": "Detect",
+    "I": "Isolate",
+    "DV": "Deceive",
+    "E": "Evict",
+    "R": "Restore",
+}
+_CONTROL_ID_WITH_TACTIC = re.compile(
+    r"AID-(?P<tactic>[A-Z][A-Z0-9]*)-\d{3}(?:\.\d{3})?\Z"
+)
+
+
+def _mapping_tactic_bucket(technique_id: Any, live_tactic: Any) -> str:
+    """Resolve stable legacy mapping semantics without pinning live titles."""
+    match = _CONTROL_ID_WITH_TACTIC.fullmatch(str(technique_id or "").strip().upper())
+    if match:
+        return TACTIC_SEGMENT_TO_MAPPING_BUCKET.get(match.group("tactic"), "")
+
+    # Old indexes and direct API fixtures may predate canonical AID IDs.
+    return live_tactic if live_tactic in TACTIC_SEGMENT_TO_MAPPING_BUCKET.values() else ""
 
 # Supported compliance frameworks with version information
 # Last updated: 2025-12-05
@@ -160,13 +183,14 @@ async def map_to_compliance_framework(
         >>> for mapping in result['mappings']:
         ...     print(f"{mapping['technique_id']} -> {mapping['framework_controls']}")
     """
-    import lancedb
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
     # Input validation
-    if not technique_ids:
+    if not isinstance(technique_ids, list) or not technique_ids:
         raise InputValidationError("technique_ids cannot be empty")
+    if not all(isinstance(technique_id, str) for technique_id in technique_ids):
+        raise InputValidationError("technique_ids must contain only strings")
 
     if len(technique_ids) > 50:
         raise InputValidationError("Too many techniques (max 50)")
@@ -186,10 +210,6 @@ async def map_to_compliance_framework(
     logger.info(f"Mapping {len(technique_ids)} techniques to {framework}")
 
     try:
-        # Get technique details from database
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         mappings = []
 
         for tech_id in technique_ids:
@@ -199,8 +219,10 @@ async def map_to_compliance_framework(
             sanitized_id = sanitize_technique_id(tech_id)
 
             # Get technique (using sanitized ID)
-            docs = await asyncio.to_thread(
-                lambda sid=sanitized_id: table.search().where(f"source_id = '{sid}'").limit(1).to_pandas().to_dict('records')
+            docs = await query_engine.read_table(
+                lambda table, sid=sanitized_id: table.search().where(
+                    f"source_id = '{sid}'"
+                ).limit(1).to_pandas().to_dict('records')
             )
 
             if not docs:
@@ -215,7 +237,7 @@ async def map_to_compliance_framework(
                 })
                 continue
 
-            doc = docs[0]
+            doc = decode_framework_record(docs[0])
 
             # Use heuristic-based mapping (100% local)
             mapping = _generate_heuristic_mapping(doc, framework)
@@ -223,8 +245,16 @@ async def map_to_compliance_framework(
             mappings.append(mapping)
 
         # PRODUCTION-GRADE ENHANCEMENT: Calculate coverage summary
+        successful_mappings = [
+            mapping for mapping in mappings if not mapping.get("error")
+        ]
+        unrecognized_ids = [
+            mapping["technique_id"]
+            for mapping in mappings
+            if mapping.get("error")
+        ]
         covered_controls = set()
-        for mapping in mappings:
+        for mapping in successful_mappings:
             for control in mapping.get("framework_controls", []):
                 control_id = control.get("id") if isinstance(control, dict) else control
                 if control_id:
@@ -246,7 +276,10 @@ async def map_to_compliance_framework(
                 "version": FRAMEWORK_VERSIONS[framework]
             },
             "mappings": mappings,
-            "total_mapped": len(mappings),
+            "total_requested": len(technique_ids),
+            "total_mapped": len(successful_mappings),
+            "invalid_count": len(unrecognized_ids),
+            "unrecognized_technique_ids": unrecognized_ids,
             "mapping_method": "heuristic",
             "summary": {
                 "total_controls_in_framework": total_controls_in_framework,
@@ -335,9 +368,11 @@ def _generate_heuristic_mapping(
 
     This is a fallback when LLM is not available.
     """
+    technique = decode_framework_record(technique)
     tech_id = technique.get('source_id')
     tech_name = technique.get('name')
     tactic = technique.get('tactic', '')
+    mapping_tactic = _mapping_tactic_bucket(tech_id, tactic)
 
     # Framework-specific mappings based on tactic
     # Updated: 2025-12-05 to reflect latest framework versions
@@ -396,7 +431,7 @@ def _generate_heuristic_mapping(
         }
     }
 
-    control_ids = framework_mappings.get(framework, {}).get(tactic, [])
+    control_ids = framework_mappings.get(framework, {}).get(mapping_tactic, [])
 
     # Convert control IDs to objects with descriptions (PRODUCTION-GRADE ENHANCEMENT)
     control_objects = []
@@ -414,6 +449,15 @@ def _generate_heuristic_mapping(
         "technique_id": tech_id,
         "technique_name": tech_name,
         "technique_tactic": tactic,
+        "technique_type": technique.get('type', ''),
+        "mapping_scope": (
+            "parent_family" if technique['is_parent_family'] else "actionable_control"
+        ),
+        "is_actionable": technique['is_actionable'],
+        "is_parent_family": technique['is_parent_family'],
+        "pillar": technique['pillar'],
+        "phase": technique['phase'],
+        "scope_boundary": technique['scope_boundary'],
         "framework": framework,
         "framework_name": SUPPORTED_FRAMEWORKS[framework],
         "framework_controls": control_objects,  # Now objects with id, description, confidence

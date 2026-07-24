@@ -43,13 +43,13 @@ def test_imports():
         print("\n" + "=" * 60)
         print("*** IMPORT TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_parameter_validation():
@@ -62,12 +62,13 @@ def test_parameter_validation():
         from app.tools.coverage_analysis import analyze_coverage
         from app.security import InputValidationError
 
-        # Test 1: Empty list should fail
-        print("\n[TEST 1] Empty list should fail")
+        # Test 1: Non-list input should fail. Empty lists are valid baseline
+        # analyses in the current public contract.
+        print("\n[TEST 1] Non-list input should fail")
         try:
-            asyncio.run(analyze_coverage([]))
+            asyncio.run(analyze_coverage("AID-H-001"))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -77,20 +78,20 @@ def test_parameter_validation():
             many_techniques = [f"AID-H-{i:03d}" for i in range(201)]
             asyncio.run(analyze_coverage(many_techniques))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
         print("\n" + "=" * 60)
         print("*** VALIDATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_tactic_coverage_calculation():
@@ -144,13 +145,13 @@ def test_tactic_coverage_calculation():
         print("\n" + "=" * 60)
         print("*** TACTIC COVERAGE TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_coverage_level_assessment():
@@ -191,13 +192,13 @@ def test_coverage_level_assessment():
         print("\n" + "=" * 60)
         print("*** COVERAGE LEVEL TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_status_classification():
@@ -241,13 +242,13 @@ def test_status_classification():
         print("\n" + "=" * 60)
         print("*** STATUS CLASSIFICATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_gap_identification():
@@ -296,13 +297,13 @@ def test_gap_identification():
         print("\n" + "=" * 60)
         print("*** GAP IDENTIFICATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_next_steps_generation():
@@ -364,13 +365,13 @@ def test_next_steps_generation():
         print("\n" + "=" * 60)
         print("*** NEXT STEPS GENERATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def main():

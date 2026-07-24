@@ -5,8 +5,6 @@ Provides comprehensive statistics about the AIDEFEND knowledge base including
 total documents, breakdown by type, tactic, pillar, and phase.
 """
 
-import json
-import asyncio
 from typing import Dict, Any, List
 from datetime import datetime
 from collections import defaultdict
@@ -47,7 +45,7 @@ async def get_statistics() -> Dict[str, Any]:
     """
     logger.info("Fetching AIDEFEND knowledge base statistics")
 
-    from app.core import query_engine
+    from app.core import decode_framework_record, query_engine
 
     # Try to load pre-computed statistics from version file (optimization)
     from app.utils import load_version_info
@@ -64,7 +62,6 @@ async def get_statistics() -> Dict[str, Any]:
 
     # Fallback: Calculate statistics from database (slow path)
     logger.warning("Pre-computed statistics not found, performing full table scan (slow)")
-    import lancedb
     from app.exceptions import QueryEngineNotInitializedError
 
     # Pre-flight check: ensure query engine is ready
@@ -75,18 +72,13 @@ async def get_statistics() -> Dict[str, Any]:
 
 
     try:
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-
-        # Open table
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         # Get all documents (we need to scan to get accurate stats)
         # Note: This is a full table scan, but for ~500 documents it's acceptable
         logger.info("Scanning all documents for statistics...")
-        all_docs = await asyncio.to_thread(
-            lambda: table.to_pandas().to_dict('records')
+        all_docs = await query_engine.read_table(
+            lambda table: table.to_pandas().to_dict('records')
         )
+        all_docs = [decode_framework_record(doc) for doc in all_docs]
 
         logger.info(f"Retrieved {len(all_docs)} documents")
 
@@ -94,14 +86,20 @@ async def get_statistics() -> Dict[str, Any]:
         total_documents = len(all_docs)
         type_counts = defaultdict(int)
         tactic_counts = defaultdict(int)
+        actionable_tactic_counts = defaultdict(int)
         pillar_counts = defaultdict(int)
         phase_counts = defaultdict(int)
 
         # Counters for enhanced features
         techniques_with_defenses = 0
         techniques_with_opensource_tools = 0
+        techniques_with_source_available_tools = 0
         techniques_with_commercial_tools = 0
+        controls_with_scope_boundaries = 0
+        actionable_controls_with_scope_boundaries = 0
         documents_with_code = 0
+        canonical_guidance_documents = 0
+        parent_family_total = 0
 
         covered_framework_sets = merge_framework_coverage_sets()
         total_framework_sets = merge_framework_coverage_sets()
@@ -111,12 +109,8 @@ async def get_statistics() -> Dict[str, Any]:
         for doc in all_docs:
             doc_type = doc.get('type', 'unknown')
             tactic = doc.get('tactic', 'Unknown')
-            pillar_raw = doc.get('pillar', '')
-            phase_raw = doc.get('phase', '')
-
-            # Parse pillar and phase (stored as JSON arrays)
-            pillars = parse_json_list(pillar_raw)
-            phases = parse_json_list(phase_raw)
+            pillars = doc['pillar']
+            phases = doc['phase']
 
             # Count by type
             type_counts[doc_type] += 1
@@ -124,25 +118,26 @@ async def get_statistics() -> Dict[str, Any]:
             # Count by tactic (all documents)
             tactic_counts[tactic] += 1
 
-            # Count by pillar (iterate over array elements)
-            if isinstance(pillars, list):
-                for pillar in pillars:
-                    if pillar:
-                        pillar_counts[pillar] += 1
-
-            # Count by phase (iterate over array elements)
-            if isinstance(phases, list):
-                for phase in phases:
-                    if phase:
-                        phase_counts[phase] += 1
+            has_scope_boundary = bool(doc['scope_boundary'])
+            if doc_type in ('technique', 'subtechnique') and has_scope_boundary:
+                controls_with_scope_boundaries += 1
 
             # Enhanced features (standalone techniques + sub-techniques)
             if is_actionable_record(doc):
                 actionable_total += 1
+                actionable_tactic_counts[tactic] += 1
 
-                defends_against = parse_json_list(doc.get('defends_against', '[]'))
-                tools_opensource = parse_json_list(doc.get('tools_opensource', '[]'))
-                tools_commercial = parse_json_list(doc.get('tools_commercial', '[]'))
+                for pillar in pillars:
+                    if pillar:
+                        pillar_counts[pillar] += 1
+                for phase in phases:
+                    if phase:
+                        phase_counts[phase] += 1
+
+                defends_against = doc['defends_against']
+                tools_opensource = doc['tools_opensource']
+                tools_source_available = doc['tools_source_available']
+                tools_commercial = doc['tools_commercial']
 
                 if defends_against:
                     techniques_with_defenses += 1
@@ -152,13 +147,22 @@ async def get_statistics() -> Dict[str, Any]:
 
                 if tools_opensource:
                     techniques_with_opensource_tools += 1
+                if tools_source_available:
+                    techniques_with_source_available_tools += 1
                 if tools_commercial:
                     techniques_with_commercial_tools += 1
+                if has_scope_boundary:
+                    actionable_controls_with_scope_boundaries += 1
+
+            if doc['is_parent_family']:
+                parent_family_total += 1
 
             # Check for code snippets
             has_code = doc.get('has_code_snippets', False)
-            if has_code:
+            if doc_type == 'strategy' and has_code:
                 documents_with_code += 1
+            if doc_type == 'strategy' and doc['guidance_id']:
+                canonical_guidance_documents += 1
 
         # Get last sync time from version file
         from app.utils import load_version_info
@@ -182,23 +186,41 @@ async def get_statistics() -> Dict[str, Any]:
                 "total_subtechniques": type_counts.get('subtechnique', 0),
                 "total_strategies": type_counts.get('strategy', 0),
                 "total_actionable_items": actionable_total,
+                "total_parent_families": parent_family_total,
+                "total_standalone_techniques": sum(
+                    1 for doc in all_docs
+                    if doc.get('type') == 'technique' and doc['is_actionable']
+                ),
                 "last_synced": last_synced,
                 "embedding_model": "Xenova/multilingual-e5-base (Quantized Int8)" if query_engine.active_embedding_model == "Xenova/multilingual-e5-base" else query_engine.active_embedding_model,
-                "database_path": str(settings.DB_PATH)
+                "database_path": settings.DB_PATH.name
             },
             "by_tactic": dict(sorted(tactic_counts.items())),
+            "actionable_by_tactic": dict(sorted(actionable_tactic_counts.items())),
             "by_pillar": dict(sorted(pillar_counts.items())),
             "by_phase": dict(sorted(phase_counts.items())),
             "threat_framework_coverage": threat_framework_coverage,
             "tools_availability": {
                 "techniques_with_opensource_tools": techniques_with_opensource_tools,
+                "techniques_with_source_available_tools": techniques_with_source_available_tools,
                 "techniques_with_commercial_tools": techniques_with_commercial_tools,
+                "controls_with_scope_boundaries": controls_with_scope_boundaries,
+                "actionable_controls_with_scope_boundaries": (
+                    actionable_controls_with_scope_boundaries
+                ),
                 "opensource_coverage_percentage": round(
                     (techniques_with_opensource_tools / actionable_total) * 100, 1
+                ) if actionable_total > 0 else 0,
+                "source_available_coverage_percentage": round(
+                    (techniques_with_source_available_tools / actionable_total) * 100, 1
+                ) if actionable_total > 0 else 0,
+                "commercial_coverage_percentage": round(
+                    (techniques_with_commercial_tools / actionable_total) * 100, 1
                 ) if actionable_total > 0 else 0
             },
             "implementation_resources": {
                 "documents_with_code_snippets": documents_with_code,
+                "canonical_guidance_documents": canonical_guidance_documents,
                 "strategies_total": type_counts.get('strategy', 0),
                 "code_coverage_percentage": round(
                     (documents_with_code / type_counts.get('strategy', 1)) * 100, 1

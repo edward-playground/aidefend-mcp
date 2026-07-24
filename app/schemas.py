@@ -66,7 +66,7 @@ class ContextChunk(BaseModel):
     """Model for a single retrieved context chunk."""
 
     source_id: str = Field(
-        description="AIDEFEND technique/sub-technique ID (e.g., AID-H-001.001)"
+        description="AIDEFEND technique/sub-technique ID (e.g., AID-H-002.002)"
     )
     tactic: str = Field(
         description="AIDEFEND tactic name (e.g., Harden, Detect, Isolate)"
@@ -86,9 +86,9 @@ class ContextChunk(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "source_id": "AID-H-001.001",
+                    "source_id": "AID-H-002.002",
                     "tactic": "Harden",
-                    "text": "Sub-Technique: Input Validation\nDescription: Implement robust input validation...",
+                    "text": "Sub-Technique: Inference-Time Prompt & Input Validation\nDescription: Validate inference inputs...",
                     "metadata": {
                         "type": "subtechnique",
                         "name": "Input Validation",
@@ -150,11 +150,54 @@ class SyncStatus(BaseModel):
     )
     current_commit_sha: Optional[str] = Field(
         default=None,
-        description="Current GitHub commit SHA"
+        description=(
+            "Current source revision identifier retained under its legacy field name; "
+            "the value is not necessarily a GitHub commit SHA"
+        )
     )
     framework_version: Optional[str] = Field(
         default=None,
         description="AIDEFEND framework semantic version (e.g., '1.20251107')"
+    )
+    framework_authoring_schema_version: Optional[str] = Field(
+        default=None,
+        description="AIDEFEND framework authoring schema version"
+    )
+    framework_public_schema_version: Optional[str] = Field(
+        default=None,
+        description="AIDEFEND framework public schema version"
+    )
+    index_schema_version: Optional[str] = Field(
+        default=None,
+        description="MCP vector index schema version"
+    )
+    source_kind: Optional[str] = Field(
+        default=None,
+        description="Framework source kind, such as 'github' or 'local'"
+    )
+    source_revision_kind: Optional[str] = Field(
+        default=None,
+        description="Revision identifier kind, such as 'git_commit_sha' or 'local_content_sha1'"
+    )
+    source_revision: Optional[str] = Field(
+        default=None,
+        description="Exact source revision used to build the current index"
+    )
+    source_repository: Optional[str] = Field(
+        default=None,
+        description="Repository identifier or local-source marker used for the index"
+    )
+    source_ref: Optional[str] = Field(
+        default=None,
+        description="Source branch, tag, or working-tree reference"
+    )
+    source_content_sha256: Optional[str] = Field(
+        default=None,
+        description="SHA-256 digest of the normalized framework source content"
+    )
+    framework_schema_metadata_sha256: Optional[str] = Field(
+        default=None,
+        description="SHA-256 digest of optional same-source data-schema.md metadata"
     )
     total_documents: Optional[int] = Field(
         default=None,
@@ -196,11 +239,22 @@ class StatusResponse(BaseModel):
                     "sync_info": {
                         "last_synced_at": "2025-11-09T09:00:00Z",
                         "current_commit_sha": "abc123def456...",
+                        "framework_version": "1.20260724",
+                        "framework_authoring_schema_version": "1.7",
+                        "framework_public_schema_version": "2.3",
+                        "index_schema_version": "3.2",
+                        "source_kind": "github",
+                        "source_revision_kind": "git_commit_sha",
+                        "source_revision": "abc123def456...",
+                        "source_repository": "edward-playground/aidefense-framework",
+                        "source_ref": "main",
+                        "source_content_sha256": "0123456789abcdef...",
+                        "framework_schema_metadata_sha256": "fedcba9876543210...",
                         "total_documents": 1250,
                         "is_syncing": False
                     },
                     "message": "Service is online and synchronized",
-                    "version": "1.0.0",
+                    "version": "1.1.0",
                     "timestamp": "2025-11-09T10:30:00Z"
                 }
             ]
@@ -212,7 +266,7 @@ class HealthResponse(BaseModel):
     """Response model for health check endpoint."""
 
     status: str = Field(
-        description="Health status (healthy, unhealthy)"
+        description="Health status (healthy, degraded, or unhealthy)"
     )
     checks: Dict[str, bool] = Field(
         description="Individual health check results"
@@ -278,8 +332,8 @@ class ThreatCoverageRequest(BaseModel):
 
     implemented_techniques: List[str] = Field(
         ...,
-        min_length=1,
-        max_length=100,
+        min_length=0,
+        max_length=200,
         description="List of implemented AIDEFEND technique IDs",
         examples=[["AID-D-001", "AID-H-002", "AID-I-003"]]
     )
@@ -288,8 +342,8 @@ class ThreatCoverageRequest(BaseModel):
     @classmethod
     def validate_technique_ids(cls, v: List[str]) -> List[str]:
         """Validate technique ID list (empty array allowed for baseline analysis)."""
-        if len(v) > 100:
-            raise ValueError("Too many techniques (max 100)")
+        if len(v) > 200:
+            raise ValueError("Too many techniques (max 200)")
         # Normalize IDs (skip if empty for baseline analysis)
         if not v:
             return []
@@ -323,6 +377,15 @@ class ThreatCoverageResponse(BaseModel):
     )
     invalid_techniques: List[str] = Field(
         description="List of technique IDs that were not found"
+    )
+    resolved_actionable_count: int = Field(
+        default=0,
+        description="Number of actionable controls represented after parent-family expansion",
+        ge=0,
+    )
+    expanded_parent_families: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="Parent-family IDs expanded to their actionable child controls",
     )
     covered: Dict[str, List[str]] = Field(
         description="Covered threats grouped by framework key"
@@ -433,12 +496,12 @@ class ImplementationPlanRequest(BaseModel):
     @field_validator("exclude_tactics")
     @classmethod
     def validate_exclude_tactics(cls, v: Optional[List[str]]) -> List[str]:
-        """Validate and normalize exclude tactics list."""
+        """Validate and trim tactic names without changing their spelling."""
         if v is None:
             return []
         if not isinstance(v, list):
             raise ValueError("exclude_tactics must be a list")
-        return [tactic.strip().title() for tactic in v]
+        return [tactic.strip() for tactic in v]
 
     @field_validator("top_k")
     @classmethod
@@ -598,11 +661,14 @@ class SecurityPostureRequest(BaseModel):
     """Request model for security posture analysis endpoint."""
 
     implemented_techniques: List[str] = Field(
-        ...,
-        min_length=1,
+        default_factory=list,
         max_length=200,
-        description="List of implemented AIDEFEND technique IDs",
-        examples=[["AID-H-001", "AID-D-001", "AID-I-001"]]
+        description=(
+            "List of implemented AIDEFEND technique IDs. Use an empty list for a "
+            "baseline assessment with zero implemented controls."
+        ),
+        examples=[["AID-H-001", "AID-D-001", "AID-I-001"]],
+        json_schema_extra={"default": []}
     )
     view: str = Field(
         default="both",
@@ -617,8 +683,6 @@ class SecurityPostureRequest(BaseModel):
     @classmethod
     def validate_technique_ids(cls, v: List[str]) -> List[str]:
         """Validate technique ID list."""
-        if not v:
-            raise ValueError("implemented_techniques cannot be empty")
         if len(v) > 200:
             raise ValueError("Too many techniques (max 200)")
         return [tid.strip().upper() for tid in v]
@@ -703,6 +767,25 @@ class IncidentPlaybookRequest(BaseModel):
         return v
 
 
+class ClassifyThreatMappingStatus(BaseModel):
+    """Resolution status for every framework claim emitted by classification."""
+
+    all_emitted_claims_resolvable: bool = Field(
+        description="Whether every emitted framework claim resolves to the indexed corpus"
+    )
+    corpus_mapping_available: bool = Field(
+        description="Whether current index threat-mapping metadata was available for verification"
+    )
+    unresolved_claims: List[str] = Field(
+        default_factory=list,
+        description="Emitted framework:id claims with no current indexed defense mapping"
+    )
+    unmapped_keywords: List[str] = Field(
+        default_factory=list,
+        description="Matched keywords suppressed because they had no canonical mapping"
+    )
+
+
 class ClassifyThreatResponse(BaseModel):
     """Response model for threat classification endpoint."""
 
@@ -723,6 +806,9 @@ class ClassifyThreatResponse(BaseModel):
     )
     recommended_actions: List[Dict[str, Any]] = Field(
         description="Suggested followup tool calls for further investigation"
+    )
+    mapping_status: ClassifyThreatMappingStatus = Field(
+        description="Canonical mapping resolution status for this classification"
     )
     timestamp: datetime = Field(
         default_factory=_utc_now,
@@ -758,7 +844,8 @@ class ClassifyThreatResponse(BaseModel):
                             "threat_name": "Prompt Injection",
                             "confidence": 0.9,
                             "matched_keyword": "prompt injection",
-                            "match_type": "primary"
+                            "match_type": "primary",
+                            "resolvable": True
                         }
                     ],
                     "recommended_actions": [
@@ -773,6 +860,12 @@ class ClassifyThreatResponse(BaseModel):
                             "reason": "Get actionable mitigation steps for prompt injection"
                         }
                     ],
+                    "mapping_status": {
+                        "all_emitted_claims_resolvable": True,
+                        "corpus_mapping_available": True,
+                        "unresolved_claims": [],
+                        "unmapped_keywords": []
+                    },
                     "timestamp": "2025-11-12T10:30:00Z"
                 }
             ]

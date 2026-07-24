@@ -4,8 +4,13 @@ Handles vector search and context retrieval.
 """
 
 import asyncio
+import gc
+import json
+import math
+import re
 import lancedb
-from typing import List, Optional, Dict
+from contextlib import asynccontextmanager
+from typing import Any, List, Optional, Dict
 from pathlib import Path
 from fastembed import TextEmbedding
 from aiorwlock import RWLock
@@ -14,9 +19,183 @@ from app.config import settings
 from app.logger import get_logger
 from app.schemas import QueryRequest, ContextChunk
 from app.utils import load_version_info
-from app.sync import is_sync_in_progress
 
 logger = get_logger(__name__)
+
+_FRAMEWORK_LIST_FIELDS = (
+    'pillar',
+    'phase',
+    "defends_against",
+    "tools_opensource",
+    "tools_source_available",
+    "tools_commercial",
+    "implementation_guidance",
+    "warnings",
+)
+_CANONICAL_GUIDANCE_ID = re.compile(
+    r"^AID-[A-Z][A-Z0-9]*-\d{3}(?:\.\d{3})?-G\d{3}\Z"
+)
+
+
+def _is_missing_metadata_value(value: Any) -> bool:
+    """Return True for database null-like scalar values, including pandas NaN."""
+    if value is None:
+        return True
+    if isinstance(value, float):
+        return math.isnan(value) or math.isinf(value)
+    try:
+        unequal_to_self = value != value
+        if hasattr(unequal_to_self, "item"):
+            unequal_to_self = unequal_to_self.item()
+        return isinstance(unequal_to_self, bool) and unequal_to_self
+    except (TypeError, ValueError):
+        return False
+
+
+def _decode_json_list(value: Any) -> List[Any]:
+    """Decode a LanceDB JSON-array field without leaking its storage encoding."""
+    if _is_missing_metadata_value(value):
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        if not value.strip():
+            return []
+        try:
+            decoded = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        if isinstance(decoded, list):
+            return decoded
+        # Older index builders could JSON-encode a scalar where the public
+        # contract requires an array. Preserve a meaningful scalar while
+        # treating an encoded empty string as the empty array.
+        if isinstance(decoded, str):
+            normalized = decoded.strip()
+            return [normalized] if normalized else []
+        return []
+    return []
+
+
+def _decode_json_object(value: Any) -> Dict[str, Any]:
+    """Decode a LanceDB JSON-object field, returning an object in all cases."""
+    if _is_missing_metadata_value(value):
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        if not value.strip():
+            return {}
+        try:
+            decoded = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
+
+
+def _decode_bool(value: Any, default: bool) -> bool:
+    """Decode bool values returned by Arrow, pandas, or an older string schema."""
+    if _is_missing_metadata_value(value):
+        return default
+    if isinstance(value, bool):
+        return value
+    if hasattr(value, "item"):
+        scalar_value = value.item()
+        if isinstance(scalar_value, bool):
+            return scalar_value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no", ""}:
+            return False
+    return default
+
+
+def _metadata_string(value: Any) -> str:
+    """Normalize nullable scalar metadata to a JSON-safe string."""
+    return "" if _is_missing_metadata_value(value) else str(value)
+
+
+def decode_framework_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Decode one LanceDB record into the public framework schema contract."""
+    decoded = dict(record)
+    for field in _FRAMEWORK_LIST_FIELDS:
+        raw_value = record.get(field)
+        decoded[field] = _decode_json_list(raw_value)
+        if (
+            field in {"pillar", "phase"}
+            and not decoded[field]
+            and isinstance(raw_value, str)
+            and raw_value.strip()
+            and raw_value.strip() not in {"[]", "null"}
+            and not raw_value.lstrip().startswith(("[", '"'))
+        ):
+            # Very old fixtures/indexes used a single scalar for these fields.
+            decoded[field] = [raw_value.strip()]
+
+    decoded["scope_boundary"] = _decode_json_object(record.get("scope_boundary"))
+    decoded["parent_technique_id"] = _metadata_string(
+        record.get("parent_technique_id")
+    )
+
+    source_id = _metadata_string(record.get("source_id"))
+    guidance_id = _metadata_string(record.get("guidance_id"))
+    if guidance_id and not _CANONICAL_GUIDANCE_ID.fullmatch(guidance_id):
+        guidance_id = ""
+    if not guidance_id and _CANONICAL_GUIDANCE_ID.fullmatch(source_id):
+        guidance_id = source_id
+    decoded["guidance_id"] = guidance_id
+
+    doc_type = _metadata_string(record.get("type"))
+    inferred_parent = (
+        doc_type == "technique"
+        and not decoded["pillar"]
+        and not decoded["phase"]
+        and not decoded["implementation_guidance"]
+    )
+    is_parent_family = _decode_bool(
+        record.get("is_parent_family"), inferred_parent
+    )
+    inferred_actionable = (
+        doc_type == "subtechnique"
+        or (doc_type == "technique" and not is_parent_family)
+    )
+    decoded["is_parent_family"] = is_parent_family
+    decoded["is_actionable"] = _decode_bool(
+        record.get("is_actionable"), inferred_actionable
+    )
+    decoded["has_code_snippets"] = _decode_bool(
+        record.get("has_code_snippets"), False
+    )
+    return decoded
+
+
+def framework_public_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Select normalized framework fields safe for MCP and REST responses."""
+    decoded = decode_framework_record(record)
+    return {
+        "type": _metadata_string(decoded.get("type")),
+        "name": _metadata_string(decoded.get("name")),
+        "pillar": decoded["pillar"],
+        "phase": decoded["phase"],
+        "defends_against": decoded["defends_against"],
+        "tools_opensource": decoded["tools_opensource"],
+        "tools_source_available": decoded["tools_source_available"],
+        "tools_commercial": decoded["tools_commercial"],
+        "parent_technique_id": decoded["parent_technique_id"],
+        "guidance_id": decoded["guidance_id"],
+        "scope_boundary": decoded["scope_boundary"],
+        "is_actionable": decoded["is_actionable"],
+        "is_parent_family": decoded["is_parent_family"],
+        "has_code_snippets": decoded["has_code_snippets"],
+        "warnings": decoded["warnings"],
+    }
 
 
 def _register_custom_embedding_models():
@@ -303,10 +482,13 @@ class QueryEngine:
                 # GPU acceleration: Try CUDA first, fallback to CPU if unavailable
                 # Requires: onnxruntime-gpu, CUDA Toolkit, cuDNN
                 # See: docs/GPU_OPTIMIZATION.md for setup instructions
+                # Optional persisted cache dir (None = FastEmbed default, unchanged behavior).
+                model_cache_dir = str(settings.MODEL_CACHE_DIR) if settings.MODEL_CACHE_DIR else None
                 try:
                     self._model = await asyncio.to_thread(
                         TextEmbedding,
                         model_name=resolved_model_name,
+                        cache_dir=model_cache_dir,
                         providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
                     )
 
@@ -328,7 +510,8 @@ class QueryEngine:
                     logger.info("Falling back to CPU-only execution")
                     self._model = await asyncio.to_thread(
                         TextEmbedding,
-                        model_name=resolved_model_name
+                        model_name=resolved_model_name,
+                        cache_dir=model_cache_dir
                     )
                     logger.info("Embedding model loaded (CPU only)")
             else:
@@ -368,6 +551,39 @@ class QueryEngine:
         async with self._rw_lock.writer:
             return await self._do_initialize()
 
+    @asynccontextmanager
+    async def database_read_guard(self):
+        """Yield the active table while preventing a concurrent physical swap."""
+        self._ensure_rwlock_for_current_loop()
+        async with self._rw_lock.reader:
+            if not self._initialized or self._table is None:
+                raise QueryEngineNotInitializedError(
+                    "Query engine database is not available"
+                )
+            yield self._table
+
+    async def read_table(self, operation):
+        """Run one synchronous LanceDB read under the shared reader lock."""
+        async with self.database_read_guard() as table:
+            return await asyncio.to_thread(operation, table)
+
+    @asynccontextmanager
+    async def database_write_guard(self):
+        """Hold the exclusive database lock across a physical table swap."""
+        self._ensure_rwlock_for_current_loop()
+        async with self._rw_lock.writer:
+            yield self
+
+    def _reset_database_handles_locked(self) -> None:
+        """Drop DB handles while the caller holds database_write_guard()."""
+        self._initialized = False
+        self._table = None
+        self._db = None
+        self._id_cache = None
+        # LanceDB has no stable cross-version close API. Releasing references and
+        # collecting here prevents Windows file handles from surviving the swap.
+        gc.collect()
+
     async def search(self, request: QueryRequest) -> List[ContextChunk]:
         """
         Perform vector search on knowledge base.
@@ -381,16 +597,6 @@ class QueryEngine:
         Raises:
             QueryEngineNotInitializedError: If engine not initialized
         """
-        # Check if sync is in progress (read-write lock protection)
-        if is_sync_in_progress():
-            logger.warning(
-                "Query attempted while sync is in progress",
-                extra={"query_preview": request.query_text[:50]}
-            )
-            raise QueryEngineNotInitializedError(
-                "Database sync in progress. Please try again in a few moments."
-            )
-
         # Ensure initialized (acquire writer lock if needed)
         if not self._initialized:
             initialized = await self.initialize()
@@ -434,16 +640,12 @@ class QueryEngine:
                 # Convert to ContextChunk objects
                 chunks = []
                 for result in results:
+                    decoded = decode_framework_record(result)
                     chunk = ContextChunk(
-                        source_id=result.get("source_id", "N/A"),
-                        tactic=result.get("tactic", "N/A"),
-                        text=result.get("text", ""),
-                        metadata={
-                            "type": result.get("type", "N/A"),
-                            "name": result.get("name", "N/A"),
-                            "pillar": result.get("pillar", ""),
-                            "phase": result.get("phase", "")
-                        },
+                        source_id=decoded.get("source_id", "N/A"),
+                        tactic=decoded.get("tactic", "N/A"),
+                        text=decoded.get("text", ""),
+                        metadata=framework_public_metadata(decoded),
                         score=result.get("_distance", 0.0)
                     )
                     chunks.append(chunk)
@@ -504,12 +706,6 @@ class QueryEngine:
         if not requests:
             return []
 
-        # Check if sync is in progress
-        if is_sync_in_progress():
-            raise QueryEngineNotInitializedError(
-                "Database sync in progress. Please try again in a few moments."
-            )
-
         # Ensure initialized
         if not self._initialized:
             initialized = await self.initialize()
@@ -561,16 +757,12 @@ class QueryEngine:
 
                     chunks = []
                     for result in results:
+                        decoded = decode_framework_record(result)
                         chunk = ContextChunk(
-                            source_id=result.get("source_id", "N/A"),
-                            tactic=result.get("tactic", "N/A"),
-                            text=result.get("text", ""),
-                            metadata={
-                                "name": result.get("name", ""),
-                                "type": result.get("type", ""),
-                                "pillar": result.get("pillar", ""),
-                                "phase": result.get("phase", "")
-                            },
+                            source_id=decoded.get("source_id", "N/A"),
+                            tactic=decoded.get("tactic", "N/A"),
+                            text=decoded.get("text", ""),
+                            metadata=framework_public_metadata(decoded),
                             score=result.get("_distance", 0.0)
                         )
                         chunks.append(chunk)
@@ -639,10 +831,7 @@ class QueryEngine:
             True if healthy, False otherwise
         """
         try:
-            # Ensure initialized (acquire writer lock if needed)
-            if not self._initialized:
-                await self.initialize()
-
+            # A probe must not open the DB or download/load an embedding model.
             if not self._initialized:
                 return False
 
@@ -672,12 +861,7 @@ class QueryEngine:
         async with self._rw_lock.writer:
             logger.info("Reloading QueryEngine...")
 
-            # Reset state
-            self._initialized = False
-            self._db = None
-            self._table = None
-            self._id_cache = None
-            # Keep model loaded for performance
+            self._reset_database_handles_locked()
 
             # Re-initialize (we already have writer lock, so call _do_initialize directly)
             return await self._do_initialize()

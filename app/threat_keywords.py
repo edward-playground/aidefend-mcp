@@ -29,6 +29,8 @@ The same threat keyword can map to multiple frameworks.
 
 from typing import Dict, List, Any
 
+from app.framework_utils import canonicalize_maestro_identifier
+
 # Threat keyword mapping dictionary
 # Format: keyword -> {frameworks, confidence, aliases}
 THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
@@ -1476,6 +1478,96 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         ],
     },
 }
+
+
+# The classifier is a routing helper for get_defenses_for_threat, not an
+# independent threat taxonomy. Keep every emitted identifier resolvable against
+# the current AIDEFEND corpus. These sets cover the IDs authored by this
+# dictionary; other framework IDs remain queryable directly by the defense tool.
+_RESOLVABLE_OWASP_IDS = {
+    *(f"LLM{index:02d}" for index in range(1, 11)),
+    *(f"ML{index:02d}:2023" for index in range(1, 11)),
+    *(f"ASI{index:02d}:2026" for index in range(1, 11)),
+}
+
+_RESOLVABLE_ATLAS_IDS = {
+    "AML.T0010",
+    "AML.T0018",
+    "AML.T0020",
+    "AML.T0024",
+    "AML.T0024.002",
+    "AML.T0029",
+    "AML.T0031",
+    "AML.T0034",
+    "AML.T0040",
+    "AML.T0043",
+    "AML.T0048",
+    "AML.T0048.001",
+    "AML.T0048.002",
+    "AML.T0049",
+    "AML.T0051",
+    "AML.T0052",
+    "AML.T0052.000",
+    "AML.T0053",
+    "AML.T0055",
+    "AML.T0056",
+    "AML.T0057",
+    "AML.T0070",
+    "AML.T0071",
+    "AML.T0085.000",
+}
+
+# AML.T0002 was the dictionary's legacy model-theft identifier. The current
+# framework represents inference-API model extraction as AML.T0024.002.
+_ATLAS_LEGACY_ALIASES = {
+    "AML.T0002": "AML.T0024.002",
+}
+
+
+def canonicalize_classifier_frameworks(
+    frameworks: Dict[str, List[str]]
+) -> Dict[str, List[str]]:
+    """Return only canonical, corpus-resolvable classifier claims."""
+    canonical: Dict[str, List[str]] = {}
+
+    for framework, threat_ids in frameworks.items():
+        resolved: List[str] = []
+        for threat_id in threat_ids:
+            value = threat_id.strip()
+
+            if framework == "owasp":
+                candidate = value.upper()
+                if candidate not in _RESOLVABLE_OWASP_IDS:
+                    continue
+            elif framework == "atlas":
+                candidate = _ATLAS_LEGACY_ALIASES.get(value.upper(), value.upper())
+                if candidate not in _RESOLVABLE_ATLAS_IDS:
+                    continue
+            elif framework == "maestro":
+                candidate = canonicalize_maestro_identifier(value)
+                if candidate is None:
+                    continue
+            else:
+                # The classifier currently publishes only these three routing
+                # namespaces. Refuse an unknown namespace instead of inventing
+                # a claim that the defense index cannot resolve.
+                continue
+
+            if candidate not in resolved:
+                resolved.append(candidate)
+
+        if resolved:
+            canonical[framework] = resolved
+
+    return canonical
+
+
+# Normalize once at import so static, fuzzy, helper, and public dictionary
+# consumers all observe the same canonical contract.
+for _threat_data in THREAT_KEYWORDS.values():
+    _threat_data["frameworks"] = canonicalize_classifier_frameworks(
+        _threat_data["frameworks"]
+    )
 
 
 def get_all_threat_keywords() -> List[str]:

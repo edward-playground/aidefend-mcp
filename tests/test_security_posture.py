@@ -9,6 +9,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -31,78 +33,116 @@ def test_imports():
         print("\n" + "=" * 60)
         print("*** IMPORT TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
-def test_parameter_validation():
-    """Test parameter validation."""
-    print("\n" + "=" * 60)
-    print("PARAMETER VALIDATION TESTS")
-    print("=" * 60)
+@pytest.mark.asyncio
+async def test_parameter_validation(monkeypatch):
+    """Validate input contracts without treating arbitrary database errors as success."""
+    import app.tools.security_posture as posture_module
+    from app.security import InputValidationError
 
-    try:
-        from app.tools.security_posture import analyze_security_posture
-        from app.security import InputValidationError
+    with pytest.raises(InputValidationError):
+        await posture_module.analyze_security_posture(
+            implemented_techniques="AID-H-001",
+            view="both",
+        )
 
-        # Test 1: Empty techniques list
-        print("\n[TEST 1] Empty techniques list should fail")
-        try:
-            asyncio.run(analyze_security_posture(
-                implemented_techniques=[],
-                view="both"
-            ))
-            print("   [FAIL] Should have raised InputValidationError")
-            return 1
-        except InputValidationError as e:
-            print(f"   [PASS] Correctly raised error: {e}")
+    with pytest.raises(InputValidationError):
+        await posture_module.analyze_security_posture(
+            implemented_techniques=["AID-H-001", 7],
+            view="both",
+        )
 
-        # Test 2: Invalid view
-        print("\n[TEST 2] Invalid view parameter should fail")
-        try:
-            asyncio.run(analyze_security_posture(
-                implemented_techniques=["AID-H-001"],
-                view="invalid"
-            ))
-            print("   [FAIL] Should have raised InputValidationError")
-            return 1
-        except InputValidationError as e:
-            print(f"   [PASS] Correctly raised error: {e}")
+    with pytest.raises(InputValidationError):
+        await posture_module.analyze_security_posture(
+            implemented_techniques=["AID-H-001"] * 201,
+            view="both",
+        )
 
-        # Test 3: Valid parameters
-        print("\n[TEST 3] Valid view parameters")
-        valid_views = ["both", "technical", "threat"]
-        for view in valid_views:
-            print(f"   Testing view='{view}'... ", end="")
-            # Just check that it doesn't raise validation error
-            # (will fail later due to missing database, but that's expected)
-            try:
-                asyncio.run(analyze_security_posture(
-                    implemented_techniques=["AID-H-001"],
-                    view=view
-                ))
-            except InputValidationError:
-                print(f"[FAIL] Should not raise InputValidationError for view='{view}'")
-                return 1
-            except Exception:
-                # Expected to fail due to missing database
-                print("[PASS]")
+    with pytest.raises(InputValidationError):
+        await posture_module.analyze_security_posture(
+            implemented_techniques=["AID-H-001"],
+            view="invalid",
+        )
 
-        print("\n" + "=" * 60)
-        print("*** VALIDATION TESTS PASSED! ***")
-        print("=" * 60)
-        return 0
+    async def technical_stub(*, implemented_techniques, system_type=None):
+        return {
+            "implemented": implemented_techniques,
+            "system_type": system_type,
+            "analysis_summary": {"coverage_percentage": 0},
+        }
 
-    except Exception as e:
-        print(f"\n[FAIL] TEST FAILED: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    async def threat_stub(*, implemented_techniques):
+        return {"implemented": implemented_techniques, "coverage_rate": {}}
+
+    monkeypatch.setattr(posture_module, "analyze_coverage", technical_stub)
+    monkeypatch.setattr(posture_module, "get_threat_coverage", threat_stub)
+
+    for view in ("both", "technical", "threat"):
+        result = await posture_module.analyze_security_posture([], view=view)
+        assert result["view"] == view
+        assert result["implemented_count"] == 0
+        assert ("technical_coverage" in result) is (view in {"both", "technical"})
+        assert ("threat_coverage" in result) is (view in {"both", "threat"})
+
+
+@pytest.mark.asyncio
+async def test_current_ids_parent_expansion_and_stale_ids_are_reported(monkeypatch):
+    """Posture counts must come from live resolution, not raw caller input."""
+    import app.tools.security_posture as posture_module
+
+    expected_input = ["AID-H-010", "AID-D-001", "AID-H-025.003"]
+    expansion = {
+        "AID-H-010": ["AID-H-010.001", "AID-H-010.002"]
+    }
+
+    async def technical_stub(*, implemented_techniques, system_type=None):
+        assert implemented_techniques == expected_input
+        return {
+            "analysis_summary": {
+                "coverage_percentage": 1.0,
+                "techniques_implemented": 3,
+                "expanded_parent_families": expansion,
+                "unrecognized_technique_ids": ["AID-H-025.003"],
+            },
+            "critical_gaps": [],
+            "recommendations": [],
+        }
+
+    async def threat_stub(*, implemented_techniques):
+        assert implemented_techniques == expected_input
+        return {
+            "valid_count": 2,
+            "invalid_count": 1,
+            "invalid_techniques": ["AID-H-025.003"],
+            "resolved_actionable_count": 3,
+            "expanded_parent_families": expansion,
+            "coverage_rate": {},
+            "covered": {},
+        }
+
+    monkeypatch.setattr(posture_module, "analyze_coverage", technical_stub)
+    monkeypatch.setattr(posture_module, "get_threat_coverage", threat_stub)
+
+    result = await posture_module.analyze_security_posture(
+        [" aid-h-010 ", "AID-H-010", "AID-D-001", "AID-H-025.003"],
+        view="both",
+    )
+
+    assert result["requested_count"] == 3
+    assert result["implemented_count"] == 2
+    assert result["implemented_actionable_count"] == 3
+    assert result["invalid_count"] == 1
+    assert result["invalid_technique_ids"] == ["AID-H-025.003"]
+    assert result["expanded_parent_families"] == expansion
+    assert result["summary"]["techniques_implemented"] == 3
 
 
 def test_summary_generation():
@@ -144,13 +184,13 @@ def test_summary_generation():
         print("\n" + "=" * 60)
         print("*** SUMMARY GENERATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def main():

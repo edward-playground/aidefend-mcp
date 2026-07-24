@@ -4,13 +4,11 @@ Coverage Analysis Tool for AIDEFEND MCP Service
 Analyzes defense coverage based on implemented techniques and identifies gaps.
 """
 
-import asyncio
-import lancedb
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 
 from app.logger import get_logger
-from app.config import settings
+from app.core import decode_framework_record
 from app.security import InputValidationError
 from app.framework_utils import (
     coverage_lists_from_sets,
@@ -18,6 +16,8 @@ from app.framework_utils import (
     is_actionable_record,
     merge_framework_coverage_sets,
     parse_json_list,
+    public_framework_coverage_mapping,
+    resolve_control_ids,
 )
 
 logger = get_logger(__name__)
@@ -72,13 +72,16 @@ async def analyze_coverage(
         ... )
         >>> print(f"Overall coverage: {result['overall_coverage']['percentage']}%")
     """
-    import lancedb
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
     # Input validation (check parameters BEFORE database check)
     # Note: Empty array is allowed for baseline coverage analysis (0% implementation)
 
+    if not isinstance(implemented_techniques, list):
+        raise InputValidationError("implemented_techniques must be a list")
+    if not all(isinstance(technique_id, str) for technique_id in implemented_techniques):
+        raise InputValidationError("implemented_techniques must contain only strings")
     if len(implemented_techniques) > 200:
         raise InputValidationError("Too many techniques (max 200)")
 
@@ -92,21 +95,24 @@ async def analyze_coverage(
     implemented_techniques = [tid.strip().upper() for tid in implemented_techniques]
 
     # Remove duplicates
-    implemented_techniques = list(set(implemented_techniques))
+    implemented_techniques = list(dict.fromkeys(implemented_techniques))
 
     logger.info(f"Analyzing coverage for {len(implemented_techniques)} implemented techniques")
 
     try:
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
-        # Get all techniques (not subtechniques or strategies)
-        all_techniques = await asyncio.to_thread(
-            _query_techniques_from_table, table
+        all_techniques = await query_engine.read_table(
+            _query_techniques_from_table
         )
-
-        all_techniques = [tech for tech in all_techniques if is_actionable_record(tech)]
+        all_records = [
+            decode_framework_record(technique) for technique in all_techniques
+        ]
+        resolution = resolve_control_ids(implemented_techniques, all_records)
+        all_techniques = [
+            tech for tech in all_records if is_actionable_record(tech)
+        ]
+        implemented_techniques = resolution["actionable_ids"]
+        expanded_parent_families = resolution["expanded_parent_families"]
+        unrecognized_ids = resolution["unrecognized_ids"]
 
         logger.info(f"Total actionable techniques in KB: {len(all_techniques)}")
 
@@ -174,7 +180,9 @@ async def analyze_coverage(
                 "techniques_implemented": implemented_count,
                 "coverage_percentage": overall_percentage,
                 "coverage_level": coverage_level,
-                "system_type": system_type
+                "system_type": system_type,
+                "expanded_parent_families": expanded_parent_families,
+                "unrecognized_technique_ids": unrecognized_ids
             },
             "coverage_by_tactic": coverage_by_tactic,
             "coverage_by_pillar": coverage_by_pillar,
@@ -425,8 +433,8 @@ def _analyze_threat_coverage(
         "cisco_covered": len(covered_sets["cisco"]),
         "google_saif_covered": len(covered_sets["google_saif"]),
         "databricks_covered": len(covered_sets["databricks"]),
-        "coverage_rate": coverage_rate,
-        "framework_totals": framework_totals,
+        "coverage_rate": public_framework_coverage_mapping(coverage_rate),
+        "framework_totals": public_framework_coverage_mapping(framework_totals),
         "coverage_details": {
             key: values[:10]
             for key, values in coverage_lists_from_sets(covered_sets).items()

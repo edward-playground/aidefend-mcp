@@ -9,8 +9,8 @@ from typing import Dict, Any, List, Optional
 from fastembed import TextEmbedding
 
 from app.logger import get_logger
-from app.config import settings
-from app.security import InputValidationError
+from app.core import decode_framework_record
+from app.security import InputValidationError, validate_bounded_integer
 from app.framework_utils import is_actionable_record
 
 logger = get_logger(__name__)
@@ -47,7 +47,6 @@ async def get_quick_reference(
         ... )
         >>> print(f"Quick wins: {len(ref['quick_wins'])}")
     """
-    import lancedb
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
@@ -66,8 +65,7 @@ async def get_quick_reference(
     if format not in ["checklist", "table", "markdown"]:
         raise InputValidationError("format must be 'checklist', 'table', or 'markdown'")
 
-    if max_items < 5 or max_items > 20:
-        raise InputValidationError("max_items must be between 5 and 20")
+    max_items = validate_bounded_integer(max_items, "max_items", 5, 20)
 
     # Pre-flight check: ensure query engine is ready
     if not query_engine.is_ready:
@@ -78,10 +76,6 @@ async def get_quick_reference(
     logger.info(f"Generating quick reference for topic: {topic}")
 
     try:
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         # Semantic search for relevant techniques
         logger.info("Performing semantic search...")
         model_name = query_engine.active_embedding_model
@@ -90,11 +84,12 @@ async def get_quick_reference(
 
         # Search actionable controls only. Parent techniques in the latest
         # framework can be umbrella records that are not directly implementable.
-        raw_results = await asyncio.to_thread(
-            lambda: table.search(query_embedding.tolist()).where(
+        raw_results = await query_engine.read_table(
+            lambda table: table.search(query_embedding.tolist()).where(
                 "type = 'technique' OR type = 'subtechnique'"
             ).limit(max_items * 4).to_pandas().to_dict('records')
         )
+        raw_results = [decode_framework_record(record) for record in raw_results]
         search_results = [record for record in raw_results if is_actionable_record(record)]
         search_results = search_results[: max_items * 2]
 
@@ -164,6 +159,7 @@ def _categorize_techniques(
     nice_to_haves = []
 
     for i, tech in enumerate(techniques[:15]):  # Limit to top 15
+        tech = decode_framework_record(tech)
         tech_info = {
             "priority": i + 1,
             "technique_id": tech.get('source_id'),
@@ -171,7 +167,15 @@ def _categorize_techniques(
             "tactic": tech.get('tactic'),
             "description": tech.get('text', '')[:200],  # Truncate
             "estimated_effort": _estimate_effort(tech),
-            "estimated_impact": _estimate_impact(tech, topic)
+            "estimated_impact": _estimate_impact(tech, topic),
+            "pillar": tech['pillar'],
+            "phase": tech['phase'],
+            "tools_opensource": tech['tools_opensource'],
+            "tools_source_available": tech['tools_source_available'],
+            "tools_commercial": tech['tools_commercial'],
+            "scope_boundary": tech['scope_boundary'],
+            "is_actionable": tech['is_actionable'],
+            "is_parent_family": tech['is_parent_family']
         }
 
         # Categorization logic
@@ -207,6 +211,12 @@ def _estimate_effort(technique: Dict[str, Any]) -> str:
     high_effort_keywords = ['training', 'retraining', 'federated', 'cryptographic', 'formal']
     if any(kw in name_lower for kw in high_effort_keywords):
         return "High"
+
+    # Open-source availability can make otherwise routine controls deployable
+    # quickly. Source-available/open-weight tools are kept distinct because
+    # their licenses and operating constraints still require review.
+    if technique.get('tools_opensource'):
+        return "Low"
 
     # Tactic-based estimation
     if tactic in ['Model', 'Restore']:

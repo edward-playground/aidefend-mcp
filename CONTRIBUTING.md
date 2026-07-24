@@ -26,9 +26,11 @@ Thank you for your interest in contributing to the AIDEFEND MCP Service! This gu
    # Install development dependencies
    pip install -r requirements-dev.txt
 
-   # Install Node.js dependencies
-   npm install
    ```
+
+   Acorn is vendored for runtime use, so contributors do not need to run npm
+   during ordinary setup. Run `npm ci` only when intentionally refreshing or
+   verifying the vendored parser dependency.
 
 3. **Configure environment:**
    ```bash

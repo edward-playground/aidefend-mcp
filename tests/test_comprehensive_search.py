@@ -62,13 +62,13 @@ def test_query_generation():
         print("\n" + "=" * 60)
         print("*** QUERY GENERATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_deduplication():
@@ -115,13 +115,13 @@ def test_deduplication():
         print("\n" + "=" * 60)
         print("*** DEDUPLICATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_coverage_computation():
@@ -175,13 +175,13 @@ def test_coverage_computation():
         print("\n" + "=" * 60)
         print("*** COVERAGE COMPUTATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_module_imports():
@@ -210,13 +210,13 @@ def test_module_imports():
         print("\n" + "=" * 60)
         print("*** MODULE IMPORT TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def main():

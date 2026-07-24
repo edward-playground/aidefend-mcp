@@ -157,17 +157,21 @@ class TestChunkedQueryValidation:
 
         assert "chunks" in str(exc_info.value).lower()
 
-    def test_malicious_patterns_rejected(self):
-        """Test that malicious content is rejected even in long queries."""
-        malicious_texts = [
-            "<script>alert('xss')</script>" * 100,
-            "eval(malicious_code)" * 100,
-            "../../../etc/passwd" * 100
+    def test_security_topic_text_accepted(self):
+        """Security-topic text must be ACCEPTED (it is only embedded for vector search,
+        never executed). These strings were rejected by the old blacklist but are exactly
+        the queries this AI-security knowledge base exists to answer."""
+        accepted_texts = [
+            "how to prevent <script> injection in generated HTML " * 30,
+            "detecting eval() and exec() misuse in AI agents " * 30,
+            "path traversal ../../etc/passwd defenses for RAG " * 30,
+            "mitigate template injection like ${jndi} and {{7*7}} " * 30,
         ]
 
-        for text in malicious_texts:
-            with pytest.raises(InputValidationError):
-                validate_chunked_query(text)
+        for text in accepted_texts:
+            sanitized, meta = validate_chunked_query(text)
+            assert isinstance(sanitized, str) and sanitized
+            assert meta["estimated_chunks"] <= 5
 
     def test_empty_query_rejected(self):
         """Test that empty queries are rejected."""
@@ -220,21 +224,26 @@ class TestChunkedSearchSecurity:
         with pytest.raises(asyncio.TimeoutError):
             await search_with_chunking(text, top_k=5)
 
-    @pytest.mark.asyncio
-    async def test_injection_in_chunks_blocked(self):
-        """Test that malicious content split across chunks is still blocked."""
-        # Use patterns that are actually detected by validate_chunked_query
-        # These match the dangerous_patterns in security.py
-        malicious_parts = [
+    def test_security_topic_across_chunks_accepted(self):
+        """Security-topic text spanning multiple chunks is accepted (no content blacklist).
+
+        The query text never reaches an executable sink, so terms like <script>, eval() and
+        ../ must not be rejected. Output is made safe at render time via escape_markdown()."""
+        parts = [
             "Normal content <script>alert",
             "More content eval(code)",
-            "Final content ../../etc/passwd"
+            "Final content ../../etc/passwd",
         ]
+        text = " ".join(parts) * 30  # long enough to require chunking, under MAX_CHUNKS
 
-        text = " ".join(malicious_parts) * 50  # Repeat to force chunking
+        sanitized, meta = validate_chunked_query(text)
+        assert isinstance(sanitized, str) and sanitized
+        assert meta["estimated_chunks"] <= 5
 
+    def test_control_characters_rejected(self):
+        """NUL and other non-whitespace control characters are still rejected."""
         with pytest.raises(InputValidationError):
-            await search_with_chunking(text, top_k=5)
+            validate_chunked_query("valid text\x00with NUL byte")
 
 
 # ==================== Test Chunked Search Functionality ====================

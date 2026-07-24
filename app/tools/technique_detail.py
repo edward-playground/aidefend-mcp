@@ -6,12 +6,11 @@ sub-techniques, implementation strategies with code, tools, and threat mappings.
 """
 
 import json
-import asyncio
 from typing import Dict, Any, List, Optional
 
 from app.logger import get_logger
-from app.config import settings
 from app.security import InputValidationError, sanitize_technique_id
+from app.utils import sanitize_for_json
 
 logger = get_logger(__name__)
 
@@ -30,6 +29,7 @@ async def get_technique_detail(
     - Implementation strategies with code examples (if requested)
     - Tool recommendations (if requested)
     - Threat framework mappings
+    - Operational, performance, and scope warnings
 
     Args:
         technique_id: AIDEFEND technique ID (e.g., 'AID-H-001', 'AID-D-001.001')
@@ -48,8 +48,7 @@ async def get_technique_detail(
         >>> print(f"Technique: {detail['technique']['name']}")
         >>> print(f"Sub-techniques: {len(detail['subtechniques'])}")
     """
-    import lancedb
-    from app.core import query_engine
+    from app.core import decode_framework_record, query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
     # Input validation
@@ -72,28 +71,27 @@ async def get_technique_detail(
     logger.info(f"Fetching technique detail for: {sanitized_id}")
 
     try:
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         # Step 1: Get the main technique/subtechnique (using sanitized ID)
-        main_doc = await asyncio.to_thread(
-            lambda: table.search().where(f"source_id = '{sanitized_id}'").limit(1).to_pandas().to_dict('records')
+        main_doc = await query_engine.read_table(
+            lambda table: table.search().where(
+                f"source_id = '{sanitized_id}'"
+            ).limit(1).to_pandas().to_dict('records')
         )
 
         if not main_doc:
             raise Exception(f"Technique ID '{technique_id}' not found in database")
 
-        main_doc = main_doc[0]
+        main_doc = decode_framework_record(main_doc[0])
         doc_type = main_doc.get('type')
 
         logger.info(f"Found {doc_type}: {main_doc.get('name')}")
 
-        # Parse JSON fields
-        defends_against = _parse_json_field(main_doc.get('defends_against', '[]'))
-        tools_opensource = _parse_json_field(main_doc.get('tools_opensource', '[]'))
-        tools_commercial = _parse_json_field(main_doc.get('tools_commercial', '[]'))
-        impl_strategies = _parse_json_field(main_doc.get('implementation_guidance', '[]'))
+        defends_against = main_doc['defends_against']
+        tools_opensource = main_doc['tools_opensource']
+        tools_source_available = main_doc['tools_source_available']
+        tools_commercial = main_doc['tools_commercial']
+        impl_strategies = main_doc['implementation_guidance']
+        warnings = main_doc['warnings']
 
         # Build main technique info
         technique_info = {
@@ -101,10 +99,16 @@ async def get_technique_detail(
             "name": main_doc.get('name'),
             "type": doc_type,
             "tactic": main_doc.get('tactic'),
-            "pillar": main_doc.get('pillar', ''),
-            "phase": main_doc.get('phase', ''),
+            "pillar": main_doc['pillar'],
+            "phase": main_doc['phase'],
             "description": main_doc.get('text', ''),
-            "parent_technique_id": main_doc.get('parent_technique_id', '')
+            "parent_technique_id": main_doc['parent_technique_id'],
+            "guidance_id": main_doc['guidance_id'],
+            "scope_boundary": main_doc['scope_boundary'],
+            "is_actionable": main_doc['is_actionable'],
+            "is_parent_family": main_doc['is_parent_family'],
+            "has_code_snippets": main_doc['has_code_snippets'],
+            "warnings": warnings,
         }
 
         # Add threat mappings
@@ -112,9 +116,10 @@ async def get_technique_detail(
             technique_info["defends_against"] = defends_against
 
         # Add tools if requested
-        if include_tools and (tools_opensource or tools_commercial):
+        if include_tools:
             technique_info["tools"] = {
                 "opensource": tools_opensource,
+                "source_available": tools_source_available,
                 "commercial": tools_commercial
             }
 
@@ -127,8 +132,8 @@ async def get_technique_detail(
             logger.info(f"Searching for subtechniques of {sanitized_id}...")
 
             # Use sanitized ID in where() clause to prevent injection
-            subtechniques_docs = await asyncio.to_thread(
-                lambda: table.search().where(
+            subtechniques_docs = await query_engine.read_table(
+                lambda table: table.search().where(
                     f"parent_technique_id = '{sanitized_id}' AND type = 'subtechnique'"
                 ).to_pandas().to_dict('records')
             )
@@ -136,27 +141,37 @@ async def get_technique_detail(
             logger.info(f"Found {len(subtechniques_docs)} subtechniques")
 
             for sub_doc in subtechniques_docs:
+                sub_doc = decode_framework_record(sub_doc)
                 sub_id = sub_doc.get('source_id')
-                sub_defends_against = _parse_json_field(sub_doc.get('defends_against', '[]'))
-                sub_tools_opensource = _parse_json_field(sub_doc.get('tools_opensource', '[]'))
-                sub_tools_commercial = _parse_json_field(sub_doc.get('tools_commercial', '[]'))
-                sub_impl_strategies = _parse_json_field(sub_doc.get('implementation_guidance', '[]'))
+                sub_defends_against = sub_doc['defends_against']
+                sub_tools_opensource = sub_doc['tools_opensource']
+                sub_tools_source_available = sub_doc['tools_source_available']
+                sub_tools_commercial = sub_doc['tools_commercial']
+                sub_impl_strategies = sub_doc['implementation_guidance']
+                sub_warnings = sub_doc['warnings']
 
                 subtechnique_info = {
                     "id": sub_id,
                     "name": sub_doc.get('name'),
                     "description": sub_doc.get('text', ''),
-                    "pillar": sub_doc.get('pillar', ''),
-                    "phase": sub_doc.get('phase', ''),
-                    "has_code_snippets": sub_doc.get('has_code_snippets', False)
+                    "pillar": sub_doc['pillar'],
+                    "phase": sub_doc['phase'],
+                    "parent_technique_id": sub_doc['parent_technique_id'],
+                    "guidance_id": sub_doc['guidance_id'],
+                    "scope_boundary": sub_doc['scope_boundary'],
+                    "is_actionable": sub_doc['is_actionable'],
+                    "is_parent_family": sub_doc['is_parent_family'],
+                    "has_code_snippets": sub_doc['has_code_snippets'],
+                    "warnings": sub_warnings,
                 }
 
                 if sub_defends_against:
                     subtechnique_info["defends_against"] = sub_defends_against
 
-                if include_tools and (sub_tools_opensource or sub_tools_commercial):
+                if include_tools:
                     subtechnique_info["tools"] = {
                         "opensource": sub_tools_opensource,
+                        "source_available": sub_tools_source_available,
                         "commercial": sub_tools_commercial
                     }
 
@@ -179,6 +194,10 @@ async def get_technique_detail(
             if impl_strategies:
                 strategies = _format_strategies(impl_strategies, include_code=include_code)
 
+        elif doc_type == 'strategy':
+            # Guidance documents are first-class searchable records in schema 3.
+            strategies = _format_strategies(impl_strategies, include_code=include_code)
+
         # Step 3: Build response
         response = {
             "technique": technique_info,
@@ -186,7 +205,10 @@ async def get_technique_detail(
             "strategies": strategies,
             "metadata": {
                 "total_subtechniques": len(subtechniques),
-                "total_strategies": len(strategies),
+                "total_strategies": len(strategies) + sum(
+                    len(subtechnique.get("strategies", []))
+                    for subtechnique in subtechniques
+                ),
                 "has_implementation_guidance": len(strategies) > 0 or any(
                     "strategies" in st for st in subtechniques
                 )
@@ -202,7 +224,9 @@ async def get_technique_detail(
             }
         )
 
-        return response
+        # Scrub NaN/Inf from DB-sourced fields (e.g. a top-level technique's
+        # parent_technique_id) so the REST JSONResponse (allow_nan=False) does not 500.
+        return sanitize_for_json(response)
 
     except FileNotFoundError:
         logger.error("Database not found")
@@ -246,6 +270,7 @@ def _format_strategies(
 
     for strat in strategies:
         strategy_info = {
+            "guidance_id": strat.get('id', ''),
             "implementation": strat.get('implementation', ''),
             "how_to": strat.get('howTo', '') if include_code else _strip_html(strat.get('howTo', ''))
         }

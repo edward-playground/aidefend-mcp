@@ -11,8 +11,12 @@ from typing import Dict, Any, List, Optional
 from bs4 import BeautifulSoup
 
 from app.logger import get_logger
-from app.config import settings
-from app.security import InputValidationError, sanitize_technique_id
+from app.core import decode_framework_record
+from app.security import (
+    InputValidationError,
+    sanitize_technique_id,
+    validate_bounded_integer,
+)
 
 logger = get_logger(__name__)
 
@@ -46,12 +50,11 @@ async def get_secure_code_snippet(
 
     Example:
         >>> # Get code for specific technique
-        >>> result = await get_secure_code_snippet(technique_id="AID-H-001.001")
+        >>> result = await get_secure_code_snippet(technique_id="AID-H-002.002")
 
         >>> # Search by topic
         >>> result = await get_secure_code_snippet(topic="prompt injection defense")
     """
-    import lancedb
     from app.core import query_engine
     from app.exceptions import QueryEngineNotInitializedError
 
@@ -62,8 +65,9 @@ async def get_secure_code_snippet(
     if topic and len(topic) < 3:
         raise InputValidationError("topic must be at least 3 characters")
 
-    if max_snippets < 1 or max_snippets > 20:
-        raise InputValidationError("max_snippets must be between 1 and 20")
+    max_snippets = validate_bounded_integer(
+        max_snippets, "max_snippets", 1, 20
+    )
 
     # Pre-flight check: ensure query engine is ready
     if not query_engine.is_ready:
@@ -76,10 +80,6 @@ async def get_secure_code_snippet(
     logger.info(f"Searching code snippets [mode={search_mode}] technique_id={technique_id}, topic={topic}")
 
     try:
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         code_snippets = []
 
         # Hybrid search: if both technique_id and topic provided, get both and merge
@@ -94,8 +94,8 @@ async def get_secure_code_snippet(
             sanitized_id = sanitize_technique_id(technique_id)
 
             # First, get code from specific technique (using sanitized ID)
-            docs = await asyncio.to_thread(
-                lambda: table.search().where(
+            docs = await query_engine.read_table(
+                lambda table: table.search().where(
                     f"source_id = '{sanitized_id}' OR parent_technique_id = '{sanitized_id}'"
                 ).to_pandas().to_dict('records')
             )
@@ -112,8 +112,8 @@ async def get_secure_code_snippet(
             model = await asyncio.to_thread(TextEmbedding, model_name=model_name)
             query_embedding = list(await asyncio.to_thread(model.embed, [topic]))[0]
 
-            search_results = await asyncio.to_thread(
-                lambda: table.search(query_embedding.tolist()).where(
+            search_results = await query_engine.read_table(
+                lambda table: table.search(query_embedding.tolist()).where(
                     "has_code_snippets = true"
                 ).limit(max_snippets).to_pandas().to_dict('records')
             )
@@ -121,7 +121,7 @@ async def get_secure_code_snippet(
             logger.info(f"[Hybrid] Found {len(search_results)} additional documents for topic: {topic}")
 
             # Add topic results, avoiding duplicates
-            existing_ids = {s.get('technique_id') for s in code_snippets}
+            existing_ids = {s.get('source_document_id') for s in code_snippets}
             for doc in search_results:
                 if doc.get('source_id') not in existing_ids:
                     snippets = _extract_code_from_doc(doc)
@@ -135,8 +135,8 @@ async def get_secure_code_snippet(
             sanitized_id = sanitize_technique_id(technique_id)
 
             # Get the technique and all related documents (using sanitized ID)
-            docs = await asyncio.to_thread(
-                lambda: table.search().where(
+            docs = await query_engine.read_table(
+                lambda table: table.search().where(
                     f"source_id = '{sanitized_id}' OR parent_technique_id = '{sanitized_id}'"
                 ).to_pandas().to_dict('records')
             )
@@ -161,8 +161,8 @@ async def get_secure_code_snippet(
             query_embedding = list(await asyncio.to_thread(model.embed, [topic]))[0]
 
             # Search strategies with code
-            search_results = await asyncio.to_thread(
-                lambda: table.search(query_embedding.tolist()).where(
+            search_results = await query_engine.read_table(
+                lambda table: table.search(query_embedding.tolist()).where(
                     "has_code_snippets = true"
                 ).limit(max_snippets * 2).to_pandas().to_dict('records')
             )
@@ -172,6 +172,8 @@ async def get_secure_code_snippet(
             for doc in search_results:
                 snippets = _extract_code_from_doc(doc)
                 code_snippets.extend(snippets)
+
+        code_snippets = _deduplicate_snippets(code_snippets)
 
         # Filter by language if specified
         if language:
@@ -221,13 +223,10 @@ def _extract_code_from_doc(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
         List of code snippet dicts
     """
     snippets = []
-
-    # Get implementation strategies
-    impl_strategies_str = doc.get('implementation_guidance', '[]')
+    doc = decode_framework_record(doc)
+    impl_strategies = doc['implementation_guidance']
 
     try:
-        impl_strategies = json.loads(impl_strategies_str) if isinstance(impl_strategies_str, str) else impl_strategies_str
-
         for i, strategy in enumerate(impl_strategies, 1):
             how_to_html = strategy.get('howTo', '')
 
@@ -241,12 +240,26 @@ def _extract_code_from_doc(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
                 continue
 
             # Build context
+            source_document_id = doc.get('source_id', '')
+            control_id = (
+                doc['parent_technique_id']
+                if doc.get('type') == 'strategy'
+                else source_document_id
+            )
             context = {
-                "technique_id": doc.get('source_id'),
+                "technique_id": control_id,
+                "control_id": control_id,
+                "source_document_id": source_document_id,
+                "guidance_id": strategy.get('id') or doc['guidance_id'],
                 "technique_name": doc.get('name'),
                 "tactic": doc.get('tactic'),
-                "pillar": doc.get('pillar', ''),
-                "phase": doc.get('phase', ''),
+                "pillar": doc['pillar'],
+                "phase": doc['phase'],
+                "scope_boundary": doc['scope_boundary'],
+                "tools_opensource": doc['tools_opensource'],
+                "tools_source_available": doc['tools_source_available'],
+                "tools_commercial": doc['tools_commercial'],
+                "warnings": doc['warnings'],
                 "implementation": strategy.get('implementation', 'Implementation Guidance')
             }
 
@@ -263,6 +276,23 @@ def _extract_code_from_doc(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
         logger.warning(f"Failed to parse strategies for {doc.get('source_id')}: {e}")
 
     return snippets
+
+
+def _deduplicate_snippets(snippets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove duplicated embedded/strategy-document code without losing order."""
+    unique = []
+    seen = set()
+    for snippet in snippets:
+        key = (
+            snippet.get('guidance_id'),
+            snippet.get('language'),
+            snippet.get('code'),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(snippet)
+    return unique
 
 
 def _extract_code_blocks(html_text: str) -> List[Dict[str, str]]:

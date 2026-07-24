@@ -10,6 +10,14 @@ from unittest.mock import patch
 from app.main import app
 
 
+def assert_public_health_response(response):
+    """Health is public even when readiness correctly reports HTTP 503."""
+    assert response.status_code in {200, 503}
+    data = response.json()
+    assert data["status"] in {"healthy", "degraded", "unhealthy"}
+    assert response.status_code == (503 if data["status"] == "unhealthy" else 200)
+
+
 @pytest.fixture
 def client_no_auth():
     """Test client with no_auth mode."""
@@ -37,9 +45,7 @@ class TestPublicEndpoints:
         response = client_no_auth.get("/health")
 
         # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert "status" in data
+        assert_public_health_response(response)
 
     def test_health_endpoint_public_in_api_key_mode(self, client_api_key):
         """Test /health is accessible without auth in api_key mode."""
@@ -47,9 +53,7 @@ class TestPublicEndpoints:
         response = client_api_key.get("/health")
 
         # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert "status" in data
+        assert_public_health_response(response)
 
     def test_root_endpoint_public_in_no_auth_mode(self, client_no_auth):
         """Test / is accessible without auth in no_auth mode."""
@@ -246,7 +250,7 @@ class TestRateLimitingWithAuth:
         # Note: This test would need to make many requests to trigger rate limit
         # For now, just verify the endpoint is accessible
         response = client_no_auth.get("/health")
-        assert response.status_code == 200
+        assert_public_health_response(response)
 
     @patch("app.core.query_engine")
     def test_rate_limiting_applies_in_api_key_mode(self, mock_engine, client_api_key):
@@ -279,7 +283,7 @@ class TestCORSWithAuth:
         )
 
         # Assert - should work without authentication
-        assert response.status_code == 200
+        assert_public_health_response(response)
 
     def test_cors_headers_present_in_api_key_mode(self, client_api_key):
         """Test that CORS headers are present in api_key mode."""
@@ -290,4 +294,4 @@ class TestCORSWithAuth:
         )
 
         # Assert - /health is public endpoint, should work
-        assert response.status_code == 200
+        assert_public_health_response(response)

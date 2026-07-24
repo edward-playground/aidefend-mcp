@@ -10,5 +10,5 @@ Usage:
     python __main__.py                  # Alternative (also works)
 """
 
-__version__ = "1.0.0"
+__version__ = "1.2.0"
 __author__ = "Edward Lee"

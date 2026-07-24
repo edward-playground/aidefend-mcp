@@ -89,9 +89,15 @@ temp/
 tmp/
 .release-check-*/
 .wheelcheck/
+test-artifacts/
+.tmp_pytest*/
+.pytest-*/
+.tmp_*/
 
 # VSCode Claude extension cache
 .claude/
+.agents/
+.codex/
 
 # Claude temporary output files
 CLAUDE*.md

@@ -8,8 +8,11 @@ Tests the unified sync architecture:
 """
 
 import asyncio
+import json
 import sys
 from pathlib import Path
+
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -44,22 +47,22 @@ def test_imports():
             print("   [PASS] core_sync has force_rebuild parameter")
         else:
             print("   [FAIL] core_sync missing force_rebuild parameter")
-            return 1
+            raise AssertionError("test branch reported failure")
 
         print("\n" + "=" * 60)
         print("*** IMPORT TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
-def test_timestamp_update():
-    """Test save_sync_timestamp function."""
+def test_timestamp_update(tmp_path, monkeypatch):
+    """Test save_sync_timestamp without mutating the configured version file."""
     print("\n" + "=" * 60)
     print("TIMESTAMP UPDATE TEST")
     print("=" * 60)
@@ -67,7 +70,12 @@ def test_timestamp_update():
     try:
         from app.utils import save_sync_timestamp, load_version_info
         from app.config import settings
-        import time
+        version_file = tmp_path / "local_version.json"
+        version_file.write_text(
+            '{"commit_sha":"test-revision","sync_timestamp":1}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "VERSION_FILE", version_file)
 
         print("\n[TEST 1] Save sync timestamp")
 
@@ -75,9 +83,6 @@ def test_timestamp_update():
         before_info = load_version_info()
         before_timestamp = before_info.get("sync_timestamp", 0) if before_info else 0
         print(f"   Before timestamp: {before_timestamp}")
-
-        # Wait a moment to ensure timestamp changes
-        time.sleep(0.1)
 
         # Update timestamp
         save_sync_timestamp()
@@ -87,34 +92,100 @@ def test_timestamp_update():
         after_timestamp = after_info.get("sync_timestamp", 0) if after_info else 0
         print(f"   After timestamp: {after_timestamp}")
 
-        if after_timestamp > before_timestamp:
-            print("   [PASS] Timestamp updated successfully")
-        else:
-            print(f"   [FAIL] Timestamp not updated ({after_timestamp} <= {before_timestamp})")
-            return 1
+        assert after_timestamp > before_timestamp
+        print("   [PASS] Timestamp updated successfully")
 
         print("\n[TEST 2] Verify commit SHA preserved")
         if before_info and after_info:
             before_sha = before_info.get("commit_sha")
             after_sha = after_info.get("commit_sha")
 
-            if before_sha == after_sha:
-                print(f"   [PASS] Commit SHA preserved: {after_sha}")
-            else:
-                print(f"   [WARNING] Commit SHA changed: {before_sha} -> {after_sha}")
+            assert before_sha == after_sha
+            print(f"   [PASS] Commit SHA preserved: {after_sha}")
         else:
             print("   [SKIP] No existing version info to compare")
 
         print("\n" + "=" * 60)
         print("*** TIMESTAMP UPDATE TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
+
+
+def test_version_write_failure_preserves_previous_marker(tmp_path, monkeypatch):
+    import app.utils as utils_module
+    from app.config import settings
+
+    version_file = tmp_path / "local_version.json"
+    original = b'{"commit_sha":"last-known-good","total_documents":1168}'
+    version_file.write_bytes(original)
+    monkeypatch.setattr(settings, "VERSION_FILE", version_file)
+
+    def fail_replace(_source, _destination):
+        raise OSError("simulated atomic replace failure")
+
+    monkeypatch.setattr(utils_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated atomic replace failure"):
+        utils_module.save_version_info("new-revision", {"total_documents": 1208})
+
+    assert version_file.read_bytes() == original
+    assert not list(tmp_path.glob(".local_version.json.*.tmp"))
+
+
+def test_version_serialization_failure_before_replace_preserves_previous_marker(
+    tmp_path, monkeypatch
+):
+    import app.utils as utils_module
+    from app.config import settings
+
+    version_file = tmp_path / "local_version.json"
+    original = b'{"commit_sha":"last-known-good","total_documents":1168}'
+    version_file.write_bytes(original)
+    monkeypatch.setattr(settings, "VERSION_FILE", version_file)
+
+    replace_called = False
+
+    def unexpected_replace(_source, _destination):
+        nonlocal replace_called
+        replace_called = True
+
+    monkeypatch.setattr(utils_module.os, "replace", unexpected_replace)
+
+    with pytest.raises(TypeError):
+        utils_module.save_version_info(
+            "new-revision",
+            {"not_json_serializable": object()},
+        )
+
+    assert replace_called is False
+    assert version_file.read_bytes() == original
+    assert not list(tmp_path.glob(".local_version.json.*.tmp"))
+
+
+def test_version_atomic_write_success_replaces_complete_marker(tmp_path, monkeypatch):
+    import app.utils as utils_module
+    from app.config import settings
+
+    version_file = tmp_path / "local_version.json"
+    version_file.write_text('{"commit_sha":"last-known-good"}', encoding="utf-8")
+    monkeypatch.setattr(settings, "VERSION_FILE", version_file)
+
+    utils_module.save_version_info(
+        "new-revision",
+        {"total_documents": 1208, "index_schema_version": "3.2"},
+    )
+
+    written = json.loads(version_file.read_text(encoding="utf-8"))
+    assert written["commit_sha"] == "new-revision"
+    assert written["total_documents"] == 1208
+    assert written["index_schema_version"] == "3.2"
+    assert not list(tmp_path.glob(".local_version.json.*.tmp"))
 
 
 def test_sync_architecture():
@@ -146,25 +217,25 @@ def test_sync_architecture():
             print("   [PASS] core_sync is async function")
         else:
             print("   [FAIL] core_sync should be async")
-            return 1
+            raise AssertionError("test branch reported failure")
 
         print("\n[TEST 4] Verify run_sync is async")
         if inspect.iscoroutinefunction(run_sync):
             print("   [PASS] run_sync is async function")
         else:
             print("   [FAIL] run_sync should be async")
-            return 1
+            raise AssertionError("test branch reported failure")
 
         print("\n" + "=" * 60)
         print("*** SYNC ARCHITECTURE TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 if __name__ == "__main__":

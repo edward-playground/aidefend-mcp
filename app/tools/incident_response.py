@@ -305,6 +305,87 @@ def _generate_recovery_actions(
     return actions
 
 
+def _classified_threat_ids(
+    threat_classification: Optional[Dict[str, Any]]
+) -> List[str]:
+    """Return canonical classified IDs in confidence order without duplicates."""
+    if not threat_classification:
+        return []
+
+    ordered: List[str] = []
+    seen = set()
+    for detail in threat_classification.get("threat_details", []):
+        if detail.get("resolvable") is False:
+            continue
+        raw_threat_id = detail.get("threat_id", "")
+        threat_id = (
+            raw_threat_id.split("-", 1)[1]
+            if "-" in raw_threat_id
+            else raw_threat_id
+        )
+        if threat_id and threat_id not in seen:
+            seen.add(threat_id)
+            ordered.append(threat_id)
+    return ordered
+
+
+def _merge_defense_results(
+    lookups: List[tuple[str, Dict[str, Any]]],
+    unresolved_threat_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Merge per-threat defense results by AIDEFEND control ID."""
+    merged: Dict[str, Dict[str, Any]] = {}
+    resolved_threat_ids: List[str] = []
+
+    for threat_id, lookup in lookups:
+        entries = lookup.get("defense_techniques", [])
+        if entries:
+            resolved_threat_ids.append(threat_id)
+
+        for entry in entries:
+            technique = entry.get("technique", {})
+            technique_id = technique.get("id")
+            if not technique_id:
+                continue
+
+            existing = merged.get(technique_id)
+            if existing is None:
+                existing = {
+                    **entry,
+                    "technique": dict(technique),
+                    "matched_threats": list(entry.get("matched_threats", [])),
+                    "matched_classified_threat_ids": [threat_id],
+                }
+                merged[technique_id] = existing
+                continue
+
+            existing["relevance_score"] = max(
+                existing.get("relevance_score", 0),
+                entry.get("relevance_score", 0),
+            )
+            for matched_item in entry.get("matched_threats", []):
+                if matched_item not in existing["matched_threats"]:
+                    existing["matched_threats"].append(matched_item)
+            if threat_id not in existing["matched_classified_threat_ids"]:
+                existing["matched_classified_threat_ids"].append(threat_id)
+
+    defenses = sorted(
+        merged.values(),
+        key=lambda entry: entry.get("relevance_score", 0),
+        reverse=True,
+    )[:10]
+    return {
+        "threat_query": {
+            "classified_threat_ids": [threat_id for threat_id, _ in lookups],
+        },
+        "defense_techniques": defenses,
+        "total_results": len(defenses),
+        "search_method": "multi_exact",
+        "resolved_threat_ids": resolved_threat_ids,
+        "unresolved_threat_ids": unresolved_threat_ids or [],
+    }
+
+
 async def generate_incident_playbook(
     incident_description: str,
     include_defense_techniques: bool = True
@@ -386,29 +467,77 @@ async def generate_incident_playbook(
         # Step 2: Get defense techniques if requested
         defense_techniques = None
         if include_defense_techniques and threat_classification:
-            threat_details = threat_classification.get('threat_details', [])
+            threat_ids = _classified_threat_ids(threat_classification)
 
-            if threat_details:
-                # Use the highest confidence threat for defense lookup
-                primary_threat = threat_details[0]
-                raw_threat_id = primary_threat.get('threat_id', '')
-                # classify_threat returns IDs like "OWASP-LLM01" or "ATLAS-AML.T0043"
-                # get_defenses_for_threat expects just "LLM01" or "AML.T0043"
-                threat_id = raw_threat_id.split('-', 1)[1] if '-' in raw_threat_id else raw_threat_id
+            async def fetch_defenses(threat_id: str):
+                try:
+                    result = await get_defenses_for_threat(
+                        threat_id=threat_id,
+                        top_k=10,
+                    )
+                    return threat_id, result, None
+                except Exception as exc:
+                    return threat_id, None, exc
 
-                if threat_id:
+            lookup_results = await asyncio.gather(
+                *(fetch_defenses(threat_id) for threat_id in threat_ids)
+            )
+            successful_lookups: List[tuple[str, Dict[str, Any]]] = []
+            unresolved_threat_ids: List[str] = []
+
+            for threat_id, lookup, error in lookup_results:
+                if error is not None:
+                    logger.warning(
+                        f"Failed to fetch defense techniques for {threat_id}: {error}"
+                    )
+                    unresolved_threat_ids.append(threat_id)
+                    continue
+                if lookup and lookup.get("defense_techniques"):
+                    successful_lookups.append((threat_id, lookup))
+                else:
+                    unresolved_threat_ids.append(threat_id)
+
+            if successful_lookups:
+                defense_techniques = _merge_defense_results(
+                    successful_lookups,
+                    unresolved_threat_ids,
+                )
+            else:
+                # A recognized keyword may intentionally have no current
+                # framework mapping. In that case, use its human-readable
+                # keyword for semantic retrieval rather than fabricating an ID.
+                keywords_found = threat_classification.get("keywords_found", [])
+                fallback_keyword = (
+                    keywords_found[0].get("keyword")
+                    if keywords_found
+                    else None
+                ) or incident_description[:200]
+                if fallback_keyword:
                     try:
-                        logger.debug(f"Fetching defense techniques for threat: {threat_id}")
                         defense_techniques = await get_defenses_for_threat(
-                            threat_id=threat_id,
-                            top_k=10
+                            threat_keyword=fallback_keyword,
+                            top_k=10,
                         )
-                        logger.info(
-                            f"Found {len(defense_techniques.get('defense_techniques', []))} defense techniques",
-                            extra={"technique_count": len(defense_techniques.get('defense_techniques', []))}
+                        defense_techniques["search_method"] = "semantic_fallback"
+                        defense_techniques["resolved_threat_ids"] = []
+                        defense_techniques["unresolved_threat_ids"] = (
+                            unresolved_threat_ids
                         )
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch defense techniques: {e}")
+                    except Exception as exc:
+                        logger.warning(
+                            f"Semantic defense fallback failed: {exc}"
+                        )
+
+            if defense_techniques:
+                logger.info(
+                    "Merged incident defense techniques",
+                    extra={
+                        "classified_threat_count": len(threat_ids),
+                        "technique_count": len(
+                            defense_techniques.get("defense_techniques", [])
+                        ),
+                    },
+                )
 
         # Step 3: Generate timeline-based playbook
         timeline = {

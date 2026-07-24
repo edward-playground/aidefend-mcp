@@ -10,11 +10,11 @@ This tool merges functionality from analyze_coverage and get_threat_coverage
 into a unified interface for holistic security assessment.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.logger import get_logger
 from app.security import InputValidationError
-from app.framework_utils import FRAMEWORK_LABELS
+from app.framework_utils import FRAMEWORK_LABELS, framework_coverage_label
 from app.tools.coverage_analysis import analyze_coverage
 from app.tools.threat_coverage import get_threat_coverage
 
@@ -47,7 +47,11 @@ async def analyze_security_posture(
     Returns:
         Dict containing:
         - view: Which view was requested
-        - implemented_count: Number of techniques analyzed
+        - requested_count: Number of unique control IDs requested
+        - implemented_count: Number of recognized control IDs
+        - implemented_actionable_count: Number of actionable controls represented
+        - invalid_technique_ids: Unknown or removed IDs excluded from all metrics
+        - expanded_parent_families: Parent IDs expanded to actionable child controls
         - technical_coverage: (if view="both" or "technical")
             - overall_coverage: Percentage and counts
             - by_tactic: Coverage breakdown by tactic
@@ -78,6 +82,10 @@ async def analyze_security_posture(
     # Input validation
     if not isinstance(implemented_techniques, list):
         raise InputValidationError("implemented_techniques must be a list")
+    if not all(isinstance(technique_id, str) for technique_id in implemented_techniques):
+        raise InputValidationError("implemented_techniques must contain only strings")
+    if len(implemented_techniques) > 200:
+        raise InputValidationError("Too many techniques (max 200)")
 
     # Allow empty array for baseline analysis (0% coverage, all gaps)
     # This enables users to generate initial security plans without any existing implementations
@@ -87,8 +95,12 @@ async def analyze_security_posture(
             f"Invalid view '{view}'. Must be one of: both, technical, threat"
         )
 
-    # Normalize and deduplicate
-    implemented_techniques = list(set([tid.strip().upper() for tid in implemented_techniques]))
+    # Normalize and deduplicate while preserving caller order. The child tools
+    # resolve current actionable controls, umbrella parent families, and stale IDs
+    # against the live index; this wrapper must not silently count stale IDs.
+    implemented_techniques = list(dict.fromkeys(
+        tid.strip().upper() for tid in implemented_techniques
+    ))
 
     logger.info(
         f"Analyzing security posture for {len(implemented_techniques)} techniques (view={view})",
@@ -97,7 +109,12 @@ async def analyze_security_posture(
 
     result = {
         "view": view,
-        "implemented_count": len(implemented_techniques),
+        "requested_count": len(implemented_techniques),
+        "implemented_count": 0,
+        "implemented_actionable_count": 0,
+        "invalid_count": 0,
+        "invalid_technique_ids": [],
+        "expanded_parent_families": {},
         "system_type": system_type
     }
 
@@ -118,17 +135,63 @@ async def analyze_security_posture(
             )
             result["threat_coverage"] = threat_result
 
+        technical_summary = result.get("technical_coverage", {}).get(
+            "analysis_summary", {}
+        )
+        threat_summary = result.get("threat_coverage", {})
+
+        reported_invalid = set(
+            technical_summary.get("unrecognized_technique_ids", [])
+        )
+        reported_invalid.update(threat_summary.get("invalid_techniques", []))
+        invalid_ids = [
+            technique_id
+            for technique_id in implemented_techniques
+            if technique_id in reported_invalid
+        ]
+
+        expanded_parent_families: Dict[str, List[str]] = {}
+        for expansion_map in (
+            technical_summary.get("expanded_parent_families", {}),
+            threat_summary.get("expanded_parent_families", {}),
+        ):
+            for parent_id, child_ids in expansion_map.items():
+                expanded_parent_families[parent_id] = list(dict.fromkeys(child_ids))
+
+        actionable_count = technical_summary.get("techniques_implemented")
+        if actionable_count is None:
+            actionable_count = threat_summary.get("resolved_actionable_count")
+
+        valid_count = len(implemented_techniques) - len(invalid_ids)
+        if actionable_count is None:
+            # Compatibility fallback for older/mocked child results. Current
+            # child tools always expose the resolved actionable count.
+            actionable_count = valid_count
+
+        result.update({
+            "implemented_count": valid_count,
+            "implemented_actionable_count": actionable_count,
+            "invalid_count": len(invalid_ids),
+            "invalid_technique_ids": invalid_ids,
+            "expanded_parent_families": expanded_parent_families,
+        })
+
         # Generate unified summary
         if view == "both":
             result["summary"] = _generate_unified_summary(
                 result.get("technical_coverage"),
                 result.get("threat_coverage"),
-                len(implemented_techniques)
+                actionable_count
             )
 
         logger.info(
-            f"Security posture analysis completed for {len(implemented_techniques)} techniques",
-            extra={"view": view, "techniques_count": len(implemented_techniques)}
+            f"Security posture analysis completed for {valid_count} recognized controls",
+            extra={
+                "view": view,
+                "requested_count": len(implemented_techniques),
+                "recognized_count": valid_count,
+                "actionable_count": actionable_count,
+            }
         )
 
         return result
@@ -174,9 +237,10 @@ def _generate_unified_summary(
     # analyze_coverage returns analysis_summary.coverage_percentage (0-100)
     tech_coverage_pct = technical_cov.get("analysis_summary", {}).get("coverage_percentage", 0)
     # get_threat_coverage returns coverage_rate as fractions (0.0-1.0), convert to percentage
+    coverage_rate = threat_cov.get("coverage_rate", {})
+    framework_keys = set(FRAMEWORK_LABELS) | (set(coverage_rate) - {"owasp"})
     framework_percentages = {
-        key: threat_cov.get("coverage_rate", {}).get(key, 0) * 100
-        for key in FRAMEWORK_LABELS
+        key: coverage_rate.get(key, 0) * 100 for key in framework_keys
     }
 
     # Determine overall posture
@@ -198,7 +262,12 @@ def _generate_unified_summary(
     summary["key_insights"].append(
         f"Technical coverage: {tech_coverage_pct:.1f}% of AIDEFEND techniques"
     )
-    for key, label in FRAMEWORK_LABELS.items():
+    framework_order = [
+        *FRAMEWORK_LABELS,
+        *sorted(set(framework_percentages) - set(FRAMEWORK_LABELS)),
+    ]
+    for key in framework_order:
+        label = framework_coverage_label(key)
         summary["key_insights"].append(
             f"{label}: {framework_percentages[key]:.1f}% threat coverage"
         )
@@ -223,7 +292,7 @@ def _generate_unified_summary(
         ])
 
     low_coverage_frameworks = [
-        (FRAMEWORK_LABELS[key], pct)
+        (framework_coverage_label(key), pct)
         for key, pct in framework_percentages.items()
         if pct < 50
     ]

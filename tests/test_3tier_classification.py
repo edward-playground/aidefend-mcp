@@ -31,7 +31,7 @@ async def test_tier1_static_keyword():
     print(f"✅ PASS: Found {len(result['keywords_found'])} keywords via static matching")
     print(f"   Source: {result['source']}")
     print(f"   Top match: {result['keywords_found'][0]['keyword']} (confidence: {result['keywords_found'][0]['confidence']:.2f})")
-    return True
+
 
 @pytest.mark.asyncio
 async def test_tier2_fuzzy_matching():
@@ -50,7 +50,7 @@ async def test_tier2_fuzzy_matching():
     print(f"   Matches: {len(result['keywords_found'])}")
     if result['keywords_found']:
         print(f"   Top match: {result['keywords_found'][0]['keyword']} (confidence: {result['keywords_found'][0]['confidence']:.2f})")
-    return True
+
 
 @pytest.mark.asyncio
 async def test_combined_matching():
@@ -71,7 +71,7 @@ async def test_combined_matching():
     if result['keywords_found']:
         print(f"   Top match: {result['keywords_found'][0]['keyword']} (confidence: {result['keywords_found'][0]['confidence']:.2f})")
 
-    return True
+
 
 @pytest.mark.asyncio
 async def test_no_match():
@@ -85,7 +85,7 @@ async def test_no_match():
     print(f"✅ PASS: No match handling works correctly")
     print(f"   Source: {result['source']}")
     print(f"   Matches: {len(result['keywords_found'])}")
-    return True
+
 
 @pytest.mark.asyncio
 async def test_confidence_threshold():
@@ -101,7 +101,7 @@ async def test_confidence_threshold():
         print(f"✅ PASS: Exact match has confidence {conf1:.2f}")
         assert conf1 >= 0.75, "Exact match should have high confidence"
 
-    return True
+
 
 async def run_all_tests():
     """Run all tests."""

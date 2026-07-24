@@ -30,10 +30,13 @@ If you want Claude Desktop integration, run `python scripts/install.py` instead.
 
 ## Prerequisites
 
-- Python 3.9 to 3.13
+- Python 3.10 to 3.13
 - Node.js 18+
 - Git
 - 2 to 3 GB free disk space
+
+`npm` is not required. The repository includes its Acorn parser runtime; only
+Node.js 18+ is needed to run the bounded parser checks and parse framework data.
 
 Check versions:
 
@@ -110,13 +113,17 @@ macOS/Linux:
 source .venv/bin/activate
 ```
 
-### 3. Install Python and Node dependencies
+### 3. Install Python dependencies
 
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-npm ci
 ```
+
+The secure JavaScript parser uses the Acorn runtime vendored in this repository.
+The installer verifies those local parser files and does not run `npm` or need
+network access for JavaScript dependencies. Node.js 18+ must still be available
+at runtime.
 
 ### 4. Create a local config file
 
@@ -172,17 +179,24 @@ http://127.0.0.1:8000/docs
 
 ## Docker Compose
 
+The container binds `0.0.0.0`, so an API key is required (compose refuses to start without it):
+
 ```bash
-docker-compose up -d
+# 1. Create .env and generate a REST API key
+cp .env.example .env
+python scripts/generate_api_key.py     # copy the value into AIDEFEND_API_KEY in .env
+
+# 2. Start
+docker compose up -d
 ```
 
-If you expose the service on `0.0.0.0`, authentication is required. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for authentication details.
 
 ## Optional Local Framework Source
 
 By default sync uses the upstream GitHub repository.
 
-If you are actively developing `aidefense-framework` locally and want this service to index your local checkout instead, set:
+For a native (non-container) run, point the service at the host checkout:
 
 ```env
 LOCAL_FRAMEWORK_PATH=/path/to/aidefense-framework
@@ -190,16 +204,57 @@ LOCAL_FRAMEWORK_PATH=/path/to/aidefense-framework
 
 Leave this unset for standard open-source installs.
 
+For Docker, a host path is not a valid path inside the Linux container. Mount
+the checkout read-only at `/framework` and set the setting to that container
+path. The following commands assume the two repositories are sibling
+directories. First rebuild the persisted index from the local source, then
+start the REST service against the same data volume.
+
+macOS/Linux:
+
+```bash
+docker compose run --rm \
+  --env LOCAL_FRAMEWORK_PATH=/framework \
+  --volume ../aidefense-framework:/framework:ro \
+  aidefend-mcp python __main__.py --resync
+
+docker compose run --rm --service-ports \
+  --env LOCAL_FRAMEWORK_PATH=/framework \
+  --volume ../aidefense-framework:/framework:ro \
+  aidefend-mcp
+```
+
+Windows PowerShell:
+
+```powershell
+docker compose run --rm `
+  --env LOCAL_FRAMEWORK_PATH=/framework `
+  --volume ../aidefense-framework:/framework:ro `
+  aidefend-mcp python __main__.py --resync
+
+docker compose run --rm --service-ports `
+  --env LOCAL_FRAMEWORK_PATH=/framework `
+  --volume ../aidefense-framework:/framework:ro `
+  aidefend-mcp
+```
+
+Replace the host side of the volume argument when the framework checkout is
+elsewhere. Keep the container side `/framework` and read-only. Compose passes
+the rest of `.env` into the container, but deliberately clears a native
+`LOCAL_FRAMEWORK_PATH` during an ordinary `docker compose up`; the commands
+above safely override it only after `/framework` is mounted. Explicit
+networking and auth values continue to enforce `0.0.0.0` plus API-key
+authentication.
+
 ## Common Commands
 
 ```bash
 # Rebuild database from the configured source
 python __main__.py --resync
 
-# Run tests
+# Run tests / Bandit (first install the dev dependencies)
+python -m pip install -r requirements-dev.txt
 python -m pytest -q
-
-# Run Bandit
 python -m bandit -q -r app
 ```
 

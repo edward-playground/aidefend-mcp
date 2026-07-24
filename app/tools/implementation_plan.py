@@ -12,11 +12,9 @@ Scoring dimensions:
 5. Tool ecosystem maturity (tools_commercial availability)
 """
 
-import asyncio
 import html  # For HTML entity unescaping
 import json
 import re    # For fallback HTML parsing
-import lancedb
 
 from app.security import sanitize_technique_id
 
@@ -38,9 +36,9 @@ from collections import defaultdict
 from bs4 import BeautifulSoup  # Robust HTML parsing for Compound Tool optimization
 
 from app.logger import get_logger
-from app.config import settings
-from app.security import InputValidationError
-from app.framework_utils import is_actionable_record
+from app.core import decode_framework_record
+from app.security import InputValidationError, validate_bounded_integer
+from app.framework_utils import is_actionable_record, resolve_control_ids
 
 logger = get_logger(__name__)
 
@@ -51,6 +49,12 @@ HIGH_RISK_PATTERNS = [
     'T0020', 'T0043',   # ATLAS poisoning, adversarial examples
     'BACKDOOR', 'JAILBREAK'
 ]
+
+# Future framework releases may add pillar or lifecycle values before this
+# service has enough evidence to rank them individually. Treat an unknown,
+# non-empty value as neutral instead of silently assigning the worst score.
+UNKNOWN_PHASE_SCORE = 1.0
+UNKNOWN_PILLAR_SCORE = 1.5
 
 
 # ============================================================================
@@ -190,12 +194,12 @@ async def get_implementation_plan(
     Compound Tool Pattern (detail_level parameter):
     - "basic": Returns technique IDs and scores only (fastest, original behavior)
     - "standard": Returns brief summaries (200 chars) for top 5 techniques (recommended)
-    - "detailed": Returns full summaries (500 chars) for top 5 techniques
+    - "detailed": Returns full summaries and code blocks for top 5 techniques
 
     Strategy Querying:
     - Uses union logic to query BOTH parent-level and sub-technique-level strategies
     - Adds context_source field for strategies from sub-techniques
-    - NEVER includes code snippets automatically (use get_secure_code_snippet separately)
+    - Includes code only when detail_level is explicitly set to "detailed"
 
     Args:
         implemented_techniques: List of already implemented technique IDs
@@ -252,40 +256,51 @@ async def get_implementation_plan(
 
     if not isinstance(implemented_techniques, list):
         raise InputValidationError("implemented_techniques must be a list")
+    if not all(isinstance(technique_id, str) for technique_id in implemented_techniques):
+        raise InputValidationError("implemented_techniques must contain only strings")
 
     if not isinstance(exclude_tactics, list):
         raise InputValidationError("exclude_tactics must be a list")
+    if not all(isinstance(tactic, str) for tactic in exclude_tactics):
+        raise InputValidationError("exclude_tactics must contain only strings")
 
-    if top_k < 1 or top_k > 20:
-        raise InputValidationError("top_k must be between 1 and 20")
+    top_k = validate_bounded_integer(top_k, "top_k", 1, 20)
 
     if detail_level not in ["basic", "standard", "detailed"]:
         raise InputValidationError("detail_level must be 'basic', 'standard', or 'detailed'")
 
     # Normalize inputs
-    implemented_set = set(tid.strip().upper() for tid in implemented_techniques)
-    exclude_tactics_set = set(tactic.strip().title() for tactic in exclude_tactics)
+    requested_implemented_ids = list(dict.fromkeys(
+        tid.strip().upper() for tid in implemented_techniques
+    ))
+    exclude_tactic_names = list(dict.fromkeys(
+        tactic.strip() for tactic in exclude_tactics if tactic.strip()
+    ))
+    exclude_tactic_keys = {tactic.casefold() for tactic in exclude_tactic_names}
 
     logger.info(
         f"Generating implementation plan: "
-        f"{len(implemented_set)} implemented, "
-        f"{len(exclude_tactics_set)} tactics excluded, "
+        f"{len(requested_implemented_ids)} implementation IDs requested, "
+        f"{len(exclude_tactic_keys)} tactics excluded, "
         f"top_k={top_k}"
     )
 
     try:
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         # Get all technique-like records, then keep directly implementable items
         # only (standalone techniques + sub-techniques).
-        all_techniques = await asyncio.to_thread(
-            lambda: table.search().where(
+        all_techniques = await query_engine.read_table(
+            lambda table: table.search().where(
                 "type = 'technique' OR type = 'subtechnique'"
             ).to_pandas().to_dict('records')
         )
-        all_techniques = [tech for tech in all_techniques if is_actionable_record(tech)]
+        all_records = [
+            decode_framework_record(tech) for tech in all_techniques
+        ]
+        resolution = resolve_control_ids(requested_implemented_ids, all_records)
+        implemented_set = set(resolution["actionable_ids"])
+        all_techniques = [
+            tech for tech in all_records if is_actionable_record(tech)
+        ]
 
         logger.info(f"Retrieved {len(all_techniques)} actionable techniques")
 
@@ -300,7 +315,7 @@ async def get_implementation_plan(
                 continue
 
             # Skip if tactic is excluded
-            if tactic in exclude_tactics_set:
+            if isinstance(tactic, str) and tactic.strip().casefold() in exclude_tactic_keys:
                 continue
 
             candidate_techniques.append(tech)
@@ -335,7 +350,9 @@ async def get_implementation_plan(
             reasoning = _generate_reasoning(tech, breakdown)
 
             # Check if has opensource tools
-            tools_opensource = _safe_json_loads(tech.get('tools_opensource', '[]'))
+            tools_opensource = tech['tools_opensource']
+            tools_source_available = tech['tools_source_available']
+            tools_commercial = tech['tools_commercial']
             has_opensource_tools = bool(tools_opensource)
 
             recommendations.append({
@@ -347,8 +364,21 @@ async def get_implementation_plan(
                 "score_breakdown": breakdown,
                 "reasoning": reasoning,
                 "has_opensource_tools": has_opensource_tools,
-                "pillar": tech.get('pillar', ''),
-                "phase": tech.get('phase', '')
+                "has_source_available_tools": bool(tools_source_available),
+                "has_commercial_tools": bool(tools_commercial),
+                "tools_opensource": tools_opensource,
+                "tools_source_available": tools_source_available,
+                "tools_commercial": tools_commercial,
+                "pillar": tech['pillar'],
+                "phase": tech['phase'],
+                "scope_boundary": tech['scope_boundary'],
+                "guidance_ids": [
+                    strategy.get('id')
+                    for strategy in tech['implementation_guidance']
+                    if isinstance(strategy, dict) and strategy.get('id')
+                ],
+                "is_actionable": tech['is_actionable'],
+                "is_parent_family": tech['is_parent_family']
             })
 
         # Categorize recommendations
@@ -384,8 +414,8 @@ async def get_implementation_plan(
                         continue
 
                     # Step 1: Check for subtechniques
-                    sub_techniques = await asyncio.to_thread(
-                        lambda tid=sanitized_tid: table.search()
+                    sub_techniques = await query_engine.read_table(
+                        lambda table, tid=sanitized_tid: table.search()
                         .where(f"type = 'subtechnique' AND parent_technique_id = '{tid}'")
                         .limit(5)  # Get up to 5 subtechniques
                         .to_pandas()
@@ -395,75 +425,57 @@ async def get_implementation_plan(
                     if sub_techniques:
                         # Technique has subtechniques - extract strategies from each subtechnique
                         for sub_tech in sub_techniques:
+                            sub_tech = decode_framework_record(sub_tech)
                             sub_tech_name = sub_tech.get('name', '')
-                            impl_strat_raw = sub_tech.get('implementation_guidance', '')
-
-                            # Parse embedded strategies (stored as JSON string)
-                            if isinstance(impl_strat_raw, str) and impl_strat_raw:
-                                try:
-                                    strategies = json.loads(impl_strat_raw)
-                                    if isinstance(strategies, list):
-                                        for strat in strategies:
-                                            strategy_name = strat.get('implementation', '')
-                                            how_to_html = strat.get('howTo', '')
-
-                                            # NEVER include code automatically
-                                            include_code = False
-
-                                            # Set summary length based on detail_level
-                                            summary_length = 200 if detail_level == "standard" else 500
-
-                                            # Extract summary from howTo HTML
-                                            extracted = _extract_strategy_details(
-                                                how_to_html,
-                                                include_code=include_code,
-                                                summary_length=summary_length
-                                            )
-
-                                            strategy_entry = {
-                                                "strategy_name": strategy_name,
-                                                "summary": extracted.get("summary", ""),
-                                                "context_source": sub_tech_name  # Label which subtechnique this came from
-                                            }
-
-                                            strategy_details.append(strategy_entry)
-
-                                except json.JSONDecodeError as e:
-                                    logger.warning(f"Failed to parse strategies for {sub_tech.get('source_id')}: {e}")
+                            for strat in sub_tech['implementation_guidance']:
+                                strategy_name = strat.get('implementation', '')
+                                how_to_html = strat.get('howTo', '')
+                                include_code = detail_level == "detailed"
+                                summary_length = 200 if detail_level == "standard" else 500
+                                extracted = _extract_strategy_details(
+                                    how_to_html,
+                                    include_code=include_code,
+                                    summary_length=summary_length
+                                )
+                                strategy_entry = {
+                                    "guidance_id": strat.get('id', ''),
+                                    "strategy_name": strategy_name,
+                                    "summary": extracted.get("summary", ""),
+                                    "context_source": sub_tech_name
+                                }
+                                if include_code:
+                                    strategy_entry["code_snippets"] = extracted.get(
+                                        "code_snippets", []
+                                    )
+                                    strategy_entry["code_snippet_count"] = extracted.get(
+                                        "code_snippet_count", 0
+                                    )
+                                strategy_details.append(strategy_entry)
                     else:
                         # No subtechniques - try to get strategies from parent technique
-                        impl_strat_raw = tech.get('implementation_guidance', '')
-
-                        if isinstance(impl_strat_raw, str) and impl_strat_raw:
-                            try:
-                                strategies = json.loads(impl_strat_raw)
-                                if isinstance(strategies, list):
-                                    for strat in strategies:
-                                        strategy_name = strat.get('implementation', '')
-                                        how_to_html = strat.get('howTo', '')
-
-                                        # NEVER include code automatically
-                                        include_code = False
-
-                                        # Set summary length based on detail_level
-                                        summary_length = 200 if detail_level == "standard" else 500
-
-                                        # Extract summary from howTo HTML
-                                        extracted = _extract_strategy_details(
-                                            how_to_html,
-                                            include_code=include_code,
-                                            summary_length=summary_length
-                                        )
-
-                                        strategy_entry = {
-                                            "strategy_name": strategy_name,
-                                            "summary": extracted.get("summary", "")
-                                        }
-
-                                        strategy_details.append(strategy_entry)
-
-                            except json.JSONDecodeError as e:
-                                logger.warning(f"Failed to parse strategies for {tech_id}: {e}")
+                        for strat in tech['implementation_guidance']:
+                            strategy_name = strat.get('implementation', '')
+                            how_to_html = strat.get('howTo', '')
+                            include_code = detail_level == "detailed"
+                            summary_length = 200 if detail_level == "standard" else 500
+                            extracted = _extract_strategy_details(
+                                how_to_html,
+                                include_code=include_code,
+                                summary_length=summary_length
+                            )
+                            strategy_entry = {
+                                "guidance_id": strat.get('id', ''),
+                                "strategy_name": strategy_name,
+                                "summary": extracted.get("summary", "")
+                            }
+                            if include_code:
+                                strategy_entry["code_snippets"] = extracted.get(
+                                    "code_snippets", []
+                                )
+                                strategy_entry["code_snippet_count"] = extracted.get(
+                                    "code_snippet_count", 0
+                                )
+                            strategy_details.append(strategy_entry)
 
                     actionable_strategies.append({
                         "technique_id": tech_id,
@@ -485,8 +497,12 @@ async def get_implementation_plan(
 
         result = {
             "input": {
+                "requested_count": len(requested_implemented_ids),
                 "implemented_count": len(implemented_set),
-                "exclude_tactics": list(exclude_tactics_set),
+                "invalid_count": len(resolution["unrecognized_ids"]),
+                "unrecognized_technique_ids": resolution["unrecognized_ids"],
+                "expanded_parent_families": resolution["expanded_parent_families"],
+                "exclude_tactics": exclude_tactic_names,
                 "top_k": top_k,
                 "detail_level": detail_level
             },
@@ -538,6 +554,7 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
     Returns:
         Tuple of (total_score, breakdown_dict)
     """
+    technique = decode_framework_record(technique)
     score = 0.0
     breakdown = {}
 
@@ -558,8 +575,9 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
     breakdown["threat_importance"] = threat_score
 
     # 2. Ease of implementation (0-2 points)
-    tools_opensource = _safe_json_loads(technique.get('tools_opensource', '[]'))
-    ease_score = 2.0 if tools_opensource else 0.0
+    tools_opensource = technique['tools_opensource']
+    tools_source_available = technique['tools_source_available']
+    ease_score = 2.0 if tools_opensource else (1.0 if tools_source_available else 0.0)
 
     score += ease_score
     breakdown["ease_of_implementation"] = ease_score
@@ -583,13 +601,23 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
         'building': 1.5,      # Development phase
         'validation': 1.0,    # Testing/deployment phase
         'operation': 0.5,     # Runtime/production phase
+        'response': 1.2,      # Active containment and incident response
         'improvement': 0.8    # Ongoing improvement
     }
 
     # Take the highest score from all phases this technique applies to
     phase_score = 0.0
     if isinstance(phases, list) and phases:
-        phase_score = max([phase_scores.get(p, 0.0) for p in phases])
+        normalized_phases = [
+            str(phase).strip().casefold()
+            for phase in phases
+            if str(phase).strip()
+        ]
+        if normalized_phases:
+            phase_score = max(
+                phase_scores.get(phase, UNKNOWN_PHASE_SCORE)
+                for phase in normalized_phases
+            )
 
     score += phase_score
     breakdown["phase_weight"] = phase_score
@@ -618,13 +646,22 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
     # Take the highest score from all pillars this technique applies to
     pillar_score = 0.0
     if isinstance(pillars, list) and pillars:
-        pillar_score = max([pillar_scores.get(p, 0.0) for p in pillars])
+        normalized_pillars = [
+            str(pillar).strip().casefold()
+            for pillar in pillars
+            if str(pillar).strip()
+        ]
+        if normalized_pillars:
+            pillar_score = max(
+                pillar_scores.get(pillar, UNKNOWN_PILLAR_SCORE)
+                for pillar in normalized_pillars
+            )
 
     score += pillar_score
     breakdown["pillar_weight"] = pillar_score
 
     # 5. Tool ecosystem maturity (0-1 point)
-    tools_commercial = _safe_json_loads(technique.get('tools_commercial', '[]'))
+    tools_commercial = technique['tools_commercial']
     ecosystem_score = 1.0 if tools_commercial else 0.0
 
     score += ecosystem_score
@@ -644,6 +681,7 @@ def _generate_reasoning(technique: Dict, breakdown: Dict[str, float]) -> str:
     Returns:
         Reasoning text
     """
+    technique = decode_framework_record(technique)
     reasons = []
 
     # Threat importance
@@ -653,13 +691,11 @@ def _generate_reasoning(technique: Dict, breakdown: Dict[str, float]) -> str:
     # Ease of implementation
     if breakdown.get("ease_of_implementation", 0) >= 2.0:
         reasons.append("Has open-source tools available")
+    elif technique['tools_source_available']:
+        reasons.append("Has source-available or open-weight tools available")
 
     # Pillar (parse JSON array)
-    pillar_raw = technique.get('pillar', '')
-    try:
-        pillars = json.loads(pillar_raw) if isinstance(pillar_raw, str) and pillar_raw.strip() else []
-    except json.JSONDecodeError:
-        pillars = []
+    pillars = technique['pillar']
 
     if isinstance(pillars, list):
         if 'model' in pillars or 'data' in pillars:
@@ -668,11 +704,7 @@ def _generate_reasoning(technique: Dict, breakdown: Dict[str, float]) -> str:
             reasons.append("Strengthens application layer security")
 
     # Phase (parse JSON array)
-    phase_raw = technique.get('phase', '')
-    try:
-        phases = json.loads(phase_raw) if isinstance(phase_raw, str) and phase_raw.strip() else []
-    except json.JSONDecodeError:
-        phases = []
+    phases = technique['phase']
 
     if isinstance(phases, list):
         if 'scoping' in phases or 'building' in phases:

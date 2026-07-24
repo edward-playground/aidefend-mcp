@@ -168,7 +168,7 @@ class TestImplementationPlanCompound:
             raise
 
     async def test_detailed_mode(self):
-        """Test detailed mode with full summaries (500 chars) - NO code snippets."""
+        """Test detailed mode with full summaries and explicit code snippets."""
         try:
             result = await get_implementation_plan(
                 implemented_techniques=[],
@@ -194,15 +194,16 @@ class TestImplementationPlanCompound:
                     assert "technique_id" in strategy_data
                     assert "strategies" in strategy_data
 
-                    # Detailed mode should have full summaries (500 chars) with NO code_snippets
+                    # Detailed mode returns full summaries and code payloads.
                     for strat in strategy_data["strategies"]:
                         assert "strategy_name" in strat
                         assert "summary" in strat
                         # Verify summary length is around 500 chars (allow some tolerance)
                         # Note: Summary may be shorter if content is brief
                         assert len(strat["summary"]) <= 550, f"Summary too long: {len(strat['summary'])} chars"
-                        # Ensure NO code snippets in detailed mode (changed behavior)
-                        assert "code_snippets" not in strat
+                        assert "code_snippets" in strat
+                        assert isinstance(strat["code_snippets"], list)
+                        assert strat["code_snippet_count"] == len(strat["code_snippets"])
                         # context_source is optional (only present for sub-technique strategies)
 
             print("✅ Detailed mode test passed")
@@ -239,6 +240,76 @@ class TestParameterValidation:
         # Test too high
         with pytest.raises(Exception):
             await get_implementation_plan(top_k=25)
+
+
+@pytest.mark.asyncio
+async def test_shifted_ids_are_reported_and_parent_families_are_expanded(monkeypatch):
+    import app.core as core_module
+
+    def record(source_id, *, actionable, parent_id="", doc_type="technique"):
+        return {
+            "source_id": source_id,
+            "name": source_id,
+            "type": doc_type,
+            "tactic": "Harden",
+            "text": "Control",
+            "pillar": ["app"] if actionable else [],
+            "phase": ["building"] if actionable else [],
+            "defends_against": [],
+            "tools_opensource": [],
+            "tools_source_available": [],
+            "tools_commercial": [],
+            "parent_technique_id": parent_id,
+            "implementation_guidance": [],
+            "guidance_id": "",
+            "scope_boundary": {},
+            "is_actionable": actionable,
+            "is_parent_family": not actionable,
+            "has_code_snippets": False,
+            "warnings": [],
+        }
+
+    records = [
+        record("AID-H-001", actionable=True),
+        record("AID-H-002", actionable=True),
+        record("AID-H-010", actionable=False),
+        record(
+            "AID-H-010.001",
+            actionable=True,
+            parent_id="AID-H-010",
+            doc_type="subtechnique",
+        ),
+    ]
+
+    class FakeQueryEngine:
+        is_ready = True
+
+        async def read_table(self, _callback):
+            return records
+
+    monkeypatch.setattr(core_module, "query_engine", FakeQueryEngine())
+
+    result = await get_implementation_plan(
+        implemented_techniques=["AID-H-001", "AID-H-010", "AID-H-025.003"],
+        top_k=5,
+        detail_level="basic",
+    )
+
+    assert result["input"] == {
+        "requested_count": 3,
+        "implemented_count": 2,
+        "invalid_count": 1,
+        "unrecognized_technique_ids": ["AID-H-025.003"],
+        "expanded_parent_families": {
+            "AID-H-010": ["AID-H-010.001"]
+        },
+        "exclude_tactics": [],
+        "top_k": 5,
+        "detail_level": "basic",
+    }
+    assert [item["technique_id"] for item in result["recommendations"]] == [
+        "AID-H-002"
+    ]
 
 
 if __name__ == "__main__":

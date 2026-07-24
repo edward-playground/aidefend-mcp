@@ -1,306 +1,174 @@
-"""
-Test for Threat Coverage Tool
+"""Contract tests for threat coverage and framework mapping normalization."""
 
-Tests the get_threat_coverage tool including reverse threat mapping,
-coverage rate calculation, and framework analysis.
-"""
+import pytest
 
-import asyncio
-import sys
-from pathlib import Path
-
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from app.framework_utils import (
+    FRAMEWORK_LABELS,
+    build_framework_metrics,
+    coverage_lists_from_sets,
+    extract_framework_coverage,
+    framework_key,
+    merge_framework_coverage_sets,
+    normalize_framework_item,
+)
+from app.security import InputValidationError
+from app.tools.threat_coverage import get_threat_coverage
 
 
 def test_imports():
-    """Test that all necessary modules can be imported."""
-    print("=" * 60)
-    print("THREAT COVERAGE - IMPORT TESTS")
-    print("=" * 60)
+    """The public tool is exported from both supported import locations."""
+    from app.tools import get_threat_coverage as exported_tool
 
-    try:
-        print("\n[TEST 1] Import get_threat_coverage")
-        from app.tools.threat_coverage import get_threat_coverage
-        print("   [PASS] Function imported successfully")
-
-        print("\n[TEST 2] Import from app.tools")
-        from app.tools import get_threat_coverage as gtc
-        print("   [PASS] Can import via app.tools.__init__")
-
-        print("\n[TEST 3] Import helper functions")
-        from app.tools.threat_coverage import _extract_threat_ids
-        print("   [PASS] Helper function imported")
-
-        print("\n" + "=" * 60)
-        print("*** IMPORT TESTS PASSED! ***")
-        print("=" * 60)
-        return 0
-
-    except Exception as e:
-        print(f"\n[FAIL] TEST FAILED: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    assert callable(get_threat_coverage)
+    assert exported_tool is get_threat_coverage
 
 
-def test_parameter_validation():
-    """Test parameter validation."""
-    print("\n" + "=" * 60)
-    print("PARAMETER VALIDATION TESTS")
-    print("=" * 60)
+@pytest.mark.asyncio
+async def test_parameter_validation_runs_before_database_access():
+    """Invalid container shape, members, and size fail without a database."""
+    with pytest.raises(InputValidationError, match="must be a list"):
+        await get_threat_coverage("AID-H-001")
 
-    try:
-        from app.tools.threat_coverage import get_threat_coverage
-        from app.security import InputValidationError
+    with pytest.raises(InputValidationError, match="only strings"):
+        await get_threat_coverage(["AID-H-001", 42])
 
-        # Test 1: Empty list should fail
-        print("\n[TEST 1] Empty list should fail")
-        try:
-            asyncio.run(get_threat_coverage([]))
-            print("   [FAIL] Should have raised InputValidationError")
-            return 1
-        except InputValidationError as e:
-            print(f"   [PASS] Correctly raised error: {e}")
-
-        # Test 2: Not a list should fail
-        print("\n[TEST 2] Non-list input should fail")
-        try:
-            asyncio.run(get_threat_coverage("AID-H-001"))
-            print("   [FAIL] Should have raised InputValidationError")
-            return 1
-        except InputValidationError as e:
-            print(f"   [PASS] Correctly raised error: {e}")
-
-        # Test 3: Too many techniques should fail
-        print("\n[TEST 3] Too many techniques (> 100) should fail")
-        try:
-            many_techniques = [f"AID-H-{i:03d}" for i in range(101)]
-            asyncio.run(get_threat_coverage(many_techniques))
-            print("   [FAIL] Should have raised InputValidationError")
-            return 1
-        except InputValidationError as e:
-            print(f"   [PASS] Correctly raised error: {e}")
-
-        print("\n" + "=" * 60)
-        print("*** VALIDATION TESTS PASSED! ***")
-        print("=" * 60)
-        return 0
-
-    except Exception as e:
-        print(f"\n[FAIL] TEST FAILED: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    with pytest.raises(InputValidationError, match="max 200"):
+        await get_threat_coverage([f"AID-H-{index:03d}" for index in range(201)])
 
 
-def test_threat_id_extraction():
-    """Test threat ID extraction from defends_against items."""
-    print("\n" + "=" * 60)
-    print("THREAT ID EXTRACTION TESTS")
-    print("=" * 60)
+@pytest.mark.asyncio
+async def test_empty_list_produces_zero_coverage_baseline(monkeypatch):
+    """Empty implementations are a supported baseline, not a validation error."""
+    import app.core as core_module
 
-    try:
-        from app.tools.threat_coverage import _extract_threat_ids
+    class EmptyQueryEngine:
+        is_ready = True
 
-        # Test 1: Extract OWASP LLM IDs
-        print("\n[TEST 1] Extract OWASP LLM IDs")
-        test_cases = [
-            ("LLM01:2025 Prompt Injection", ["LLM01"]),
-            ("LLM02 Insecure Output", ["LLM02"]),
-            ("llm03:2023 Training Data Poisoning", ["LLM03"]),
-        ]
+        async def read_table(self, callback):
+            return []
 
-        for item_text, expected_llm_ids in test_cases:
-            result = _extract_threat_ids(item_text)
-            assert result['owasp'] == expected_llm_ids, f"Expected {expected_llm_ids}, got {result['owasp']}"
-            print(f"   '{item_text}' -> {result['owasp']} [OK]")
+    monkeypatch.setattr(core_module, "query_engine", EmptyQueryEngine())
 
-        print("   [PASS] OWASP LLM ID extraction works")
+    result = await get_threat_coverage([])
 
-        # Test 2: Extract MITRE ATLAS IDs
-        print("\n[TEST 2] Extract MITRE ATLAS IDs")
-        test_cases = [
-            ("AML.T0043 Adversarial Examples", ["AML.T0043"]),
-            ("T0020 Data Poisoning", ["AML.T0020"]),
-            ("aml.t0015 Some Attack", ["AML.T0015"]),
-        ]
-
-        for item_text, expected_atlas_ids in test_cases:
-            result = _extract_threat_ids(item_text)
-            assert result['atlas'] == expected_atlas_ids, f"Expected {expected_atlas_ids}, got {result['atlas']}"
-            print(f"   '{item_text}' -> {result['atlas']} [OK]")
-
-        print("   [PASS] MITRE ATLAS ID extraction works")
-
-        # Test 3: No matches
-        print("\n[TEST 3] Handle no matches")
-        result = _extract_threat_ids("Random text with no IDs")
-        assert result['owasp'] == [], "Should return empty list for OWASP"
-        assert result['atlas'] == [], "Should return empty list for ATLAS"
-        assert result['maestro'] == [], "Should return empty list for MAESTRO"
-        print("   [PASS] No matches handled correctly")
-
-        print("\n" + "=" * 60)
-        print("*** EXTRACTION TESTS PASSED! ***")
-        print("=" * 60)
-        return 0
-
-    except Exception as e:
-        print(f"\n[FAIL] TEST FAILED: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    assert result["input_count"] == 0
+    assert result["valid_count"] == 0
+    assert result["invalid_count"] == 0
+    assert result["by_technique"] == []
+    assert all(rate == 0.0 for rate in result["coverage_rate"].values())
+    assert all(items == [] for items in result["covered"].values())
 
 
-def test_coverage_rate_calculation():
-    """Test coverage rate calculation logic."""
-    print("\n" + "=" * 60)
-    print("COVERAGE RATE CALCULATION TESTS")
-    print("=" * 60)
+def test_framework_mapping_normalization_uses_schema_23_labels():
+    """All current framework families normalize to stable public identifiers."""
+    mappings = [
+        {
+            "framework": "OWASP LLM Top 10 2025",
+            "items": ["LLM01:2025 Prompt Injection"],
+        },
+        {
+            "framework": "OWASP ML Top 10 2023",
+            "items": ["ML03:2023 Model Inversion Attack"],
+        },
+        {
+            "framework": "OWASP Top 10 for Agentic Applications 2026",
+            "items": ["ASI02:2026 Tool Misuse"],
+        },
+        {
+            "framework": "MITRE ATLAS",
+            "items": ["AML.T0043.001 Craft Adversarial Data"],
+        },
+        {
+            "framework": "MAESTRO",
+            "items": ["Agent Tool Misuse (L7)"],
+        },
+        {
+            "framework": "NIST Adversarial Machine Learning 2025",
+            "items": ["NISTAML.004 Evasion"],
+        },
+        {
+            "framework": "Cisco Integrated AI Security and Safety Framework",
+            "items": ["AISubtech-2.1 Runtime input validation"],
+        },
+        {
+            "framework": "Google Secure AI Framework 2.0 - Risks",
+            "items": ["MODEL-01: Model manipulation"],
+        },
+        {
+            "framework": "Databricks AI Security Framework 3.0",
+            "items": ["Model Serving Abuse (runtime)"],
+        },
+    ]
 
-    try:
-        print("\n[TEST 1] Calculate OWASP coverage rate")
+    coverage = extract_framework_coverage(mappings)
 
-        # OWASP LLM Top 10 has 10 items
-        covered_threats = 4
-        total_owasp = 10
-
-        coverage_rate = round(covered_threats / total_owasp, 3)
-        expected = 0.4
-
-        assert coverage_rate == expected, f"Expected {expected}, got {coverage_rate}"
-        print(f"   {covered_threats}/{total_owasp} = {coverage_rate} (40%) [OK]")
-        print("   [PASS] OWASP coverage rate calculation works")
-
-        # Test 2: Calculate MITRE ATLAS coverage rate
-        print("\n[TEST 2] Calculate MITRE ATLAS coverage rate")
-
-        # MITRE ATLAS has ~43 techniques
-        covered_threats = 15
-        total_atlas = 43
-
-        coverage_rate = round(covered_threats / total_atlas, 3)
-        expected = 0.349  # 34.9%
-
-        assert coverage_rate == expected, f"Expected {expected}, got {coverage_rate}"
-        print(f"   {covered_threats}/{total_atlas} = {coverage_rate} (34.9%) [OK]")
-        print("   [PASS] MITRE ATLAS coverage rate calculation works")
-
-        # Test 3: Zero coverage
-        print("\n[TEST 3] Handle zero coverage")
-
-        covered_threats = 0
-        total_threats = 10
-
-        coverage_rate = round(covered_threats / total_threats, 3) if covered_threats > 0 else 0.0
-        expected = 0.0
-
-        assert coverage_rate == expected, f"Expected {expected}, got {coverage_rate}"
-        print(f"   {covered_threats}/{total_threats} = {coverage_rate} (0%) [OK]")
-        print("   [PASS] Zero coverage handled correctly")
-
-        print("\n" + "=" * 60)
-        print("*** COVERAGE RATE TESTS PASSED! ***")
-        print("=" * 60)
-        return 0
-
-    except Exception as e:
-        print(f"\n[FAIL] TEST FAILED: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    assert coverage["owasp_llm"] == {"LLM01"}
+    assert coverage["owasp_ml"] == {"ML03:2023"}
+    assert coverage["owasp_agentic"] == {"ASI02:2026"}
+    assert coverage["atlas"] == {"AML.T0043.001"}
+    assert coverage["maestro"] == {"Agent Tool Misuse (L7)"}
+    assert coverage["nist_aml"] == {"NISTAML.004"}
+    assert coverage["cisco"] == {"AISUBTECH-2.1"}
+    assert coverage["google_saif"] == {"MODEL-01"}
+    assert coverage["databricks"] == {"Model Serving Abuse"}
 
 
-def test_set_operations():
-    """Test set operations for threat deduplication."""
-    print("\n" + "=" * 60)
-    print("SET OPERATIONS TESTS")
-    print("=" * 60)
+def test_agentic_framework_rename_preserves_stable_key_and_legacy_input():
+    """The source rename changes display text without breaking API identifiers."""
+    current_label = "OWASP Top 10 for Agentic Applications 2026"
+    legacy_label = "OWASP Agentic AI Top 10 2026"
 
-    try:
-        print("\n[TEST 1] Test set update for deduplication")
-
-        covered_threats = set()
-
-        # Simulate multiple techniques covering overlapping threats
-        technique_threats = [
-            ["LLM01", "LLM02"],
-            ["LLM01", "LLM03"],
-            ["LLM02", "LLM04"]
-        ]
-
-        for threats in technique_threats:
-            covered_threats.update(threats)
-
-        assert len(covered_threats) == 4, "Should have 4 unique threats"
-        assert "LLM01" in covered_threats, "Should contain LLM01"
-        assert "LLM04" in covered_threats, "Should contain LLM04"
-
-        print(f"   Unique threats: {sorted(list(covered_threats))}")
-        print("   [PASS] Set deduplication works")
-
-        # Test 2: Sorted output
-        print("\n[TEST 2] Test sorted output")
-
-        sorted_threats = sorted(list(covered_threats))
-        expected = ["LLM01", "LLM02", "LLM03", "LLM04"]
-
-        assert sorted_threats == expected, f"Expected {expected}, got {sorted_threats}"
-        print(f"   Sorted: {sorted_threats} [OK]")
-        print("   [PASS] Sorting works correctly")
-
-        print("\n" + "=" * 60)
-        print("*** SET OPERATIONS TESTS PASSED! ***")
-        print("=" * 60)
-        return 0
-
-    except Exception as e:
-        print(f"\n[FAIL] TEST FAILED: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    assert FRAMEWORK_LABELS["owasp_agentic"] == current_label
+    assert framework_key(current_label) == "owasp_agentic"
+    assert framework_key(legacy_label) == "owasp_agentic"
+    assert (
+        normalize_framework_item(current_label, "ASI02:2026 Tool Misuse")
+        == "ASI02:2026"
+    )
+    assert (
+        normalize_framework_item(legacy_label, "ASI02:2026 Tool Misuse")
+        == "ASI02:2026"
+    )
 
 
-def main():
-    """Run all tests."""
-    print("\n" + "=" * 60)
-    print("THREAT COVERAGE - TEST SUITE")
-    print("=" * 60)
+def test_framework_merge_deduplicates_and_builds_owasp_union():
+    first = extract_framework_coverage([
+        {"framework": "OWASP LLM Top 10 2025", "items": ["LLM01"]},
+        {"framework": "MITRE ATLAS", "items": ["AML.T0043"]},
+    ])
+    second = extract_framework_coverage([
+        {"framework": "OWASP LLM Top 10 2025", "items": ["LLM01", "LLM02"]},
+        {"framework": "OWASP ML Top 10 2023", "items": ["ML03:2023"]},
+    ])
 
-    exit_code = 0
+    merged = coverage_lists_from_sets(merge_framework_coverage_sets(first, second))
 
-    # Run all tests
-    exit_code += test_imports()
-    exit_code += test_parameter_validation()
-    exit_code += test_threat_id_extraction()
-    exit_code += test_coverage_rate_calculation()
-    exit_code += test_set_operations()
-
-    # Summary
-    print("\n" + "=" * 60)
-    if exit_code == 0:
-        print("*** ALL TESTS PASSED! ***")
-        print("=" * 60)
-        print("\nImplementation Status:")
-        print("  [OK] Module imports - Working")
-        print("  [OK] Parameter validation - Working")
-        print("  [OK] Threat ID extraction - Working")
-        print("  [OK] Coverage rate calculation - Working")
-        print("  [OK] Set operations - Working")
-        print("\nNote: Full integration tests require initialized database.")
-        print("      Run the MCP server to test end-to-end functionality.")
-        print("\nSupported Features:")
-        print("  [OK] Reverse threat mapping (techniques -> threats)")
-        print("  [OK] OWASP LLM coverage analysis")
-        print("  [OK] MITRE ATLAS coverage analysis")
-        print("  [OK] Per-technique threat breakdown")
-    else:
-        print(f"*** {exit_code} TEST(S) FAILED ***")
-        print("=" * 60)
-
-    return exit_code
+    assert merged["owasp_llm"] == ["LLM01", "LLM02"]
+    assert merged["owasp_ml"] == ["ML03:2023"]
+    assert merged["owasp"] == ["LLM01", "LLM02", "ML03:2023"]
+    assert merged["atlas"] == ["AML.T0043"]
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def test_additive_framework_label_is_preserved_in_coverage_and_metrics():
+    label = "OpenSSF AI Model Signing Profile"
+    dynamic_key = f"framework:{label}"
+    first = extract_framework_coverage(
+        [{"framework": label, "items": ["AIM-1: Verify model provenance"]}]
+    )
+    second = extract_framework_coverage(
+        [{"framework": label, "items": ["AIM-2: Verify deployment identity"]}]
+    )
+
+    total = merge_framework_coverage_sets(first, second)
+    metrics = build_framework_metrics(first, total)
+
+    assert first[dynamic_key] == {"AIM-1"}
+    assert total[dynamic_key] == {"AIM-1", "AIM-2"}
+    assert metrics["by_framework"][label] == {
+        "label": label,
+        "items_covered": 1,
+        "total_items": None,
+        "coverage_percentage": None,
+        "coverage_scope": "mapped_items_count_only",
+    }
+    assert metrics["mitre_atlas_items_covered"] == 0

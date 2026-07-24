@@ -11,11 +11,40 @@ from typing import Dict, Any, List, Optional
 from fastembed import TextEmbedding
 
 from app.logger import get_logger
-from app.config import settings
-from app.security import InputValidationError, sanitize_technique_id
-from app.framework_utils import is_actionable_record
+from app.security import (
+    InputValidationError,
+    sanitize_technique_id,
+    validate_bounded_integer,
+)
+from app.framework_utils import (
+    canonicalize_maestro_identifier,
+    framework_key,
+    is_actionable_record,
+    normalize_framework_item,
+)
 
 logger = get_logger(__name__)
+
+
+def _public_technique_payload(technique: Dict[str, Any]) -> Dict[str, Any]:
+    """Return one stable schema-2.3 technique object for every search path."""
+    return {
+        "id": technique.get('source_id'),
+        "name": technique.get('name'),
+        "type": technique.get('type'),
+        "tactic": technique.get('tactic'),
+        "description": technique.get('text', ''),
+        "pillar": technique.get('pillar', []),
+        "phase": technique.get('phase', []),
+        "parent_technique_id": technique.get('parent_technique_id', ''),
+        "guidance_id": technique.get('guidance_id', ''),
+        "scope_boundary": technique.get('scope_boundary') or {},
+        "tools_opensource": technique.get('tools_opensource', []),
+        "tools_source_available": technique.get('tools_source_available', []),
+        "tools_commercial": technique.get('tools_commercial', []),
+        "is_actionable": bool(technique.get('is_actionable', False)),
+        "is_parent_family": bool(technique.get('is_parent_family', False)),
+    }
 
 
 async def get_defenses_for_threat(
@@ -52,8 +81,7 @@ async def get_defenses_for_threat(
         >>> # By keyword
         >>> result = await get_defenses_for_threat(threat_keyword="prompt injection")
     """
-    import lancedb
-    from app.core import query_engine
+    from app.core import decode_framework_record, query_engine
 
     # Input validation (check parameters BEFORE database check)
     if not threat_id and not threat_keyword:
@@ -65,16 +93,11 @@ async def get_defenses_for_threat(
     if threat_keyword and len(threat_keyword) > 200:
         raise InputValidationError("threat_keyword must not exceed 200 characters")
 
-    if top_k < 1 or top_k > 50:
-        raise InputValidationError("top_k must be between 1 and 50")
+    top_k = validate_bounded_integer(top_k, "top_k", 1, 50)
 
     logger.info(f"Searching defenses for threat_id={threat_id}, threat_keyword={threat_keyword}")
 
     try:
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         results = []
 
         # Case 1: Threat ID provided - exact matching in defends_against field
@@ -97,12 +120,14 @@ async def get_defenses_for_threat(
                     # Sanitize technique_id to prevent filter injection
                     sanitized_id = sanitize_technique_id(tech_id)
 
-                    tech_results = await asyncio.to_thread(
-                        lambda tid=sanitized_id: table.search().where(f"source_id = '{tid}'").limit(1).to_pandas().to_dict('records')
+                    tech_results = await query_engine.read_table(
+                        lambda table, tid=sanitized_id: table.search().where(
+                            f"source_id = '{tid}'"
+                        ).limit(1).to_pandas().to_dict('records')
                     )
 
                     if tech_results:
-                        tech = tech_results[0]
+                        tech = decode_framework_record(tech_results[0])
 
                         # Extract matched threats from defends_against
                         defends_against_str = tech.get('defends_against', '[]')
@@ -117,7 +142,11 @@ async def get_defenses_for_threat(
                                 items = framework_data.get('items', [])
 
                                 for item in items:
-                                    if _threat_id_matches(normalized_id, item):
+                                    if _threat_id_matches(
+                                        normalized_id,
+                                        item,
+                                        framework_name,
+                                    ):
                                         matched_items.append(item)
                                         matched_framework = framework_name
 
@@ -125,14 +154,7 @@ async def get_defenses_for_threat(
                             pass
 
                         results.append({
-                            "technique": {
-                                "id": tech.get('source_id'),
-                                "name": tech.get('name'),
-                                "tactic": tech.get('tactic'),
-                                "description": tech.get('text', ''),
-                                "pillar": tech.get('pillar', ''),
-                                "phase": tech.get('phase', '')
-                            },
+                            "technique": _public_technique_payload(tech),
                             "relevance_score": 1.0,  # Exact match
                             "match_type": "exact_threat_id",
                             "matched_threats": matched_items,
@@ -143,11 +165,14 @@ async def get_defenses_for_threat(
                 # Fallback: full table scan (slow path - O(n) scan)
                 logger.warning(f"Threat mappings index not available or no match, performing full table scan (slow path)")
 
-                all_techniques = await asyncio.to_thread(
-                    lambda: table.search().where(
+                all_techniques = await query_engine.read_table(
+                    lambda table: table.search().where(
                         "type = 'technique' OR type = 'subtechnique'"
                     ).to_pandas().to_dict('records')
                 )
+                all_techniques = [
+                    decode_framework_record(tech) for tech in all_techniques
+                ]
                 all_techniques = [tech for tech in all_techniques if is_actionable_record(tech)]
 
                 logger.info(f"Scanning {len(all_techniques)} techniques for threat mappings...")
@@ -170,20 +195,17 @@ async def get_defenses_for_threat(
                             items = framework_data.get('items', [])
 
                             for item in items:
-                                if _threat_id_matches(normalized_id, item):
+                                if _threat_id_matches(
+                                    normalized_id,
+                                    item,
+                                    framework_name,
+                                ):
                                     matched_items.append(item)
                                     matched_framework = framework_name
 
                         if matched_items:
                             results.append({
-                                "technique": {
-                                    "id": tech.get('source_id'),
-                                    "name": tech.get('name'),
-                                    "tactic": tech.get('tactic'),
-                                    "description": tech.get('text', ''),
-                                    "pillar": tech.get('pillar', ''),
-                                    "phase": tech.get('phase', '')
-                                },
+                                "technique": _public_technique_payload(tech),
                                 "relevance_score": 1.0,  # Exact match
                                 "match_type": "exact_threat_id",
                                 "matched_threats": matched_items,
@@ -215,11 +237,14 @@ async def get_defenses_for_threat(
             query_embedding = list(await asyncio.to_thread(model.embed, [keyword]))[0]
 
             # Vector search
-            search_results = await asyncio.to_thread(
-                lambda: table.search(query_embedding.tolist()).where(
+            search_results = await query_engine.read_table(
+                lambda table: table.search(query_embedding.tolist()).where(
                     "type = 'technique' OR type = 'subtechnique'"
                 ).limit(top_k * 2).to_pandas().to_dict('records')
             )
+            search_results = [
+                decode_framework_record(doc) for doc in search_results
+            ]
             search_results = [doc for doc in search_results if is_actionable_record(doc)]
 
             logger.info(f"Found {len(search_results)} results from semantic search")
@@ -233,14 +258,7 @@ async def get_defenses_for_threat(
                 relevance_score = 1.0 / (1.0 + distance)
 
                 results.append({
-                    "technique": {
-                        "id": doc.get('source_id'),
-                        "name": doc.get('name'),
-                        "tactic": doc.get('tactic'),
-                        "description": doc.get('text', ''),
-                        "pillar": doc.get('pillar', ''),
-                        "phase": doc.get('phase', '')
-                    },
+                    "technique": _public_technique_payload(doc),
                     "relevance_score": round(relevance_score, 3),
                     "match_type": "semantic_search",
                     "matched_threats": [],
@@ -292,7 +310,15 @@ def normalize_threat_id(threat_id: str) -> str:
     Returns:
         Normalized threat ID
     """
-    threat_id = threat_id.upper().strip()
+    raw_threat_id = threat_id.strip()
+
+    # MAESTRO uses canonical labels rather than machine IDs. Resolve both the
+    # current labels and legacy L#-/Cross- classifier slugs before uppercasing.
+    maestro_id = canonicalize_maestro_identifier(raw_threat_id)
+    if maestro_id:
+        return maestro_id
+
+    threat_id = raw_threat_id.upper()
 
     # Extract core IDs from OWASP formats
     if 'OWASP' in threat_id or 'LLM' in threat_id:
@@ -324,7 +350,11 @@ def normalize_threat_id(threat_id: str) -> str:
     return threat_id
 
 
-def _threat_id_matches(normalized_query: str, item_text: str) -> bool:
+def _threat_id_matches(
+    normalized_query: str,
+    item_text: str,
+    framework_name: Optional[str] = None,
+) -> bool:
     """
     Check if normalized threat ID matches an item from defends_against.
 
@@ -335,27 +365,37 @@ def _threat_id_matches(normalized_query: str, item_text: str) -> bool:
     Returns:
         True if matches
     """
-    item_text_upper = item_text.upper()
+    if not framework_name:
+        query_upper = normalized_query.upper()
+        if query_upper.startswith("LLM"):
+            framework_name = "OWASP LLM Top 10 2025"
+        elif re.match(r"^ML\d{2}:2023$", query_upper):
+            framework_name = "OWASP ML Top 10 2023"
+        elif query_upper.startswith("ASI"):
+            framework_name = "OWASP Top 10 for Agentic Applications 2026"
+        elif query_upper.startswith(("AML.T", "T")):
+            framework_name = "MITRE ATLAS"
+        elif query_upper.startswith("NISTAML."):
+            framework_name = "NIST Adversarial Machine Learning 2025"
+        elif query_upper.startswith(("AITECH-", "AISUBTECH-")):
+            framework_name = "Cisco Integrated AI Security and Safety Framework"
+        else:
+            framework_name = "MAESTRO"
 
-    # Exact substring match
-    if normalized_query in item_text_upper:
-        return True
+    item_id = normalize_framework_item(framework_name, item_text)
+    if not item_id:
+        return False
 
-    # For LLM IDs, match regardless of year
-    if normalized_query.startswith('LLM'):
-        # Match "LLM01" in "LLM01:2025" or "LLM01:2023"
-        pattern = normalized_query + r'[:\s]'
-        if re.search(pattern, item_text_upper):
-            return True
+    if framework_key(framework_name) is None:
+        query_id = normalize_framework_item(framework_name, normalized_query)
+        return bool(query_id and query_id.casefold() == item_id.casefold())
 
-    # For ATLAS IDs, match variations
-    if 'AML.T' in normalized_query:
-        # Extract T#### part
-        t_part = re.search(r'T\d{4}', normalized_query)
-        if t_part and t_part.group(0) in item_text_upper:
-            return True
+    if framework_name.upper().strip() == "MAESTRO":
+        query_id = canonicalize_maestro_identifier(normalized_query)
+        return bool(query_id and query_id.casefold() == item_id.casefold())
 
-    return False
+    query_id = normalize_threat_id(normalized_query)
+    return query_id.casefold() == item_id.casefold()
 
 
 def _deduplicate_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -35,6 +35,21 @@ cp .env.example .env
 | `FUZZY_MATCH_CUTOFF` | `0.70` | Minimum similarity score for fuzzy matches (0.0-1.0) |
 | `LOCAL_FRAMEWORK_PATH` | `None` | Optional local framework checkout path. Leave unset to sync from GitHub. |
 
+### Storage Paths
+
+A source checkout keeps the historical repository-local data directory. An
+installed wheel uses a per-user writable location instead of site-packages:
+
+- Windows: %LOCALAPPDATA%\AIDEFEND\aidefend-mcp
+- macOS: ~/Library/Application Support/aidefend-mcp
+- Linux: $XDG_DATA_HOME/aidefend-mcp, or ~/.local/share/aidefend-mcp
+- Docker: /app/data
+
+Setting DATA_PATH also derives DB_PATH, RAW_PATH, VERSION_FILE, and LOG_PATH
+unless those fields are explicitly set. In a source checkout, relative storage
+overrides resolve from the repository root. In an installed wheel, they resolve
+under the per-user AIDEFEND data directory and never under site-packages.
+
 ## Critical: Single Worker Limitation
 
 **⚠️ This service requires `API_WORKERS=1`**
@@ -155,7 +170,7 @@ For advanced usage (changing models, custom ONNX models), see [Advanced Configur
 - **Multilingual**: Supports 100+ languages
 - **Performance**: Fast on CPU (~500-1000ms per query)
 - **Accuracy**: High semantic matching quality
-- **License**: MIT (commercial-friendly)
+- **Service code license**: MIT; synchronized framework content remains CC BY 4.0
 
 ### Changing Models
 
@@ -226,7 +241,7 @@ SYNC_INTERVAL_SECONDS=3600  # Auto-sync every hour
 
 **Disable auto-sync:**
 ```bash
-SYNC_INTERVAL_SECONDS=0  # Manual sync only via API/MCP
+ENABLE_AUTO_SYNC=false  # Manual sync only via API/MCP
 ```
 
 **Force sync on startup:**
@@ -291,7 +306,7 @@ AUTH_MODE=no_auth
 API_HOST=127.0.0.1
 API_PORT=8000
 LOG_LEVEL=INFO
-SYNC_INTERVAL_SECONDS=0  # No auto-sync
+ENABLE_AUTO_SYNC=false  # No auto-sync
 ```
 
 ## Troubleshooting

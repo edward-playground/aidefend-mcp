@@ -5,7 +5,9 @@
 // SECURITY: Uses static AST parsing instead of dynamic import() to prevent RCE
 
 import { readFile } from 'fs/promises';
-import * as acorn from 'acorn';
+// Vendored so the Python wheel/sdist works from any current working
+// directory without a post-install npm operation. See vendor/ACORN-LICENSE.
+import * as acorn from './vendor/acorn.mjs';
 import path from 'path';
 
 /**
@@ -164,6 +166,12 @@ function extractValue(node) {
     case 'TemplateLiteral':
       return extractTemplateLiteral(node);
 
+    case 'TaggedTemplateExpression':
+      return extractSafeTaggedTemplate(node);
+
+    case 'CallExpression':
+      return extractSafeCallExpression(node);
+
     case 'Identifier':
       // Return identifier name as marker (can't resolve without execution)
       return `<Identifier:${node.name}>`;
@@ -196,6 +204,57 @@ function extractValue(node) {
     default:
       return null;
   }
+}
+
+/**
+ * Resolve the one deterministic call shape authored by the framework for
+ * large strings: ["literal", "literal"].join("").  No identifiers, computed
+ * members, spreads, callbacks, or other calls are evaluated.
+ */
+function extractSafeCallExpression(node) {
+  const callee = node.callee;
+  if (
+    callee?.type !== 'MemberExpression' ||
+    callee.computed ||
+    callee.property?.type !== 'Identifier' ||
+    callee.property.name !== 'join' ||
+    callee.object?.type !== 'ArrayExpression' ||
+    node.arguments.length !== 1 ||
+    node.arguments[0]?.type !== 'Literal' ||
+    node.arguments[0].value !== ''
+  ) {
+    return null;
+  }
+
+  const parts = [];
+  for (const element of callee.object.elements) {
+    if (!element || element.type !== 'Literal' || typeof element.value !== 'string') {
+      return null;
+    }
+    parts.push(element.value);
+  }
+  return parts.join(node.arguments[0].value);
+}
+
+/**
+ * Resolve String.raw`...` only when it has no substitutions.  This preserves
+ * backslashes exactly while refusing every user-defined tag or expression.
+ */
+function extractSafeTaggedTemplate(node) {
+  const tag = node.tag;
+  if (
+    tag?.type !== 'MemberExpression' ||
+    tag.computed ||
+    tag.object?.type !== 'Identifier' ||
+    tag.object.name !== 'String' ||
+    tag.property?.type !== 'Identifier' ||
+    tag.property.name !== 'raw' ||
+    node.quasi?.type !== 'TemplateLiteral' ||
+    node.quasi.expressions.length !== 0
+  ) {
+    return null;
+  }
+  return node.quasi.quasis.map(part => part.value.raw).join('');
 }
 
 /**

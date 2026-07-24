@@ -16,11 +16,32 @@ LLM handles text understanding; this tool provides standardized threat ID mappin
 from typing import Dict, Any, List, Optional
 from rapidfuzz import fuzz, process
 from app.logger import get_logger
-from app.security import InputValidationError
-from app.threat_keywords import THREAT_KEYWORDS, normalize_threat_keyword
+from app.security import InputValidationError, validate_bounded_integer
+from app.threat_keywords import (
+    THREAT_KEYWORDS,
+    canonicalize_classifier_frameworks,
+)
 from app.config import settings
+from app.utils import load_version_info
 
 logger = get_logger(__name__)
+
+
+def _current_index_threat_ids() -> Optional[set[str]]:
+    """Return threat IDs that resolve to at least one control in the live index."""
+    version_info = load_version_info() or {}
+    statistics = version_info.get("statistics")
+    mappings = statistics.get("threat_mappings") if isinstance(statistics, dict) else None
+    if not isinstance(mappings, dict):
+        return None
+
+    return {
+        str(threat_id).strip().casefold()
+        for threat_id, control_ids in mappings.items()
+        if str(threat_id).strip()
+        and isinstance(control_ids, list)
+        and bool(control_ids)
+    }
 
 
 async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
@@ -74,8 +95,7 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
     if len(text) > 10000:
         raise InputValidationError("text too long (max 10000 characters)")
 
-    if top_k < 1 or top_k > 10:
-        raise InputValidationError("top_k must be between 1 and 10")
+    top_k = validate_bounded_integer(top_k, "top_k", 1, 10)
 
     logger.info(f"Classifying threats in text ({len(text)} chars)")
 
@@ -106,12 +126,21 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
     # Aggregate normalized threat IDs
     normalized_threats = {"owasp": set(), "atlas": set(), "maestro": set()}
     threat_details = []
+    unmapped_keywords = []
+    live_threat_ids = _current_index_threat_ids()
+    unresolved_claims: List[str] = []
 
     for match in top_matches:
         keyword = match["keyword"]
-        frameworks = match["frameworks"]
+        # Defense in depth: THREAT_KEYWORDS is normalized at import, but keep
+        # the public classifier boundary fail-closed if a caller or test
+        # replaces an entry with a legacy/stale mapping.
+        frameworks = canonicalize_classifier_frameworks(match["frameworks"])
         confidence = match["confidence"]
         match_type = match.get("match_type", "unknown")
+
+        if not frameworks:
+            unmapped_keywords.append(keyword)
 
         # Add to normalized_threats
         for framework, threat_ids in frameworks.items():
@@ -122,12 +151,19 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
         # Build threat_details
         for framework, threat_ids in frameworks.items():
             for threat_id in threat_ids:
+                resolvable = (
+                    live_threat_ids is not None
+                    and threat_id.strip().casefold() in live_threat_ids
+                )
+                if not resolvable:
+                    unresolved_claims.append(f"{framework}:{threat_id}")
                 threat_details.append({
                     "threat_id": f"{framework.upper()}-{threat_id}",
                     "threat_name": keyword.title(),
                     "confidence": confidence,
                     "matched_keyword": keyword,
-                    "match_type": match_type
+                    "match_type": match_type,
+                    "resolvable": resolvable,
                 })
 
     # Convert sets to sorted lists
@@ -135,8 +171,22 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
         k: sorted(list(v)) for k, v in normalized_threats.items()
     }
 
-    # Generate recommended actions
-    recommended_actions = _generate_recommended_actions(normalized_threats, top_matches)
+    # Only recommend ID-based followups that the current index can answer.
+    # The complete static classification remains visible above for callers that
+    # use it independently of AIDEFEND's current defense mappings.
+    resolvable_threats = {
+        framework: [
+            threat_id
+            for threat_id in threat_ids
+            if live_threat_ids is not None
+            and threat_id.strip().casefold() in live_threat_ids
+        ]
+        for framework, threat_ids in normalized_threats.items()
+    }
+    recommended_actions = _generate_recommended_actions(
+        resolvable_threats,
+        top_matches,
+    )
 
     result = {
         "source": match_source,  # NEW: Indicate which tier produced the result
@@ -151,7 +201,13 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
         ],
         "normalized_threats": normalized_threats,
         "threat_details": threat_details,
-        "recommended_actions": recommended_actions
+        "recommended_actions": recommended_actions,
+        "mapping_status": {
+            "all_emitted_claims_resolvable": not unresolved_claims,
+            "corpus_mapping_available": live_threat_ids is not None,
+            "unresolved_claims": list(dict.fromkeys(unresolved_claims)),
+            "unmapped_keywords": list(dict.fromkeys(unmapped_keywords)),
+        },
     }
 
     logger.info(
@@ -190,7 +246,8 @@ def _match_threats(text: str) -> List[Dict]:
                 "keyword": keyword,
                 "frameworks": threat_data["frameworks"],
                 "confidence": threat_data["confidence"],
-                "match_type": "primary"
+                "match_type": "primary",
+                "match_specificity": len(keyword.split()),
             })
             continue
 
@@ -202,12 +259,18 @@ def _match_threats(text: str) -> List[Dict]:
                     "frameworks": threat_data["frameworks"],
                     "confidence": threat_data["confidence"] * 0.9,  # Reduce confidence for alias matches
                     "match_type": "alias",
-                    "matched_alias": alias
+                    "matched_alias": alias,
+                    "match_specificity": len(alias.split()),
                 })
                 break
 
-    # Sort by confidence (descending)
-    matches.sort(key=lambda x: x["confidence"], reverse=True)
+    # Prefer the most specific matched phrase. Without this, a shorter, broad
+    # phrase such as "compromised agent" can hide the canonical
+    # "compromised agent registry" classification when top_k is small.
+    matches.sort(
+        key=lambda x: (x.get("match_specificity", 0), x["confidence"]),
+        reverse=True,
+    )
 
     return matches
 

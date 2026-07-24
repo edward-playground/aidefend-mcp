@@ -11,11 +11,21 @@ services:
     volumes:
       # Persist data across container restarts
       - aidefend-data:/app/data
+    # Pass the complete application configuration through when a local .env is
+    # present. The explicit values below remain authoritative for container
+    # networking and fail-closed authentication.
+    env_file:
+      - path: .env
+        required: false
     environment:
       # Override settings via environment variables
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-3600}
       - ENABLE_AUTO_SYNC=${ENABLE_AUTO_SYNC:-true}
+      # A native host path from .env is unusable inside Linux. Ordinary Compose
+      # runs stay on GitHub; the documented bind-mounted local run overrides
+      # this with /framework on the command line.
+      - LOCAL_FRAMEWORK_PATH=
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - ENABLE_RATE_LIMITING=${ENABLE_RATE_LIMITING:-true}
@@ -24,15 +34,17 @@ services:
       # Security: Binding to 0.0.0.0 requires authentication
       # Use ${VAR:?message} syntax to enforce checking at startup
       - AUTH_MODE=${AUTH_MODE:-api_key}
-      - AIDEFEND_API_KEY=${AIDEFEND_API_KEY:?Error: AIDEFEND_API_KEY is required for Docker. Please set it in your .env file.}
+      # Keep the interpolation error free of the YAML colon-space mapping token.
+      - AIDEFEND_API_KEY=${AIDEFEND_API_KEY:?AIDEFEND_API_KEY is required for Docker; set it in your .env file.}
 
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()" ]
+      test: [ "CMD", "python", "-c", "import os,httpx; port=os.environ.get('API_PORT','8000'); r=httpx.get('http://localhost:'+port+'/health', timeout=5.0); r.raise_for_status(); c=r.json().get('checks', {}); assert c.get('database') and c.get('embedding_model')" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      # Cover the documented upper bound for a first-run model download and sync.
+      start_period: 900s
     security_opt:
       - no-new-privileges:true
     read_only: false # Need write access for database

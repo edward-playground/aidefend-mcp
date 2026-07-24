@@ -1,5 +1,5 @@
 # AIDEFEND MCP Service Dependencies
-# Updated to latest stable versions for Python 3.13 compatibility
+# Requires Python >= 3.10 (mcp==1.21.0 and ipython require >=3.10). Verified on 3.13.
 # Last updated: 2025-11-10
 
 # FastAPI and server
@@ -16,6 +16,10 @@ lancedb==0.25.3
 
 # Data processing (required by LanceDB for .to_pandas())
 pandas>=2.0.0
+
+# Numerical arrays (imported directly in app/embedding_cache.py; also a transitive dep of
+# pandas/lancedb/fastembed, declared explicitly so it can never go missing on a fresh install)
+numpy>=1.24,<3
 
 # Embedding and ML (lightweight ONNX-based)
 fastembed==0.7.3

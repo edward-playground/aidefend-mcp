@@ -31,13 +31,13 @@ def test_imports():
         print("\n" + "=" * 60)
         print("*** IMPORT TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_statistics_structure():
@@ -116,13 +116,13 @@ def test_statistics_structure():
         print("\n" + "=" * 60)
         print("*** STRUCTURE TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_data_types():
@@ -159,13 +159,13 @@ def test_data_types():
         print("\n" + "=" * 60)
         print("*** DATA TYPE TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_calculation_logic():
@@ -216,13 +216,13 @@ def test_calculation_logic():
         print("\n" + "=" * 60)
         print("*** CALCULATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_aggregation_logic():
@@ -283,13 +283,13 @@ def test_aggregation_logic():
         print("\n" + "=" * 60)
         print("*** AGGREGATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def main():

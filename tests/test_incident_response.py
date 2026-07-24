@@ -40,13 +40,13 @@ def test_imports():
         print("\n" + "=" * 60)
         print("*** IMPORT TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_parameter_validation():
@@ -64,7 +64,7 @@ def test_parameter_validation():
         try:
             asyncio.run(generate_incident_playbook(incident_description=""))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -73,7 +73,7 @@ def test_parameter_validation():
         try:
             asyncio.run(generate_incident_playbook(incident_description="test"))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -83,7 +83,7 @@ def test_parameter_validation():
             long_desc = "test " * 300  # Way over 1000 chars
             asyncio.run(generate_incident_playbook(incident_description=long_desc))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -92,20 +92,20 @@ def test_parameter_validation():
         try:
             asyncio.run(generate_incident_playbook(incident_description=12345))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
         print("\n" + "=" * 60)
         print("*** VALIDATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_timeline_generators():
@@ -144,8 +144,8 @@ def test_timeline_generators():
         # Test 2: Immediate actions with threat classification
         print("\n[TEST 2] Generate immediate actions with threat context")
         mock_threat = {
-            "matched_threats": [
-                {"keyword": "prompt injection", "confidence": 90}
+            "threat_details": [
+                {"matched_keyword": "prompt injection", "confidence": 0.9}
             ]
         }
 
@@ -208,13 +208,13 @@ def test_timeline_generators():
         print("\n" + "=" * 60)
         print("*** TIMELINE GENERATOR TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_threat_specific_actions():
@@ -229,8 +229,8 @@ def test_threat_specific_actions():
         # Test 1: Prompt injection specific actions
         print("\n[TEST 1] Prompt injection threat")
         mock_threat = {
-            "matched_threats": [
-                {"keyword": "prompt injection", "confidence": 90}
+            "threat_details": [
+                {"matched_keyword": "prompt injection", "confidence": 0.9}
             ]
         }
 
@@ -245,8 +245,8 @@ def test_threat_specific_actions():
         # Test 2: Data poisoning specific actions
         print("\n[TEST 2] Data poisoning threat")
         mock_threat = {
-            "matched_threats": [
-                {"keyword": "data poisoning", "confidence": 85}
+            "threat_details": [
+                {"matched_keyword": "data poisoning", "confidence": 0.85}
             ]
         }
 
@@ -260,8 +260,8 @@ def test_threat_specific_actions():
         # Test 3: DoS specific actions
         print("\n[TEST 3] Denial of service threat")
         mock_threat = {
-            "matched_threats": [
-                {"keyword": "denial of service", "confidence": 80}
+            "threat_details": [
+                {"matched_keyword": "denial of service", "confidence": 0.8}
             ]
         }
 
@@ -275,13 +275,13 @@ def test_threat_specific_actions():
         print("\n" + "=" * 60)
         print("*** THREAT-SPECIFIC ACTION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def main():

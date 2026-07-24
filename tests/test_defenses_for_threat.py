@@ -39,13 +39,13 @@ def test_imports():
         print("\n" + "=" * 60)
         print("*** IMPORT TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_parameter_validation():
@@ -63,7 +63,7 @@ def test_parameter_validation():
         try:
             asyncio.run(get_defenses_for_threat())
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -72,7 +72,7 @@ def test_parameter_validation():
         try:
             asyncio.run(get_defenses_for_threat(threat_id="LLM01", top_k=0))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -81,7 +81,7 @@ def test_parameter_validation():
         try:
             asyncio.run(get_defenses_for_threat(threat_id="LLM01", top_k=51))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -90,7 +90,7 @@ def test_parameter_validation():
         try:
             asyncio.run(get_defenses_for_threat(threat_keyword="ab"))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
@@ -100,20 +100,20 @@ def test_parameter_validation():
             long_keyword = "a" * 201
             asyncio.run(get_defenses_for_threat(threat_keyword=long_keyword))
             print("   [FAIL] Should have raised InputValidationError")
-            return 1
+            raise AssertionError("test branch reported failure")
         except InputValidationError as e:
             print(f"   [PASS] Correctly raised error: {e}")
 
         print("\n" + "=" * 60)
         print("*** VALIDATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_threat_id_normalization():
@@ -166,13 +166,13 @@ def test_threat_id_normalization():
         print("\n" + "=" * 60)
         print("*** NORMALIZATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_threat_id_matching():
@@ -188,6 +188,10 @@ def test_threat_id_matching():
         print("\n[TEST 1] Exact substring matches")
         assert _threat_id_matches("LLM01", "LLM01:2025 Prompt Injection"), "Should match LLM01"
         assert _threat_id_matches("AML.T0043", "AML.T0043 Adversarial Examples"), "Should match AML.T0043"
+        assert _threat_id_matches(
+            "ASI02:2026",
+            "ASI02:2026 Tool Misuse and Exploitation",
+        ), "Should infer the renamed OWASP Agentic Applications framework"
         print("   [PASS] Exact matches work")
 
         # Test 2: Case insensitive
@@ -215,13 +219,13 @@ def test_threat_id_matching():
         print("\n" + "=" * 60)
         print("*** MATCHING TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def test_deduplication():
@@ -280,13 +284,13 @@ def test_deduplication():
         print("\n" + "=" * 60)
         print("*** DEDUPLICATION TESTS PASSED! ***")
         print("=" * 60)
-        return 0
+
 
     except Exception as e:
         print(f"\n[FAIL] TEST FAILED: {str(e)}")
         import traceback
         traceback.print_exc()
-        return 1
+        raise AssertionError("test branch reported failure")
 
 
 def main():

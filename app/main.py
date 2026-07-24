@@ -4,7 +4,7 @@ Provides REST API endpoints with comprehensive security.
 """
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Dict, Any
 from datetime import datetime, timezone
 
@@ -78,6 +78,7 @@ limiter = Limiter(key_func=get_remote_address)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
+    sync_task = None
     logger.info("=" * 60)
     logger.info("AIDEFEND MCP Service starting up...")
     logger.info(f"Version: {__version__}")
@@ -98,9 +99,14 @@ async def lifespan(app: FastAPI):
         await ensure_database_ready()
         logger.info("Database is ready")
     except Exception as e:
-        logger.error(f"Critical: Failed to ensure database ready: {e}")
-        # This is a fatal error - cannot start without database
-        raise RuntimeError("Database initialization/repair failed - cannot start REST API server")
+        # Do NOT crash the server on a first-run/repair failure (e.g. transient network,
+        # proxy blocking GitHub/HuggingFace). Start in a degraded state: /health stays up,
+        # query tools return a clear "not ready — run sync" message, and the background
+        # sync_loop retries with backoff. This lets the user recover without a restart.
+        logger.error(
+            f"Database not ready at startup ({e}). Starting in DEGRADED mode; "
+            f"trigger POST /api/v1/sync (or wait for the auto-sync loop) to recover."
+        )
 
     # Check for embedding model changes
     version_info = load_version_info()
@@ -160,7 +166,7 @@ async def lifespan(app: FastAPI):
             logger.info(
                 f"Starting background sync loop (interval: {settings.SYNC_INTERVAL_SECONDS}s)"
             )
-            asyncio.create_task(sync_loop())
+            sync_task = asyncio.create_task(sync_loop(), name="aidefend-rest-sync")
         else:
             logger.info("Auto-sync disabled")
 
@@ -173,6 +179,10 @@ async def lifespan(app: FastAPI):
 
     # Shutdown tasks
     logger.info("Shutting down AIDEFEND MCP Service...")
+    if sync_task is not None:
+        sync_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await sync_task
     logger.info("Shutdown complete")
 
 
@@ -389,8 +399,11 @@ async def root():
 @public_router.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """
-    Health check endpoint for container orchestration.
-    Returns basic health status of all components.
+    Side-effect-free readiness check for container orchestration.
+
+    This endpoint must never initialize the query engine, download the embedding
+    model, or trigger a sync. Startup owns initialization; health probes only
+    inspect the state that is already available.
 
     Also checks data staleness - if data hasn't been synced in 2x the sync interval,
     returns 'degraded' status to alert monitoring systems.
@@ -402,10 +415,19 @@ async def health_check():
     }
 
     try:
-        # Check query engine
-        engine_healthy = await query_engine.health_check()
-        checks["database"] = engine_healthy
-        checks["embedding_model"] = engine_healthy
+        # get_stats() is deliberately read-only. In particular, when the engine is
+        # not initialized it returns immediately instead of calling initialize().
+        stats = await query_engine.get_stats()
+        stats_error = bool(stats.get("error"))
+        checks["database"] = bool(
+            query_engine.is_ready
+            and stats.get("initialized")
+            and stats.get("document_count", 0) > 0
+            and not stats_error
+        )
+        checks["embedding_model"] = bool(
+            query_engine.is_ready and stats.get("model_loaded") and not stats_error
+        )
 
         # Check data staleness
         version_info = load_version_info()
@@ -427,22 +449,38 @@ async def health_check():
             except (ValueError, TypeError) as e:
                 logger.warning(f"Failed to parse last_synced_at: {e}")
 
-        # Overall status considers all checks
-        if not all(checks.values()):
-            overall_status = "degraded" if overall_status == "healthy" and checks["database"] else "unhealthy"
+        # Readiness depends on the query database and embedding model. Stale
+        # data is operationally degraded, but the service can still answer
+        # queries and must not be reported as unavailable to an orchestrator.
+        if not checks["database"] or not checks["embedding_model"]:
+            overall_status = "unhealthy"
+        elif not checks["sync_service"]:
+            overall_status = "degraded"
 
-        return HealthResponse(
+        health = HealthResponse(
             status=overall_status,
             checks=checks,
             timestamp=datetime.now(timezone.utc)
         )
+        return JSONResponse(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+                if overall_status == "unhealthy"
+                else status.HTTP_200_OK
+            ),
+            content=health.model_dump(mode="json"),
+        )
 
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        return HealthResponse(
+        health = HealthResponse(
             status="unhealthy",
             checks=checks,
             timestamp=datetime.now(timezone.utc)
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=health.model_dump(mode="json"),
         )
 
 
@@ -464,8 +502,28 @@ async def get_status(request: Request):
         if version_info:
             sync_status = SyncStatus(
                 last_synced_at=datetime.fromisoformat(version_info["last_synced_at"]) if "last_synced_at" in version_info else None,
-                current_commit_sha=version_info.get("commit_sha"),
+                current_commit_sha=(
+                    version_info.get("source_revision") or version_info.get("commit_sha")
+                ),
                 framework_version=version_info.get("framework_version"),
+                framework_authoring_schema_version=version_info.get(
+                    "framework_authoring_schema_version"
+                ),
+                framework_public_schema_version=version_info.get(
+                    "framework_public_schema_version"
+                ),
+                index_schema_version=version_info.get("index_schema_version"),
+                source_kind=version_info.get("source_kind"),
+                source_revision_kind=version_info.get("source_revision_kind"),
+                source_revision=(
+                    version_info.get("source_revision") or version_info.get("commit_sha")
+                ),
+                source_repository=version_info.get("source_repository"),
+                source_ref=version_info.get("source_ref"),
+                source_content_sha256=version_info.get("source_content_sha256"),
+                framework_schema_metadata_sha256=version_info.get(
+                    "framework_schema_metadata_sha256"
+                ),
                 total_documents=version_info.get("total_documents"),
                 is_syncing=is_sync_in_progress()
             )
@@ -749,6 +807,12 @@ async def api_get_technique_detail(
         raise
     except Exception as e:
         audit_tool_completion(audit_ctx, success=False, result_summary="Error", error_message=str(e))
+        # An unknown technique ID is a client error (404), not a server fault (500).
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Technique ID '{technique_id}' not found"
+            )
         logger.error(f"Get technique detail failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1445,6 +1509,7 @@ if settings.ENABLE_CORS:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
+        allow_origin_regex=(settings.CORS_ORIGIN_REGEX or None),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],

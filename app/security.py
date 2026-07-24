@@ -42,6 +42,28 @@ class FileSizeError(SecurityError):
     pass
 
 
+def validate_bounded_integer(
+    value: object,
+    field_name: str,
+    minimum: int,
+    maximum: int,
+) -> int:
+    """Require a real JSON integer within an inclusive public API range."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InputValidationError(f"{field_name} must be an integer")
+    if value < minimum or value > maximum:
+        raise InputValidationError(
+            f"{field_name} must be between {minimum} and {maximum}"
+        )
+    return value
+
+
+# Non-whitespace C0/C1 control characters (NUL, etc.) that are never valid in a search
+# query. Tab (\x09), newline (\x0a) and carriage return (\x0d) are intentionally allowed
+# and get collapsed by whitespace normalization.
+_CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+
 def validate_query_text(query: str) -> str:
     """
     Validate and sanitize user query text.
@@ -68,25 +90,24 @@ def validate_query_text(query: str) -> str:
             f"Query exceeds maximum length of {settings.MAX_QUERY_LENGTH} characters"
         )
 
+    # Reject NUL and other non-whitespace control characters. They have no place in a
+    # search query and can corrupt logs or downstream string handling. (Tab/newline/CR are
+    # allowed here and collapsed by the whitespace normalization below.)
+    if _CONTROL_CHAR_RE.search(query):
+        raise InputValidationError("Query contains invalid control characters")
+
     # Strip and normalize whitespace
     sanitized = " ".join(query.strip().split())
 
-    # Check for suspicious patterns (basic injection prevention)
-    # Enhanced blacklist to catch more injection attempts
-    dangerous_patterns = [
-        r'<script', r'javascript:', r'onerror=', r'onclick=',
-        r'\bexec\b', r'\beval\b', r'__import__', r'\{\{.*\}\}',
-        r'\$\{.*\}', r'\.\./', r'\.\.\\'
-    ]
-
-    for pattern in dangerous_patterns:
-        if re.search(pattern, sanitized, re.IGNORECASE):
-            logger.warning(
-                f"Suspicious pattern detected in query",
-                extra={"pattern": pattern, "query_preview": sanitized[:100]}
-            )
-            raise InputValidationError("Query contains potentially malicious content")
-
+    # NOTE: No content blacklist is applied. The query text is ONLY embedded for vector
+    # search (see app/core.py) — it never reaches a shell, eval/exec, template engine,
+    # LanceDB where() filter, file path, or SQL. Those sinks are the technique-ID filters,
+    # which are protected separately by the strict whitelist in sanitize_technique_id().
+    # Blacklisting security terms such as "eval", "exec", "${...}", "{{...}}" or "../" here
+    # only produced false positives against the exact queries this AI-security knowledge
+    # base exists to answer, while providing no real injection protection. Output safety is
+    # handled at render time via escape_markdown() in the MCP layer (input validation is
+    # not a substitute for context-aware output encoding).
     return sanitized
 
 
@@ -161,24 +182,16 @@ def validate_chunked_query(query_text: str) -> tuple[str, dict]:
             f"Please use a shorter query."
         )
 
-    # 3. Basic sanitization (same as regular queries)
-    # Note: Individual chunks will be validated again during actual search
+    # 3. Reject NUL / non-whitespace control characters (structural hygiene).
+    if _CONTROL_CHAR_RE.search(query_text):
+        raise InputValidationError("Query contains invalid control characters")
+
+    # 4. Basic sanitization (same as regular queries)
+    # Note: Individual chunks will be validated again during actual search.
+    # As in validate_query_text(), no content blacklist is applied — the text is only
+    # embedded for vector search and never reaches an executable sink. Output is made safe
+    # at render time via escape_markdown().
     sanitized = " ".join(query_text.strip().split())
-
-    # 4. Check for dangerous patterns (same as validate_query_text)
-    dangerous_patterns = [
-        r'<script', r'javascript:', r'onerror=', r'onclick=',
-        r'\bexec\b', r'\beval\b', r'__import__', r'\{\{.*\}\}',
-        r'\$\{.*\}', r'\.\./', r'\.\.\\'
-    ]
-
-    for pattern in dangerous_patterns:
-        if re.search(pattern, sanitized, re.IGNORECASE):
-            logger.warning(
-                f"Suspicious pattern in long query",
-                extra={"pattern": pattern, "query_preview": sanitized[:100]}
-            )
-            raise InputValidationError("Query contains potentially malicious content")
 
     # 5. Security audit logging for long queries
     if text_length > settings.MAX_QUERY_LENGTH:
@@ -343,8 +356,10 @@ def validate_file_path(file_path: Path, base_dir: Path) -> Path:
         resolved_file = file_path.resolve()
         resolved_base = base_dir.resolve()
 
-        # Check if file is within base directory
-        if not str(resolved_file).startswith(str(resolved_base)):
+        # Check if file is within base directory.
+        # Boundary-safe containment via pathlib parents (a raw string startswith would let a
+        # sibling directory such as "<base>_backup/x" slip through the prefix check).
+        if resolved_file != resolved_base and resolved_base not in resolved_file.parents:
             logger.warning(
                 f"Path traversal attempt detected",
                 extra={

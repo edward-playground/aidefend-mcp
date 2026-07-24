@@ -2,9 +2,9 @@
 AIDEFEND MCP - One-Click Installation
 
 This script provides a complete, automated installation of AIDEFEND MCP service:
-1. Checks system requirements (Python 3.9+, Node.js 18+)
+1. Checks system requirements (Python 3.10+, Node.js 18+)
 2. Installs Python dependencies
-3. Installs Node.js dependencies
+3. Verifies the bundled JavaScript parser (no npm or network required)
 4. Configures MCP clients (Claude Desktop and/or Claude Code) with safe config merging
 
 Usage:
@@ -22,12 +22,19 @@ Usage:
 import sys
 import os
 import json
+import hashlib
 import shutil
 import subprocess
 import argparse
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
+
+
+# Acorn 8.15.0 copied from the package pinned in package-lock.json. An
+# intentional vendor refresh must update the lockfile, vendor file, and digest
+# together; normal installation never downloads or rewrites this runtime.
+VENDORED_ACORN_SHA256 = "b4c8c70200e72bae33cf1085e0ecb1e792c1b6924ed50cab817caf14f51bb249"
 
 # Fix Windows console encoding for Unicode characters (emojis)
 if sys.platform == "win32":
@@ -57,7 +64,10 @@ def print_step(step: int, total: int, description: str):
 
 def check_python_version() -> Tuple[bool, str]:
     """
-    Check if Python version meets requirements (3.9+).
+    Check if Python version meets requirements (3.10+).
+
+    Note: the effective floor is 3.10 because mcp==1.21.0 (and ipython in the dev extra)
+    require Python >=3.10; a 3.9 install fails at dependency resolution.
 
     Returns:
         (is_valid, version_string)
@@ -65,7 +75,7 @@ def check_python_version() -> Tuple[bool, str]:
     version = sys.version_info
     version_str = f"{version.major}.{version.minor}.{version.micro}"
 
-    if version.major < 3 or (version.major == 3 and version.minor < 9):
+    if version.major < 3 or (version.major == 3 and version.minor < 10):
         return False, version_str
 
     return True, version_str
@@ -73,13 +83,15 @@ def check_python_version() -> Tuple[bool, str]:
 
 def check_node_version() -> Tuple[bool, str]:
     """
-    Check if Node.js AND npm are installed and versions meet requirements (18+).
+    Check if Node.js is installed and meets the runtime requirement (18+).
+
+    The parser runtime is vendored in this repository. npm is intentionally not
+    checked because it is not required by either the installer or the service.
 
     Returns:
         (is_valid, version_string or error_message)
     """
     try:
-        # Check Node.js
         node_result = subprocess.run(
             ['node', '--version'],
             capture_output=True,
@@ -100,27 +112,7 @@ def check_node_version() -> Tuple[bool, str]:
         else:
             return False, node_version
 
-        # Check npm (Windows uses npm.cmd, Unix uses npm)
-        npm_cmd = 'npm.cmd' if sys.platform == 'win32' else 'npm'
-
-        try:
-            npm_result = subprocess.run(
-                [npm_cmd, '--version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-
-            if npm_result.returncode != 0:
-                return False, f"npm command failed (Node.js {node_version} found but npm not working)"
-
-            npm_version = npm_result.stdout.strip()
-
-            # Both node and npm are OK
-            return True, f"{node_version}, npm {npm_version}"
-
-        except FileNotFoundError:
-            return False, f"npm not found (Node.js {node_version} found but npm is missing)"
+        return True, node_version
 
     except FileNotFoundError:
         return False, "Node.js not found"
@@ -282,7 +274,7 @@ def download_nodejs_installer(version_info: dict, target_dir: Path = None) -> Tu
         return False, "Download failed"
 
 
-def install_nodejs_auto() -> Tuple[bool, str]:
+def install_nodejs_auto(auto: bool = False) -> Tuple[bool, str]:
     """
     Semi-automated Node.js installation with user permission.
 
@@ -291,6 +283,12 @@ def install_nodejs_auto() -> Tuple[bool, str]:
     2. Asks user permission
     3. Downloads latest LTS installer
     4. Runs installer with appropriate UI for platform
+
+    Args:
+        auto: Non-interactive mode. When True (or stdin is not a TTY), do NOT prompt or
+            download/run a system installer; return SHOW_MANUAL so the caller prints manual
+            steps. This keeps `--auto`/CI runs from hanging on input() or silently launching
+            a system-level installer.
 
     Returns:
         (success, message)
@@ -333,6 +331,12 @@ def install_nodejs_auto() -> Tuple[bool, str]:
         print(f"   • Automatic installation not available on Linux")
 
     print(f"   • Will NOT restart your computer automatically\n")
+
+    # Non-interactive (--auto or no TTY): never prompt or silently run a system installer.
+    if auto or not sys.stdin.isatty():
+        print("   (non-interactive / --auto: skipping automatic download — showing manual steps)")
+        return False, "SHOW_MANUAL"
+
     print("Options:")
     print("  [1] Automatic installation (recommended)")
     print("  [2] Show manual installation instructions\n")
@@ -548,6 +552,22 @@ def check_internet_connectivity() -> bool:
         return False
 
 
+def _running_in_venv() -> bool:
+    """True if the current interpreter is a virtual environment (venv/virtualenv)."""
+    return sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+
+
+def _print_venv_recommendation(indent: str = "   ") -> None:
+    """Print the recommended create-and-activate-a-venv commands for this platform."""
+    if sys.platform == "win32":
+        print(f"{indent}  python -m venv .venv")
+        print(f"{indent}  .venv\\Scripts\\activate")
+    else:
+        print(f"{indent}  python3 -m venv .venv")
+        print(f"{indent}  source .venv/bin/activate")
+    print(f"{indent}  python scripts/install.py")
+
+
 def install_python_dependencies(verbose: bool = True) -> bool:
     """
     Install Python dependencies from requirements.txt.
@@ -565,6 +585,16 @@ def install_python_dependencies(verbose: bool = True) -> bool:
         print("Installing Python dependencies...")
         print(f"   Using: {requirements_file}")
         print("   This may take 2-4 minutes...")
+
+    # Strongly recommend a virtual environment. Installing into a system/OS-managed
+    # interpreter is fragile: on PEP 668 "externally-managed" systems (recent Debian/Ubuntu,
+    # Homebrew Python) the install below hard-fails, and elsewhere it pollutes global
+    # site-packages. The MCP config also records this interpreter, so a venv keeps it stable.
+    if not _running_in_venv():
+        print("\n⚠️  Not running inside a Python virtual environment.")
+        print("   Recommended (isolates deps, avoids PEP 668 'externally-managed' errors):")
+        _print_venv_recommendation()
+        print("   Continuing with the current interpreter...\n")
 
     try:
         # Upgrade pip first
@@ -602,6 +632,10 @@ def install_python_dependencies(verbose: bool = True) -> bool:
                 print("   • Try upgrading pip: python -m pip install --upgrade pip")
                 print("   • For China users: pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple")
                 print("   • Check logs above for specific package errors")
+                if not _running_in_venv():
+                    print("   • If you see 'error: externally-managed-environment' (PEP 668),")
+                    print("     create and activate a virtual environment first, then re-run:")
+                    _print_venv_recommendation(indent="       ")
 
             return False
 
@@ -815,9 +849,13 @@ def download_vc_redist(target_dir: Path = None) -> Tuple[bool, str]:
         return False, "Download failed"
 
 
-def install_vc_redist_auto() -> Tuple[bool, str]:
+def install_vc_redist_auto(auto: bool = False) -> Tuple[bool, str]:
     """
     Semi-automated Visual C++ Redistributable installation with user permission.
+
+    Args:
+        auto: Non-interactive mode. When True (or stdin is not a TTY), do NOT prompt; return
+            SHOW_MANUAL so the caller prints manual steps instead of hanging on input().
 
     This function:
     1. Checks if already installed (via registry)
@@ -844,6 +882,11 @@ def install_vc_redist_auto() -> Tuple[bool, str]:
     print("=" * 70)
     print("\n⚠️  This component is needed for AI functionality to work on Windows.")
     print("   (Microsoft Visual C++ Runtime Library)\n")
+    # Non-interactive (--auto or no TTY): never prompt; show manual steps instead of hanging.
+    if auto or not sys.stdin.isatty():
+        print("   (non-interactive / --auto: skipping automatic install — showing manual steps)")
+        return False, "SHOW_MANUAL"
+
     print("Options:")
     print("  [1] Install automatically (recommended, estimated 1-2 minutes)")
     print("  [2] Show manual installation steps")
@@ -991,71 +1034,122 @@ def verify_critical_dependencies(show_progress: bool = False) -> Tuple[bool, Lis
     return len(errors) == 0, errors
 
 
-def install_node_dependencies(verbose: bool = True) -> bool:
-    """
-    Install Node.js dependencies using npm.
+def verify_vendored_parser(
+    project_root: Optional[Path] = None,
+    verbose: bool = True,
+) -> bool:
+    """Validate the self-contained Acorn parser without npm or network access."""
+    project_root = project_root or Path(__file__).parent.parent
+    parser_path = project_root / 'parse_js_module.mjs'
+    acorn_path = project_root / 'vendor' / 'acorn.mjs'
+    license_path = project_root / 'vendor' / 'ACORN-LICENSE'
+    lock_path = project_root / 'package-lock.json'
 
-    Returns:
-        True if successful
-    """
-    project_root = Path(__file__).parent.parent
-    package_json = project_root / 'package.json'
+    required_files = (parser_path, acorn_path, license_path, lock_path)
+    missing_or_empty = [
+        path for path in required_files if not path.is_file() or path.stat().st_size == 0
+    ]
+    if missing_or_empty:
+        print("❌ Bundled JavaScript parser is incomplete:")
+        for path in missing_or_empty:
+            print(f"   • Missing or empty: {path}")
+        return False
 
-    if not package_json.exists():
-        print(f"❌ package.json not found: {package_json}")
+    try:
+        parser_source = parser_path.read_text(encoding='utf-8')
+        acorn_bytes = acorn_path.read_bytes()
+        lock_data = json.loads(lock_path.read_text(encoding='utf-8'))
+        expected_acorn_version = lock_data['packages']['node_modules/acorn']['version']
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        print(f"❌ Bundled JavaScript parser metadata is invalid: {exc}")
+        return False
+
+    if not isinstance(expected_acorn_version, str) or not expected_acorn_version:
+        print("❌ package-lock.json does not declare a valid Acorn version")
+        return False
+
+    actual_acorn_digest = hashlib.sha256(acorn_bytes).hexdigest()
+    if actual_acorn_digest != VENDORED_ACORN_SHA256:
+        print(
+            "❌ Bundled Acorn integrity check failed "
+            f"(SHA-256 {actual_acorn_digest})"
+        )
+        return False
+
+    vendored_imports = ("'./vendor/acorn.mjs'", '"./vendor/acorn.mjs"')
+    if not any(import_path in parser_source for import_path in vendored_imports):
+        print("❌ parse_js_module.mjs does not import the bundled Acorn runtime")
+        return False
+
+    if "from 'acorn'" in parser_source or 'from "acorn"' in parser_source:
+        print("❌ parse_js_module.mjs still requires an npm-installed Acorn package")
+        return False
+
+    version_literal = f'var version = "{expected_acorn_version}";'
+    try:
+        acorn_source = acorn_path.read_text(encoding='utf-8')
+    except (OSError, UnicodeError) as exc:
+        print(f"❌ Cannot read bundled Acorn runtime: {exc}")
+        return False
+    if version_literal not in acorn_source:
+        print(
+            "❌ Bundled Acorn version does not match package-lock.json "
+            f"({expected_acorn_version})"
+        )
         return False
 
     if verbose:
-        print("Installing Node.js dependencies...")
-        print(f"   Using: {package_json}")
-        print("   This may take 1-2 minutes...")
+        print("Verifying bundled JavaScript parser...")
+        print(f"   Acorn version: {expected_acorn_version}")
 
-    # Windows uses npm.cmd, Unix uses npm
-    npm_cmd = 'npm.cmd' if sys.platform == 'win32' else 'npm'
+    runtime_probe = (
+        "import('./vendor/acorn.mjs').then(({parse,version})=>{"
+        f"if(version!=={json.dumps(expected_acorn_version)})throw new Error('version mismatch');"
+        "const ast=parse('export default {ok:true}',"
+        "{ecmaVersion:2022,sourceType:'module'});"
+        "if(ast.type!=='Program'||ast.body.length!==1)throw new Error('parse failed');"
+        "}).catch(error=>{console.error(error.message);process.exit(1)})"
+    )
+    checks = (
+        ("parser entry point syntax", ['node', '--check', str(parser_path)]),
+        ("vendored Acorn syntax", ['node', '--check', str(acorn_path)]),
+        (
+            "vendored Acorn import and parse",
+            ['node', '--input-type=module', '--eval', runtime_probe],
+        ),
+    )
 
     try:
-        result = subprocess.run(
-            [npm_cmd, 'install'],
-            cwd=str(project_root),
-            capture_output=not verbose,
-            text=True,
-            timeout=300  # 5 minutes timeout
-        )
-
-        if result.returncode == 0:
-            if verbose:
-                print("✅ Node.js dependencies installed successfully")
-            return True
-        else:
-            print(f"❌ npm install failed with code {result.returncode}")
-            if result.stderr:
-                print(f"   Error: {result.stderr}")
-
-            # Provide helpful hints
-            print("\n💡 Troubleshooting hints:")
-            if not check_internet_connectivity():
-                print("   • No internet connection detected")
-                print("   • Check your network connection")
-            else:
-                print("   • Try: npm install --verbose (for detailed logs)")
-                print("   • For China users: npm install --registry=https://registry.npmmirror.com")
-                print("   • Try clearing cache: npm cache clean --force")
-
-            return False
-
+        for description, command in checks:
+            result = subprocess.run(
+                command,
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "unknown Node.js error").strip()
+                print(f"❌ Failed {description}: {detail}")
+                return False
     except subprocess.TimeoutExpired:
-        print("❌ npm install timed out (5 minutes)")
-        print("💡 Try running manually: npm install")
+        print("❌ Bundled JavaScript parser verification timed out after 10 seconds")
         return False
     except FileNotFoundError:
-        print("❌ npm command not found.")
-        print("💡 This should not happen if prerequisites check passed.")
-        print("   Please ensure npm is in your PATH and try again.")
-        print("   Download Node.js from: https://nodejs.org/")
+        print("❌ Node.js command not found while verifying the bundled parser")
         return False
-    except Exception as e:
-        print(f"❌ Failed to install Node.js dependencies: {e}")
+    except OSError as exc:
+        print(f"❌ Failed to verify bundled JavaScript parser: {exc}")
         return False
+
+    if verbose:
+        print("✅ Bundled JavaScript parser verified (npm not required)")
+    return True
+
+
+def install_node_dependencies(verbose: bool = True) -> bool:
+    """Verify bundled parser assets under the historical public function name."""
+    return verify_vendored_parser(verbose=verbose)
 
 
 def get_claude_config_path() -> Path:
@@ -1102,6 +1196,17 @@ def validate_paths(python_path: str, mcp_path: str) -> bool:
         for issue in issues:
             print(f"   • {issue}")
         return False
+
+    # Warn (non-fatal) if the interpreter written into the MCP config is a Windows Store
+    # app-execution alias. Such shim paths often fail to launch when Claude Desktop spawns
+    # them as a child process; a venv or a python.org install gives a concrete, launchable exe.
+    if sys.platform == "win32" and "WindowsApps" in python_path:
+        print("\n⚠️  This Python is a Microsoft Store alias:")
+        print(f"      {python_path}")
+        print("   Claude Desktop may fail to launch it as a child process.")
+        print("   Recommended: create a virtual environment and re-run the installer so the")
+        print("   MCP config points at a concrete interpreter:")
+        _print_venv_recommendation()
 
     return True
 
@@ -1301,10 +1406,14 @@ def configure_claude_code(auto: bool = False, dry_run: bool = False) -> bool:
     if not validate_paths(python_path, mcp_path):
         return False
 
-    # Create AIDEFEND config for Claude Code (.mcp.json format)
+    # Create AIDEFEND config for Claude Code (.mcp.json format).
+    # "cwd" pins the working directory to the project root (matching the Claude Desktop
+    # config) so the server resolves the project consistently no matter which folder the
+    # editor launches it from.
     aidefend_config = {
         "command": python_path,
         "args": [f"{mcp_path}/__main__.py", "--mcp"],
+        "cwd": mcp_path,
         "env": {}
     }
 
@@ -1408,7 +1517,7 @@ def main():
         all_ok = True
 
         # Check Python
-        print("[1/5] Checking Python version...")
+        print("[1/6] Checking Python version...")
         py_valid, py_version = check_python_version()
         if py_valid:
             print(f"   ✅ Python {py_version} (OK)")
@@ -1418,7 +1527,7 @@ def main():
             all_ok = False
 
         # Check Node.js
-        print("\n[2/5] Checking Node.js version...")
+        print("\n[2/6] Checking Node.js version...")
         node_valid, node_version = check_node_version()
         if node_valid:
             print(f"   ✅ Node.js {node_version} (OK)")
@@ -1427,8 +1536,18 @@ def main():
             print(f"      Download: https://nodejs.org/")
             all_ok = False
 
+        # Verify the parser shipped with the checkout. This is a local,
+        # read-only check and never invokes npm or the network.
+        print("\n[3/6] Verifying bundled JavaScript parser...")
+        if node_valid and install_node_dependencies(verbose=False):
+            print("   ✅ Bundled parser and Acorn runtime verified")
+        elif node_valid:
+            all_ok = False
+        else:
+            print("   ⚠️  Skipped because Node.js 18+ is unavailable")
+
         # Check platform-specific prerequisites
-        print("\n[3/5] Checking platform-specific prerequisites...")
+        print("\n[4/6] Checking platform-specific prerequisites...")
         if sys.platform == "darwin":
             import platform
             arch = platform.machine()
@@ -1455,7 +1574,7 @@ def main():
             print(f"   ✅ No special prerequisites")
 
         # Check Claude Desktop
-        print("\n[4/5] Checking Claude Desktop...")
+        print("\n[5/6] Checking Claude Desktop...")
         claude_installed, claude_info = check_claude_desktop_installed()
         if claude_installed:
             print(f"   ✅ Found: {claude_info}")
@@ -1465,7 +1584,7 @@ def main():
             print(f"      (Not required for REST API mode)")
 
         # Check Internet
-        print("\n[5/5] Checking internet connectivity...")
+        print("\n[6/6] Checking internet connectivity...")
         if check_internet_connectivity():
             print(f"   ✅ Internet connection available")
         else:
@@ -1522,9 +1641,13 @@ def main():
     node_valid, node_version = check_node_version()
     print(f"   Node.js version: {node_version}")
 
-    if not node_valid:
+    if not node_valid and args.dry_run:
+        # Dry-run must never install anything: report and continue the preview.
+        print("   ⚠️  Node.js 18+ not detected — [DRY RUN] would attempt install (skipped).")
+        print("      Install Node.js 18+ from https://nodejs.org/ before the real run.")
+    elif not node_valid:
         # Try semi-automated installation
-        node_success, node_result = install_nodejs_auto()
+        node_success, node_result = install_nodejs_auto(auto=args.auto)
 
         if node_success:
             if node_result == "RESTART_NEEDED":
@@ -1583,8 +1706,8 @@ def main():
                 print("      sudo dnf install -y nodejs")
                 print("   ")
                 print("   Or use your package manager:")
-                print("      • Arch: sudo pacman -S nodejs npm")
-                print("      • openSUSE: sudo zypper install nodejs npm")
+                print("      • Arch: sudo pacman -S nodejs")
+                print("      • openSUSE: sudo zypper install nodejs")
 
             print("\n💡 After installation, restart your terminal and run:")
             print("   python scripts/install.py")
@@ -1597,7 +1720,9 @@ def main():
             print("   Please install manually and run this script again.")
             return 1
 
-    print("✅ Node.js version OK")
+    # Don't claim "OK" in a dry run where Node is actually missing.
+    if not (args.dry_run and not node_valid):
+        print("✅ Node.js version OK")
 
     # Step 3: Install Python dependencies
     if not args.dry_run:
@@ -1614,7 +1739,7 @@ def main():
             if onnx_msg == "DLL_MISSING":
                 # Windows-specific DLL error - missing Visual C++ Redistributable
                 # Try semi-automated installation
-                vc_success, vc_result = install_vc_redist_auto()
+                vc_success, vc_result = install_vc_redist_auto(auto=args.auto)
 
                 if vc_success:
                     # Check if VC++ was just installed (vs. already installed)
@@ -1697,7 +1822,7 @@ def main():
             for error in dep_errors:
                 print(error)
             print("\n💡 This usually means requirements.txt is incomplete.")
-            print("   Please report this issue at: https://github.com/anthropics/aidefend-mcp/issues")
+            print("   Please report this issue at: https://github.com/edward-playground/aidefend-mcp/issues")
             print("\n   Quick fix:")
             print("   python -m pip install -r requirements.txt")
             print("=" * 70)
@@ -1708,15 +1833,15 @@ def main():
         print_step(3, 6, "Installing Python dependencies [DRY RUN]")
         print("   Would run: pip install -r requirements.txt")
 
-    # Step 4: Install Node.js dependencies
+    # Step 4: Verify the bundled JavaScript parser
     if not args.dry_run:
-        print_step(4, 6, "Installing Node.js dependencies")
+        print_step(4, 6, "Verifying bundled JavaScript parser")
         if not install_node_dependencies(verbose=True):
-            print("❌ Failed to install Node.js dependencies")
+            print("❌ Bundled JavaScript parser verification failed")
             return 1
     else:
-        print_step(4, 6, "Installing Node.js dependencies [DRY RUN]")
-        print("   Would run: npm install")
+        print_step(4, 6, "Verifying bundled JavaScript parser [DRY RUN]")
+        print("   Would run bounded local syntax and parser checks (no npm or network)")
 
     # Step 5: Configure MCP (optional)
     if not args.no_mcp:
@@ -1750,7 +1875,7 @@ def main():
         print("   This is a one-time operation (estimated 5 - 10 minutes)")
         print("   Downloading AIDEFEND content from GitHub and building vector database...")
         print("   • Downloading files: ~1-2 minutes")
-        print("   • Generating embeddings for ~549 documents: ~5-10 minutes (CPU-based)")
+        print("   • Generating embeddings for the current framework corpus may take several minutes on CPU")
         print("   Please be patient - this ensures fast queries later!")
         print("")
 

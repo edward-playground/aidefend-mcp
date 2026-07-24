@@ -1,13 +1,15 @@
 """
 AIDEFEND MCP - Uninstaller
 
-This script removes AIDEFEND configuration from Claude Desktop while
-preserving all other MCP servers and settings.
+This script removes AIDEFEND configuration from Claude Desktop and/or Claude Code
+(.mcp.json) while preserving all other MCP servers and settings.
 
 Usage:
-    python scripts/uninstall_mcp.py              # Interactive mode
-    python scripts/uninstall_mcp.py --auto       # Automatic mode (no prompts)
-    python scripts/uninstall_mcp.py --help       # Show help
+    python scripts/uninstall_mcp.py                    # Interactive, both clients
+    python scripts/uninstall_mcp.py --client desktop   # Claude Desktop only
+    python scripts/uninstall_mcp.py --client code      # Claude Code (.mcp.json) only
+    python scripts/uninstall_mcp.py --auto             # Automatic mode (no prompts)
+    python scripts/uninstall_mcp.py --help             # Show help
 """
 
 import sys
@@ -58,6 +60,11 @@ def get_claude_config_path() -> Path:
         return Path.home() / 'Library' / 'Application Support' / 'Claude' / 'claude_desktop_config.json'
     else:
         return Path.home() / '.config' / 'Claude' / 'claude_desktop_config.json'
+
+
+def get_mcp_json_path() -> Path:
+    """Get the Claude Code project-scoped config path (project-root .mcp.json)."""
+    return Path(__file__).resolve().parent.parent / '.mcp.json'
 
 
 def backup_config(config_path: Path, verbose: bool = True) -> Optional[Path]:
@@ -211,6 +218,79 @@ def remove_aidefend(
         return False
 
 
+def remove_aidefend_from_mcp_json(
+    mcp_json_path: Path,
+    auto: bool = False,
+    verbose: bool = True
+) -> bool:
+    """
+    Remove AIDEFEND from a Claude Code project-scoped .mcp.json.
+
+    Mirrors remove_aidefend() (Claude Desktop) so an install that configured Claude Code can
+    be fully undone. Returns True if the entry was removed, False if not present / on error.
+    """
+    if not mcp_json_path.exists():
+        if verbose:
+            print()
+            print("ℹ️  No Claude Code .mcp.json found")
+            print(f"   Expected location: {mcp_json_path}")
+        return False
+
+    try:
+        with open(mcp_json_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        if not isinstance(config, dict):
+            if verbose:
+                print("❌ Error: .mcp.json has invalid format")
+            return False
+    except json.JSONDecodeError as e:
+        print()
+        print("❌ Error: .mcp.json has invalid JSON format")
+        print(f"   Location: Line {e.lineno}, Column {e.colno}: {e.msg}")
+        print("Cannot uninstall. Please fix .mcp.json manually.")
+        return False
+    except Exception as e:
+        print(f"❌ Error reading .mcp.json: {e}")
+        return False
+
+    if 'mcpServers' not in config or 'aidefend' not in config.get('mcpServers', {}):
+        if verbose:
+            print()
+            print("ℹ️  AIDEFEND is not present in Claude Code (.mcp.json)")
+        return False
+
+    if not auto:
+        print_separator()
+        response = input("Remove AIDEFEND from Claude Code (.mcp.json)? (y/n): ")
+        if response.lower() != 'y':
+            print("\n❌ Claude Code uninstall cancelled")
+            return False
+        print()
+
+    backup_path = backup_config(mcp_json_path, verbose=verbose)
+
+    del config['mcpServers']['aidefend']
+
+    try:
+        temp_path = mcp_json_path.with_suffix('.json.tmp')
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        with open(temp_path, 'r', encoding='utf-8') as f:
+            json.load(f)  # verify
+        temp_path.replace(mcp_json_path)
+        if verbose:
+            print("✅ AIDEFEND removed from Claude Code (.mcp.json)")
+            other = [n for n in config.get('mcpServers', {}).keys()]
+            if other:
+                print(f"✅ {len(other)} other tool(s) preserved")
+        return True
+    except Exception as e:
+        print(f"\n❌ Error writing .mcp.json: {e}")
+        if backup_path:
+            print(f"Your original .mcp.json was backed up: {backup_path.name}")
+        return False
+
+
 def main():
     """Main uninstall flow"""
     parser = argparse.ArgumentParser(
@@ -228,28 +308,36 @@ Examples:
         action='store_true',
         help='Automatic mode: no confirmation prompts'
     )
+    parser.add_argument(
+        '--client',
+        choices=['desktop', 'code', 'both'],
+        default='both',
+        help="Which client(s) to clean up: 'desktop', 'code' (.mcp.json), or 'both' (default)"
+    )
 
     args = parser.parse_args()
 
     # Banner
     print_banner("AIDEFEND MCP - Uninstaller")
 
-    # Detect config path
     print("🔍 Checking installation...")
     print()
 
-    config_path = get_claude_config_path()
-    print(f"   Claude config: {config_path}")
-    print()
+    desktop_removed = False
+    code_removed = False
 
-    # Remove AIDEFEND
-    success = remove_aidefend(
-        config_path,
-        auto=args.auto,
-        verbose=True
-    )
+    if args.client in ('desktop', 'both'):
+        config_path = get_claude_config_path()
+        print(f"   Claude Desktop config: {config_path}")
+        desktop_removed = remove_aidefend(config_path, auto=args.auto, verbose=True)
 
-    if not success:
+    if args.client in ('code', 'both'):
+        mcp_json_path = get_mcp_json_path()
+        print(f"   Claude Code config:    {mcp_json_path}")
+        code_removed = remove_aidefend_from_mcp_json(mcp_json_path, auto=args.auto, verbose=True)
+
+    if not (desktop_removed or code_removed):
+        # Nothing was removed from the selected client(s).
         sys.exit(1)
 
     # Success message
@@ -263,7 +351,7 @@ Examples:
     print(f"     {Path(__file__).parent.parent}")
     print()
     print("  3. To reinstall, run:")
-    print("     python scripts/setup_mcp.py")
+    print("     python scripts/install.py")
     print()
 
     print_separator()

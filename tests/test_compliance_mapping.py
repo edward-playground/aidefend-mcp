@@ -91,6 +91,19 @@ class TestHeuristicMapping:
             assert len(controls) > 0, f"{framework} should have controls for Harden tactic"
             assert result['mapping_confidence'] == 'medium'
 
+    def test_live_tactic_title_drift_uses_stable_aid_segment(self):
+        technique = {
+            "source_id": "AID-H-001",
+            "name": "Input Validation",
+            "tactic": "Prevent & Harden",
+        }
+
+        result = _generate_heuristic_mapping(technique, "nist_ai_rmf")
+
+        assert result["framework_controls"]
+        assert result["technique_tactic"] == "Prevent & Harden"
+        assert result["mapping_confidence"] == "medium"
+
     def test_all_tactics_have_mappings(self):
         """All 7 tactics should have mappings across all frameworks."""
         tactics = ['Model', 'Harden', 'Detect', 'Isolate', 'Deceive', 'Evict', 'Restore']
@@ -176,6 +189,46 @@ class TestInputValidation:
         """Unsupported framework should raise error."""
         with pytest.raises(InputValidationError, match="Unsupported framework"):
             await map_to_compliance_framework(["AID-H-001"], "invalid_framework")
+
+    @pytest.mark.asyncio
+    async def test_shifted_id_is_reported_and_not_counted_as_mapped(
+        self, monkeypatch
+    ):
+        import app.core as core_module
+
+        class FakeQueryEngine:
+            is_ready = True
+
+            def __init__(self):
+                self.calls = 0
+
+            async def read_table(self, _operation):
+                self.calls += 1
+                if self.calls == 1:
+                    return [{
+                        "source_id": "AID-D-001",
+                        "name": "Live control",
+                        "type": "technique",
+                        "tactic": "Detect",
+                        "pillar": ["app"],
+                        "phase": ["operation"],
+                        "is_actionable": True,
+                        "is_parent_family": False,
+                    }]
+                return []
+
+        monkeypatch.setattr(core_module, "query_engine", FakeQueryEngine())
+
+        result = await map_to_compliance_framework(
+            ["AID-D-001", "AID-H-025.003"],
+            "nist_ai_rmf",
+        )
+
+        assert result["total_requested"] == 2
+        assert result["total_mapped"] == 1
+        assert result["invalid_count"] == 1
+        assert result["unrecognized_technique_ids"] == ["AID-H-025.003"]
+        assert result["mappings"][1]["error"] == "Technique not found in database"
 
 
 class TestMappingCoverage:

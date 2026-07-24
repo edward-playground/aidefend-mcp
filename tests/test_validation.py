@@ -9,6 +9,8 @@ Tests technique ID validation including:
 """
 import pytest
 from app.tools.validation import (
+    CONTROL_ID_PATTERN,
+    GUIDANCE_ID_PATTERN,
     TECHNIQUE_ID_PATTERN,
     VALID_TACTIC_CODES,
     find_similar_ids,
@@ -28,9 +30,12 @@ class TestTechniqueIDPattern:
             "AID-M-123",
             "AID-D-999",
             "AID-I-001",
-            "AID-C-001",
+            "AID-DV-001",
             "AID-E-001",
-            "AID-R-001"
+            "AID-R-001",
+            "AID-GV-001",
+            "AID-X2-001",
+            "AID-GOVERNANCE-001",
         ]
 
         for tech_id in valid_ids:
@@ -47,36 +52,53 @@ class TestTechniqueIDPattern:
         for tech_id in valid_ids:
             assert TECHNIQUE_ID_PATTERN.match(tech_id), f"{tech_id} should be valid"
 
-    def test_valid_strategy_id(self):
-        """Valid strategy IDs should match pattern."""
+    def test_valid_guidance_id(self):
+        """Canonical guidance IDs should match pattern."""
         valid_ids = [
-            "AID-H-001.S1",
-            "AID-H-001.S99",
-            "AID-H-001.001.S1"
+            "AID-H-001-G001",
+            "AID-H-001-G999",
+            "AID-H-001.001-G001",
+            "AID-DV-001-G001",
+            "AID-GV-001.001-G001",
         ]
 
         for tech_id in valid_ids:
             assert TECHNIQUE_ID_PATTERN.match(tech_id), f"{tech_id} should be valid"
+            assert GUIDANCE_ID_PATTERN.match(tech_id)
+
+    def test_future_tactic_code_does_not_require_a_known_label(self):
+        """Well-formed future codes are valid shapes; the database decides existence."""
+        assert "GV" not in VALID_TACTIC_CODES
+        assert CONTROL_ID_PATTERN.fullmatch("AID-GV-001")
+        assert TECHNIQUE_ID_PATTERN.fullmatch("AID-GV-001")
+        assert GUIDANCE_ID_PATTERN.fullmatch("AID-GV-001.001-G001")
+        assert CONTROL_ID_PATTERN.fullmatch("AID-GOVERNANCE-001")
+        assert GUIDANCE_ID_PATTERN.fullmatch("AID-GOVERNANCE-001.001-G001")
 
     def test_invalid_format(self):
         """Invalid formats should not match pattern."""
         invalid_ids = [
             "AID-H-1",         # Too few digits
             "AID-H-1234",      # Too many digits
-            "AID-X-001",       # Invalid tactic code
             "H-001",           # Missing AID prefix
             "AID-H",           # Missing number
             "AID-H-ABC",       # Letters instead of numbers
             "aid-h-001",       # Lowercase (pattern expects uppercase)
-            "AID-H-001.S",     # Strategy without number
+            "AID-1X-001",      # Tactic code must start with a letter
+            "AID-G_V-001",     # Tactic code is strictly alphanumeric
+            "AID-H-001.S1",    # Legacy strategy ID
+            "AID-H-001.001.001",  # More than one hierarchy level
+            "AID-H-001-G1",    # Guidance ordinal must be three digits
+            "AID-H-001.001-G001.001",
+            "AID-GV-001\n' OR '1'='1",  # No trailing/injection content
         ]
 
         for tech_id in invalid_ids:
             assert not TECHNIQUE_ID_PATTERN.match(tech_id), f"{tech_id} should be invalid"
 
     def test_tactic_codes(self):
-        """All tactic codes should be recognized."""
-        expected_tactics = {'M', 'H', 'D', 'I', 'C', 'E', 'R'}
+        """Current tactic codes retain friendly display labels."""
+        expected_tactics = {'M', 'H', 'D', 'I', 'DV', 'E', 'R'}
         assert set(VALID_TACTIC_CODES.keys()) == expected_tactics
 
         # Verify mapping
@@ -84,7 +106,7 @@ class TestTechniqueIDPattern:
         assert VALID_TACTIC_CODES['H'] == 'Harden'
         assert VALID_TACTIC_CODES['D'] == 'Detect'
         assert VALID_TACTIC_CODES['I'] == 'Isolate'
-        assert VALID_TACTIC_CODES['C'] == 'Deceive'
+        assert VALID_TACTIC_CODES['DV'] == 'Deceive'
         assert VALID_TACTIC_CODES['E'] == 'Evict'
         assert VALID_TACTIC_CODES['R'] == 'Restore'
 
@@ -295,18 +317,16 @@ class TestEdgeCases:
         assert not TECHNIQUE_ID_PATTERN.match("AID-H-1")  # Too short
         assert not TECHNIQUE_ID_PATTERN.match("AID-H-01")  # Too short
 
-    def test_multiple_subtechniques(self):
-        """Pattern allows multiple levels (due to * quantifier)."""
-        assert TECHNIQUE_ID_PATTERN.match("AID-H-001.001")  # OK: 2 levels
-        # Note: Pattern actually allows multiple levels due to (\.\d{3})* in regex
-        assert TECHNIQUE_ID_PATTERN.match("AID-H-001.001.001")  # Also valid per current pattern
+    def test_hierarchy_is_limited_to_one_subtechnique_level(self):
+        """Schema 2.3 permits exactly one optional sub-technique level."""
+        assert TECHNIQUE_ID_PATTERN.match("AID-H-001.001")
+        assert CONTROL_ID_PATTERN.match("AID-H-001.001")
+        assert not TECHNIQUE_ID_PATTERN.match("AID-H-001.001.001")
 
-    def test_strategy_format(self):
-        """Strategy IDs should end with .S#."""
-        assert TECHNIQUE_ID_PATTERN.match("AID-H-001.S1")
-        assert TECHNIQUE_ID_PATTERN.match("AID-H-001.S99")
-        assert TECHNIQUE_ID_PATTERN.match("AID-H-001.001.S1")
-        assert TECHNIQUE_ID_PATTERN.match("AID-H-001.S0")  # S0 is valid per current pattern
-
-        # Invalid strategy formats
-        assert not TECHNIQUE_ID_PATTERN.match("AID-H-001.S")  # Missing number
+    def test_guidance_format_replaces_legacy_strategy_format(self):
+        """Guidance uses -G### and legacy .S# is rejected."""
+        assert TECHNIQUE_ID_PATTERN.match("AID-H-001-G001")
+        assert TECHNIQUE_ID_PATTERN.match("AID-H-001.001-G099")
+        assert GUIDANCE_ID_PATTERN.match("AID-H-001.001-G099")
+        assert not TECHNIQUE_ID_PATTERN.match("AID-H-001.S1")
+        assert not TECHNIQUE_ID_PATTERN.match("AID-H-001-G1")

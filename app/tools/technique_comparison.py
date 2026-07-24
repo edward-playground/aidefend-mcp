@@ -7,23 +7,58 @@ heuristic-based scoring for effectiveness, complexity, and cost.
 All scoring is 100% local using metadata analysis - no ML inference required.
 """
 
-import asyncio
 import json
-import lancedb
 from typing import Dict, Any, List, Optional
 
 from app.logger import get_logger
-from app.config import settings
 from app.security import InputValidationError, sanitize_technique_id
-from app.core import query_engine
+from app.core import decode_framework_record, query_engine
 from app.exceptions import QueryEngineNotInitializedError
 from app.framework_utils import (
-    FRAMEWORK_LABELS,
     extract_framework_coverage,
     merge_framework_coverage_sets,
+    public_framework_coverage_mapping,
 )
 
 logger = get_logger(__name__)
+
+
+def _aggregate_parent_family(
+    parent: Dict[str, Any], children: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Build an explicit family view without claiming the parent is actionable."""
+    aggregate = decode_framework_record(parent)
+    decoded_children = [decode_framework_record(child) for child in children]
+
+    for field in (
+        "pillar",
+        "phase",
+        "defends_against",
+        "tools_opensource",
+        "tools_source_available",
+        "tools_commercial",
+        "implementation_guidance",
+        "warnings",
+    ):
+        merged = []
+        for child in decoded_children:
+            for value in child[field]:
+                if value not in merged:
+                    merged.append(value)
+        aggregate[field] = merged
+
+    aggregate["text"] = " ".join(
+        [aggregate.get("text", "")]
+        + [child.get("text", "") for child in decoded_children]
+    ).strip()
+    aggregate["has_code_snippets"] = any(
+        child["has_code_snippets"] for child in decoded_children
+    )
+    aggregate["family_member_count"] = len(decoded_children)
+    aggregate["comparison_scope"] = "aggregated_parent_family"
+    aggregate["is_actionable"] = False
+    aggregate["is_parent_family"] = True
+    return aggregate
 
 
 def _parse_json_field(field_value: Any) -> Any:
@@ -226,10 +261,12 @@ def _extract_technique_info(technique_doc: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Formatted technique info dict
     """
-    defends_against = _parse_json_field(technique_doc.get('defends_against', '[]'))
-    impl_strategies = _parse_json_field(technique_doc.get('implementation_guidance', '[]'))
-    opensource_tools = _parse_json_field(technique_doc.get('tools_opensource', '[]'))
-    commercial_tools = _parse_json_field(technique_doc.get('tools_commercial', '[]'))
+    technique_doc = decode_framework_record(technique_doc)
+    defends_against = technique_doc['defends_against']
+    impl_strategies = technique_doc['implementation_guidance']
+    opensource_tools = technique_doc['tools_opensource']
+    source_available_tools = technique_doc['tools_source_available']
+    commercial_tools = technique_doc['tools_commercial']
 
     coverage_sets = merge_framework_coverage_sets(
         extract_framework_coverage(defends_against)
@@ -238,25 +275,42 @@ def _extract_technique_info(technique_doc: Dict[str, Any]) -> Dict[str, Any]:
         "owasp": len(coverage_sets["owasp"]),
         "atlas": len(coverage_sets["atlas"]),
         "maestro": len(coverage_sets["maestro"]),
-        "by_framework": {
-            key: len(coverage_sets.get(key, set()))
-            for key in FRAMEWORK_LABELS
-        }
+        "by_framework": public_framework_coverage_mapping({
+            key: len(values)
+            for key, values in coverage_sets.items()
+            if key != "owasp"
+        })
     }
 
     return {
         "source_id": technique_doc.get('source_id', ''),
         "name": technique_doc.get('name', ''),
         "tactic": technique_doc.get('tactic', ''),
-        "pillar": technique_doc.get('pillar', ''),
-        "phase": technique_doc.get('phase', ''),
+        "pillar": technique_doc['pillar'],
+        "phase": technique_doc['phase'],
         "type": technique_doc.get('type', ''),
+        "parent_technique_id": technique_doc['parent_technique_id'],
+        "guidance_id": technique_doc['guidance_id'],
+        "scope_boundary": technique_doc['scope_boundary'],
+        "is_actionable": technique_doc['is_actionable'],
+        "is_parent_family": technique_doc['is_parent_family'],
+        "comparison_scope": technique_doc.get('comparison_scope', 'single_control'),
+        "family_member_count": technique_doc.get('family_member_count', 0),
         "description": technique_doc.get('text', '')[:200] + "..." if len(technique_doc.get('text', '')) > 200 else technique_doc.get('text', ''),
         "threat_coverage": threat_summary,
         "has_implementation_guidance": len(impl_strategies) > 0 if isinstance(impl_strategies, list) else False,
         "has_code_snippets": technique_doc.get('has_code_snippets', False),
+        "tools_opensource": opensource_tools,
+        "tools_source_available": source_available_tools,
+        "tools_commercial": commercial_tools,
         "has_opensource_tools": len(opensource_tools) > 0 if isinstance(opensource_tools, list) else False,
+        "has_source_available_tools": len(source_available_tools) > 0,
         "has_commercial_tools": len(commercial_tools) > 0 if isinstance(commercial_tools, list) else False,
+        "guidance_ids": [
+            strategy.get('id')
+            for strategy in impl_strategies
+            if isinstance(strategy, dict) and strategy.get('id')
+        ],
         "effectiveness_score": _calculate_effectiveness_score(technique_doc),
         "complexity_score": _calculate_complexity_score(technique_doc),
         "cost_score": _calculate_cost_score(technique_doc)
@@ -333,10 +387,6 @@ async def compare_techniques(
     )
 
     try:
-        # Connect to LanceDB
-        db = await asyncio.to_thread(lancedb.connect, str(settings.DB_PATH))
-        table = await asyncio.to_thread(db.open_table, "aidefend")
-
         # Fetch all requested techniques
         comparison_matrix = []
         not_found = []
@@ -347,8 +397,8 @@ async def compare_techniques(
             # Sanitize technique_id to prevent filter injection
             sanitized_id = sanitize_technique_id(technique_id)
 
-            docs = await asyncio.to_thread(
-                lambda tid=sanitized_id: table.search()
+            docs = await query_engine.read_table(
+                lambda table, tid=sanitized_id: table.search()
                 .where(f"source_id = '{tid}'")
                 .limit(1)
                 .to_pandas()
@@ -361,7 +411,21 @@ async def compare_techniques(
                 continue
 
             # Extract and score technique
-            technique_info = _extract_technique_info(docs[0])
+            technique_doc = decode_framework_record(docs[0])
+            if technique_doc['is_parent_family']:
+                child_docs = await query_engine.read_table(
+                    lambda table, tid=sanitized_id: table.search()
+                    .where(
+                        f"parent_technique_id = '{tid}' AND type = 'subtechnique'"
+                    )
+                    .to_pandas()
+                    .to_dict('records')
+                )
+                technique_doc = _aggregate_parent_family(
+                    technique_doc, child_docs
+                )
+
+            technique_info = _extract_technique_info(technique_doc)
             comparison_matrix.append(technique_info)
 
         if len(comparison_matrix) < 2:
@@ -381,7 +445,20 @@ async def compare_techniques(
             "average_complexity": round(avg_complexity, 1),
             "average_cost": round(avg_cost, 1),
             "tactics_covered": list(set(t['tactic'] for t in comparison_matrix if t['tactic'])),
-            "pillars_covered": list(set(t['pillar'] for t in comparison_matrix if t['pillar']))
+            "pillars_covered": sorted({
+                pillar
+                for technique in comparison_matrix
+                for pillar in technique['pillar']
+            }),
+            "phases_covered": sorted({
+                phase
+                for technique in comparison_matrix
+                for phase in technique['phase']
+            }),
+            "parent_families_compared": sum(
+                1 for technique in comparison_matrix
+                if technique['is_parent_family']
+            ),
         }
 
         # Generate recommendations
