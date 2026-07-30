@@ -285,6 +285,20 @@ class TestCORSWithAuth:
         # Assert - should work without authentication
         assert_public_health_response(response)
 
+    def test_ipv6_loopback_cors_preflight_is_allowed(self, client_no_auth):
+        """IPv6 loopback browser clients receive the same local CORS access."""
+        origin = "http://[::1]:3000"
+        response = client_no_auth.options(
+            "/api/v1/status",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == origin
+
     def test_cors_headers_present_in_api_key_mode(self, client_api_key):
         """Test that CORS headers are present in api_key mode."""
         # Use GET request instead of OPTIONS to test CORS

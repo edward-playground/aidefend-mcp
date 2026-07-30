@@ -174,8 +174,20 @@ class TestApiKeyHint:
 class TestConfigValidation:
     """Test configuration validators in app/config.py."""
 
-    def test_network_binding_validation_rejects_unsafe_config(self):
-        """Test that 0.0.0.0 + no_auth is rejected."""
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "0.0.0.0",
+            "::",
+            "::0",
+            "10.0.0.5",
+            "192.168.1.10",
+            "203.0.113.10",
+            "service.internal",
+        ],
+    )
+    def test_network_binding_validation_rejects_unsafe_config(self, host):
+        """No-auth mode rejects every non-loopback or ambiguous binding."""
         from pydantic import ValidationError
         from app.config import Settings
 
@@ -183,40 +195,59 @@ class TestConfigValidation:
         with pytest.raises(ValidationError) as exc_info:
             Settings(
                 AUTH_MODE="no_auth",
-                API_HOST="0.0.0.0"
+                API_HOST=host,
             )
 
         # Should contain security error message
         assert "SECURITY ERROR" in str(exc_info.value)
-        assert "0.0.0.0" in str(exc_info.value)
+        assert f"API_HOST: {host}" in str(exc_info.value)
 
-    def test_network_binding_validation_allows_localhost(self):
-        """Test that 127.0.0.1 + no_auth is allowed."""
+    def test_network_binding_validation_rejects_blank_host(self):
+        """Whitespace is not a valid bind target in any authentication mode."""
+        from pydantic import ValidationError
+        from app.config import Settings
+
+        with pytest.raises(ValidationError, match="API_HOST must be a non-empty"):
+            Settings(AUTH_MODE="no_auth", API_HOST="   ")
+
+    @pytest.mark.parametrize(
+        ("host", "expected"),
+        [
+            ("localhost", "localhost"),
+            ("LOCALHOST", "LOCALHOST"),
+            ("127.0.0.1", "127.0.0.1"),
+            (" 127.0.0.2 ", "127.0.0.2"),
+            ("::1", "::1"),
+        ],
+    )
+    def test_network_binding_validation_allows_localhost(self, host, expected):
+        """No-auth mode permits explicit IPv4 and IPv6 loopback bindings."""
         from app.config import Settings
 
         # Act - should not raise
         settings = Settings(
             AUTH_MODE="no_auth",
-            API_HOST="127.0.0.1"
+            API_HOST=host,
         )
 
         # Assert
-        assert settings.API_HOST == "127.0.0.1"
+        assert settings.API_HOST == expected
         assert settings.AUTH_MODE == "no_auth"
 
-    def test_network_binding_validation_allows_external_with_auth(self):
-        """Test that 0.0.0.0 + api_key is allowed."""
+    @pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.10"])
+    def test_network_binding_validation_allows_external_with_auth(self, host):
+        """Authenticated mode permits intentional external bindings."""
         from app.config import Settings
 
         # Act - should not raise
         settings = Settings(
             AUTH_MODE="api_key",
-            API_HOST="0.0.0.0",
+            API_HOST=host,
             AIDEFEND_API_KEY="test-key-123"
         )
 
         # Assert
-        assert settings.API_HOST == "0.0.0.0"
+        assert settings.API_HOST == host
         assert settings.AUTH_MODE == "api_key"
 
     def test_api_key_requirement_validation(self):

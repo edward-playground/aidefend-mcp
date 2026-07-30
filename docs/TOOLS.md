@@ -3,7 +3,7 @@
 This document provides detailed documentation for all **18 MCP tools** available in the AIDEFEND MCP Service.
 
 > **Live-data contract:** IDs, names, and corpus-size examples in this guide
-> are aligned to AIDEFEND 1.20260724 (authoring schema 1.7, public schema 2.3,
+> are aligned to AIDEFEND 1.20260728 (authoring schema 1.7, public schema 2.3,
 > index schema 3.2: 92 techniques + 265 sub-techniques + 851 guidance records
 > = 1,208 documents). Rankings, scores, timestamps, framework-coverage totals,
 > and tool counts are illustrative because they are recomputed from the version
@@ -94,7 +94,7 @@ curl http://localhost:8000/api/v1/status
   "total_documents": 1208,
   "embedding_model": "Xenova/multilingual-e5-base",
   "last_sync": "2025-01-18T10:30:00Z",
-  "framework_version": "1.20260724"
+  "framework_version": "1.20260728"
 }
 ```
 
@@ -118,7 +118,7 @@ Claude: [Uses sync_aidefend tool]
         Downloading latest content...
         Parsing techniques...
         Generating embeddings...
-        ✅ Sync complete! Knowledge base updated to version 1.20260724
+        ✅ Sync complete! Knowledge base updated to version 1.20260728
 ```
 
 #### REST API Example:
@@ -132,7 +132,7 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20260724",
+  "framework_version": "1.20260728",
   "documents_synced": 1208,
   "sync_duration_seconds": 42.3
 }

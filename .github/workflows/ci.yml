@@ -11,7 +11,7 @@ on:
         default: main
         type: string
       run_current_snapshot:
-        description: Also run the exact 2026-07-24 snapshot assertions
+        description: Also run the exact 2026-07-28 snapshot assertions
         required: false
         default: false
         type: boolean
@@ -77,11 +77,9 @@ jobs:
               raise SystemExit(f"Release test suite skipped {skipped} test(s)")
           PY
 
-      - name: Run exact 2026-07-24 framework snapshot gate
+      - name: Run exact 2026-07-28 framework snapshot gate
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_current_snapshot }}
-        run: >-
-          python -m pytest -q -m current_snapshot
-          tests/test_current_framework_contract.py
+        run: python -m pytest -q -m current_snapshot
 
       - name: Exercise every MCP and REST tool
         run: python scripts/smoke_all_tools.py --data-path data --transport both --timeout 180

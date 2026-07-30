@@ -4,12 +4,24 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+from email.message import Message
+from email.parser import Parser
 import json
 import sys
 import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Sequence
+
+from packaging.markers import Marker
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 release jobs
+    import tomli as tomllib
 
 
 class DistributionInventoryError(RuntimeError):
@@ -77,6 +89,136 @@ SDIST_FORBIDDEN_TOP_LEVEL = {
     "test-artifacts",
     "venv",
 }
+PROJECT_FILE = Path(__file__).resolve().parents[1] / "pyproject.toml"
+
+
+def _requirement_without_marker(requirement: Requirement) -> str:
+    extras = (
+        f"[{','.join(sorted(requirement.extras))}]" if requirement.extras else ""
+    )
+    base = f"{requirement.name}{extras}"
+    if requirement.url:
+        return f"{base} @ {requirement.url}"
+    return f"{base}{requirement.specifier}"
+
+
+def _load_project_metadata(project_file: Path = PROJECT_FILE) -> dict[str, object]:
+    try:
+        with project_file.open("rb") as handle:
+            return tomllib.load(handle)["project"]
+    except (OSError, KeyError, tomllib.TOMLDecodeError) as exc:
+        raise DistributionInventoryError(
+            f"Cannot read project metadata from {project_file}: {exc}"
+        ) from exc
+
+
+def _expected_requires_dist_lines(project_file: Path = PROJECT_FILE) -> list[str]:
+    """Materialize runtime and optional PEP 508 dependencies from pyproject."""
+    project = _load_project_metadata(project_file)
+    expected = [str(item) for item in project.get("dependencies", [])]
+    for extra, dependencies in project.get("optional-dependencies", {}).items():
+        for raw_requirement in dependencies:
+            try:
+                requirement = Requirement(str(raw_requirement))
+            except InvalidRequirement as exc:
+                raise DistributionInventoryError(
+                    f"Invalid pyproject dependency {raw_requirement!r}: {exc}"
+                ) from exc
+            extra_marker = f'extra == "{extra}"'
+            marker = (
+                Marker(f"({requirement.marker}) and {extra_marker}")
+                if requirement.marker
+                else Marker(extra_marker)
+            )
+            expected.append(
+                f"{_requirement_without_marker(requirement)}; {marker}"
+            )
+    return expected
+
+
+def _requirement_key(raw_requirement: str, *, source: str) -> tuple[object, ...]:
+    try:
+        requirement = Requirement(raw_requirement)
+    except InvalidRequirement as exc:
+        raise DistributionInventoryError(
+            f"{source}: invalid Requires-Dist value {raw_requirement!r}: {exc}"
+        ) from exc
+    return (
+        canonicalize_name(requirement.name),
+        tuple(sorted(canonicalize_name(extra) for extra in requirement.extras)),
+        str(requirement.specifier),
+        requirement.url or "",
+        str(requirement.marker) if requirement.marker else "",
+    )
+
+
+def _read_wheel_metadata(wheel_path: Path, metadata_member: str) -> Message:
+    try:
+        with zipfile.ZipFile(wheel_path) as archive:
+            metadata = archive.read(metadata_member).decode("utf-8")
+    except (KeyError, OSError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
+        raise DistributionInventoryError(
+            f"{wheel_path.name}: unreadable METADATA: {exc}"
+        ) from exc
+    return Parser().parsestr(metadata)
+
+
+def _verify_wheel_identity(
+    wheel_path: Path,
+    metadata: Message,
+    dist_info_prefix: str,
+    *,
+    project_file: Path = PROJECT_FILE,
+) -> None:
+    project = _load_project_metadata(project_file)
+    expected_name = str(project.get("name", ""))
+    expected_version = str(project.get("version", ""))
+    names = metadata.get_all("Name", [])
+    versions = metadata.get_all("Version", [])
+    if len(names) != 1 or len(versions) != 1:
+        raise DistributionInventoryError(
+            f"{wheel_path.name}: METADATA must contain exactly one Name and Version"
+        )
+    if (
+        canonicalize_name(names[0]) != canonicalize_name(expected_name)
+        or versions[0] != expected_version
+    ):
+        raise DistributionInventoryError(
+            f"{wheel_path.name}: METADATA identity differs from pyproject.toml; "
+            f"expected={expected_name} {expected_version}, "
+            f"actual={names[0]} {versions[0]}"
+        )
+    expected_prefix = (
+        f"{canonicalize_name(expected_name).replace('-', '_')}-{expected_version}"
+    )
+    if dist_info_prefix != expected_prefix:
+        raise DistributionInventoryError(
+            f"{wheel_path.name}: .dist-info identity differs from pyproject.toml; "
+            f"expected={expected_prefix}, actual={dist_info_prefix}"
+        )
+
+
+def _verify_wheel_dependencies(
+    wheel_path: Path,
+    metadata: Message,
+    *,
+    project_file: Path = PROJECT_FILE,
+) -> None:
+    expected = Counter(
+        _requirement_key(requirement, source=str(project_file))
+        for requirement in _expected_requires_dist_lines(project_file)
+    )
+    actual = Counter(
+        _requirement_key(requirement, source=wheel_path.name)
+        for requirement in metadata.get_all("Requires-Dist", [])
+    )
+    if actual != expected:
+        missing = sorted((expected - actual).elements())
+        unexpected = sorted((actual - expected).elements())
+        raise DistributionInventoryError(
+            f"{wheel_path.name}: METADATA dependencies differ from pyproject.toml; "
+            f"missing={missing}, unexpected={unexpected}"
+        )
 
 
 def _normalize_member_name(raw_name: str, *, artifact: Path) -> str:
@@ -170,6 +312,14 @@ def verify_wheel(wheel_path: Path) -> dict[str, object]:
             f"{wheel_path.name}: .data and .dist-info roots do not share "
             "the same distribution/version prefix"
         )
+    metadata_member = f"{dist_info_roots[0]}/METADATA"
+    if metadata_member not in members:
+        raise DistributionInventoryError(
+            f"{wheel_path.name}: missing required METADATA file"
+        )
+    metadata = _read_wheel_metadata(wheel_path, metadata_member)
+    _verify_wheel_identity(wheel_path, metadata, dist_info_prefix)
+    _verify_wheel_dependencies(wheel_path, metadata)
     allowed_roots = {"app", "mcp_server.py", data_roots[0], dist_info_roots[0]}
     forbidden = sorted(
         name

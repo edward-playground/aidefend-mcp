@@ -6,7 +6,7 @@ Thank you for your interest in contributing to the AIDEFEND MCP Service! This gu
 
 ### Prerequisites
 
-- Python 3.9 - 3.13
+- Python 3.10 - 3.13
 - Node.js 18+ (for JavaScript parsing)
 - Git
 

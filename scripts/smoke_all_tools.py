@@ -53,6 +53,40 @@ EXPECTED_TOOL_NAMES = (
     "generate_incident_playbook",
 )
 
+OPENAPI_HTTP_METHODS = {
+    "delete",
+    "get",
+    "head",
+    "options",
+    "patch",
+    "post",
+    "put",
+    "trace",
+}
+
+
+def openapi_route_inventory(app) -> set[tuple[str, str]]:
+    """Return public HTTP operations without depending on router internals.
+
+    FastAPI 0.139 keeps included routers behind private ``_IncludedRouter``
+    objects, so iterating ``app.routes`` no longer exposes their leaf routes.
+    OpenAPI is the stable public contract exercised by this smoke test.
+    """
+    schema = app.openapi()
+    paths = schema.get("paths")
+    if not isinstance(paths, dict):
+        raise SmokeFailure("FastAPI OpenAPI schema has no paths object")
+
+    inventory: set[tuple[str, str]] = set()
+    for path, path_item in paths.items():
+        if not isinstance(path, str) or not isinstance(path_item, dict):
+            raise SmokeFailure("FastAPI OpenAPI paths contain an invalid path item")
+        for method in path_item:
+            normalized = str(method).lower()
+            if normalized in OPENAPI_HTTP_METHODS:
+                inventory.add((normalized.upper(), path))
+    return inventory
+
 INTEGER_TOOL_PARAMETERS = {
     "query_aidefend": "top_k",
     "get_defenses_for_threat": "top_k",
@@ -1288,11 +1322,7 @@ async def run_rest_smoke(
     if skip_sync:
         main_module.run_sync = offline_sync_noop
 
-    actual_routes = {
-        (method, route.path)
-        for route in main_module.app.routes
-        for method in getattr(route, "methods", set())
-    }
+    actual_routes = openapi_route_inventory(main_module.app)
     expected_tool_routes = {(case.method, case.route_path) for case in cases}
     actual_tool_routes = {
         route

@@ -348,16 +348,22 @@ def main():
             print("Use --help to see available options", file=sys.stderr)
             sys.exit(1)
 
-    # Default: REST API mode (also reached via --api)
-    print("Starting AIDEFEND REST API Server...", file=sys.stderr)
-    print("API will be available at: http://127.0.0.1:8000", file=sys.stderr)
-    print("API documentation: http://127.0.0.1:8000/docs", file=sys.stderr)
-    print("-" * 60, file=sys.stderr)
-
     try:
         import uvicorn
         from app.main import app
         from app.config import settings
+
+        # Default: REST API mode (also reached via --api). Report the effective
+        # validated settings so operators do not probe the wrong socket after
+        # overriding API_HOST or API_PORT.
+        url_host = settings.API_HOST
+        if ":" in url_host and not url_host.startswith("["):
+            url_host = f"[{url_host}]"
+        base_url = f"http://{url_host}:{settings.API_PORT}"
+        print("Starting AIDEFEND REST API Server...", file=sys.stderr)
+        print(f"API will be available at: {base_url}", file=sys.stderr)
+        print(f"API documentation: {base_url}/docs", file=sys.stderr)
+        print("-" * 60, file=sys.stderr)
 
         uvicorn.run(
             app,

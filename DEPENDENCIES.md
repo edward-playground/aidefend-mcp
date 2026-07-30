@@ -20,15 +20,15 @@ This document provides comprehensive information about all dependencies used by 
 
 ## Runtime Dependencies
 
-### 1. Python 3.9 - 3.13
+### 1. Python 3.10 - 3.13
 
 **Purpose**: Core programming language for the service
-**Minimum Version**: 3.9
-**Recommended Version**: 3.13.6 (latest tested)
+**Minimum Version**: 3.10
+**Recommended Version**: 3.13.14 (latest tested)
 **Installation**: https://www.python.org/downloads/
 **License**: PSF License (BSD-style, permissive)
 **Why this version range**:
-- 3.9+: Required for modern type hints and async features
+- 3.10+: Required by the declared MCP SDK and development dependency set
 - Up to 3.13: Latest tested and supported version
 - Uses features: `asyncio`, `pathlib`, `typing` with modern syntax
 
@@ -40,7 +40,7 @@ This document provides comprehensive information about all dependencies used by 
 
 **Purpose**: Parse AIDEFEND JavaScript files with ES6 template literals
 **Minimum Version**: 18.0.0
-**Recommended Version**: Latest LTS (20.x)
+**Recommended Version**: Node.js 24 LTS
 **Installation**: https://nodejs.org/
 **License**: MIT License
 **Why needed**:
@@ -75,11 +75,12 @@ All Python dependencies are listed in [`requirements.txt`](requirements.txt). To
 
 | Package | Version | Purpose | License |
 |---------|---------|---------|---------|
-| **fastapi** | 0.121.1 | Modern async web framework for REST API | MIT |
+| **fastapi** | 0.139.2 | Modern async web framework for REST API | MIT |
+| **starlette** | 1.3.1 | ASGI framework used by FastAPI | BSD-3-Clause |
 | **uvicorn[standard]** | 0.38.0 | ASGI server for FastAPI | BSD-3-Clause |
-| **python-multipart** | 0.0.20 | Form data parsing for FastAPI | Apache-2.0 |
+| **python-multipart** | 0.0.32 | Form data parsing for FastAPI | Apache-2.0 |
 
-**Why these versions**: FastAPI 0.121.1 has stable async support, uvicorn[standard] includes performance optimizations.
+**Why these versions**: The FastAPI/Starlette and multipart versions are pinned to the release-audited compatible set; uvicorn[standard] includes performance optimizations.
 
 ---
 
@@ -99,13 +100,16 @@ All Python dependencies are listed in [`requirements.txt`](requirements.txt). To
 | Package | Version | Purpose | License |
 |---------|---------|---------|---------|
 | **lancedb** | 0.25.3 | Vector database for semantic search | Apache-2.0 |
-| **fastembed** | 0.7.3 | ONNX-based embedding generation | Apache-2.0 |
+| **fastembed** | 0.8.0 | ONNX-based embedding generation | Apache-2.0 |
+| **pillow** | 12.3.0 | Image support used by the embedding dependency chain | MIT-CMU |
 | **pandas** | >=2.0.0 | Data manipulation (required by LanceDB's `.to_pandas()`) | BSD-3-Clause |
+| **numpy** | >=1.24,<3 | Numerical arrays used directly by the embedding cache | BSD-3-Clause |
 
 **Why these**:
 - LanceDB: Lightweight, serverless vector DB (no external database needed)
 - FastEmbed: Uses ONNX Runtime for CPU-based embeddings (no GPU required)
 - pandas: Implicit dependency of LanceDB for data conversion
+- numpy: Declared directly because runtime code imports it
 
 **Downloaded Models**:
 - `Xenova/multilingual-e5-base` (Quantized Int8): ~280MB ONNX model (stored in `~/.cache/fastembed/`)
@@ -118,7 +122,7 @@ All Python dependencies are listed in [`requirements.txt`](requirements.txt). To
 
 | Package | Version | Purpose | License |
 |---------|---------|---------|---------|
-| **mcp** | 1.21.0 | Model Context Protocol SDK for Claude Desktop integration | MIT |
+| **mcp** | 1.29.0 | Model Context Protocol SDK for Claude Desktop integration | MIT |
 | **pywin32** | 311 | Windows platform APIs (Windows only, required by MCP SDK) | PSF License |
 
 **Why needed**:
@@ -164,23 +168,27 @@ All Python dependencies are listed in [`requirements.txt`](requirements.txt). To
 
 ---
 
-## Node.js Dependencies
+## Node.js Parser Dependency
 
-All Node.js dependencies are listed in [`package.json`](package.json). Total size: ~100-200MB.
+The release bundles the parser runtime under [`vendor/`](vendor/); production
+and clean-wheel installs do not run `npm install`. The vendored Acorn module is
+approximately 230 KB.
 
 ### JavaScript Parsing
 
 | Package | Version | Purpose | License |
 |---------|---------|---------|---------|
-| **acorn** | ^8.11.3 | Fast, standards-compliant ECMAScript parser | MIT |
+| **acorn** | 8.15.0 (vendored and lock-pinned) | Fast, standards-compliant ECMAScript parser | MIT |
 
 **Why acorn**:
 - Fast AST-based parsing (safer than `eval()`)
 - Supports ES6+ syntax including template literals
 - Used in Webpack, ESLint, and other trusted tools
-- Sandboxed execution via Node.js subprocess
+- Source is evaluated only through the parser's closed, bounded static grammar;
+  the Node.js subprocess itself is not a security sandbox
 
-**Usage**: Called via `parse_js_module.mjs` to extract AIDEFEND technique definitions from JavaScript files.
+**Usage**: Called via `parse_js_module.mjs` to extract AIDEFEND technique
+definitions without executing framework source code.
 
 ---
 
@@ -247,9 +255,10 @@ Future consideration:
 ### License Summary
 
 All dependencies use permissive open-source licenses:
-- **MIT**: Most packages (FastAPI, FastEmbed, acorn, etc.)
-- **Apache-2.0**: LanceDB, aiorwlock
-- **BSD-3-Clause**: uvicorn, httpx, pandas
+- **MIT**: FastAPI, MCP SDK, Acorn, and other MIT-licensed utilities
+- **Apache-2.0**: LanceDB, FastEmbed, python-multipart, aiorwlock
+- **BSD-3-Clause**: Starlette, uvicorn, httpx, pandas, NumPy
+- **MIT-CMU**: Pillow
 - **PSF License**: Python, typing-extensions
 
 **No proprietary or copyleft (GPL) licenses used.**
@@ -261,14 +270,14 @@ All dependencies use permissive open-source licenses:
 #### Dependency Scanning
 
 We use GitHub Dependabot and manual security audits:
-- **Python**: `safety check` (scans for known vulnerabilities)
+- **Python**: `safety check` in CI and `pip-audit` during release validation
 - **Node.js**: `npm audit` (scans for known vulnerabilities)
 - **GitHub Actions**: Automated CodeQL scanning
 
 #### Known Security Practices
 
-1. **Pinned Versions**: Most packages use exact versions (e.g., `fastapi==0.121.1`)
-2. **Exception**: pandas uses `>=2.0.0` to allow security patches
+1. **Pinned Versions**: Most packages use exact versions (e.g., `fastapi==0.139.2`)
+2. **Range pins**: pandas uses `>=2.0.0`; NumPy uses `>=1.24,<3`
 3. **Regular Updates**: Dependencies reviewed monthly for security updates
 
 #### Input Validation
@@ -295,7 +304,7 @@ All user inputs sanitized via:
 **Critical Security Updates**: Applied immediately upon disclosure
 
 **Testing**: All updates tested against:
-- Python 3.9, 3.10, 3.11, 3.12, 3.13
+- Python 3.10, 3.11, 3.12, 3.13
 - Windows, macOS, Linux
 - Full test suite (pytest)
 

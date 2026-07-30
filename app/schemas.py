@@ -239,7 +239,7 @@ class StatusResponse(BaseModel):
                     "sync_info": {
                         "last_synced_at": "2025-11-09T09:00:00Z",
                         "current_commit_sha": "abc123def456...",
-                        "framework_version": "1.20260724",
+                        "framework_version": "1.20260728",
                         "framework_authoring_schema_version": "1.7",
                         "framework_public_schema_version": "2.3",
                         "index_schema_version": "3.2",

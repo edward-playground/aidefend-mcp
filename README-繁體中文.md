@@ -7,7 +7,7 @@
 [![CI](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.13-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.121.1-009688.svg)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.139.2-009688.svg)](https://fastapi.tiangolo.com)
 
 這個 repo 是 [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework) 的本地檢索服務層。
 
@@ -37,7 +37,7 @@
 
 ## 持續相容上游更新
 
-目前 release 的精確驗證快照是 AIDEFEND **1.20260724**、authoring schema
+目前 release 的精確驗證快照是 AIDEFEND **1.20260728**、authoring schema
 **1.7**、public schema **2.3** 與 index schema **3.2**，並涵蓋 framework
 的三種工具分類：開源、source-available/open-weight 與商業工具。快照中的
 ID、標題、筆數與順序只是這個 release 的驗證範例，不是永久的 runtime 限制。
@@ -241,7 +241,7 @@ docker compose up -d
   以及每天驗證最新公開 framework 的 rolling upstream canary。
 - Source contract 會從 framework 的 `main.js` manifest 動態取得有順序的
   tactic 檔案集合，不會把 runtime 綁死在目前七個檔名或標題。
-- 目前 release contract 已對齊 AIDEFEND **1.20260724**、authoring schema
+- 目前 release contract 已對齊 AIDEFEND **1.20260728**、authoring schema
   **1.7**、public schema **2.3** 與 index schema **3.2**。這是精確驗證快照，
   不是對未來 framework ID、標題、內容、筆數或順序的固定限制。
 

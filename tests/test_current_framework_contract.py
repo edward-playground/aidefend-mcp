@@ -1,5 +1,6 @@
 """Release-contract tests for the current AIDEFEND framework source."""
 
+import hashlib
 import os
 import re
 import shutil
@@ -215,7 +216,7 @@ def test_current_framework_version_export_is_resolved():
         pytest.fail("aidefend-intro.js is not available for the release gate")
 
     version = extract_framework_version(intro)
-    assert version == "1.20260724"
+    assert version == "1.20260728"
     assert "Identifier" not in version
 
     staged_files = [intro]
@@ -225,7 +226,48 @@ def test_current_framework_version_export_is_resolved():
     )
     assert _compute_staged_framework_digest(
         staged_files, algorithm="sha256"
-    ) == "f817a4c8dbb9982d9ea6460a0db5d24e680363062e173fc4dd941f52820d751d"
+    ) == "2961b92e2f26fbc5df465304bbb05eee814ed78c42e2faec26a997b55281ddc1"
+
+
+@pytest.mark.current_snapshot
+def test_current_chained_static_guidance_outputs_are_exact(tmp_path, monkeypatch):
+    root = _framework_root()
+    monkeypatch.setattr(settings, "RAW_PATH", tmp_path)
+    staged_path = tmp_path / "detect.js"
+    shutil.copyfile(_tactic_path(root, "detect.js"), staged_path)
+    tactic = parse_tactic_file(staged_path)
+    assert tactic is not None
+
+    expected = {
+        "AID-D-005.003-G003": (
+            21_681,
+            "b45f4450d7981ed05896fb954034b4fc4716e66ec18a01fd98b7ec6d26d5c430",
+        ),
+        "AID-D-005.009-G002": (
+            22_054,
+            "1788c625aa5f3937bd09b3f50321df24896b2e8cfe7b4b2ed160082c98142eac",
+        ),
+        "AID-D-005.009-G003": (
+            15_703,
+            "ac34608c5e4b14a169f6f0a1b859f6ccda6f60d6ade264f6fe9f118196df000d",
+        ),
+    }
+    actual = {}
+    for technique in tactic["techniques"]:
+        for control in [technique, *technique.get("subTechniques", [])]:
+            for guidance in control.get("implementationGuidance", []):
+                guidance_id = guidance.get("id")
+                if guidance_id not in expected:
+                    continue
+                how_to = guidance.get("howTo")
+                assert isinstance(how_to, str) and how_to.strip()
+                encoded = how_to.encode("utf-8")
+                actual[guidance_id] = (
+                    len(encoded),
+                    hashlib.sha256(encoded).hexdigest(),
+                )
+
+    assert actual == expected
 
 
 @pytest.mark.current_snapshot

@@ -1,9 +1,11 @@
 """Tests for safe, dynamic framework tactic discovery."""
 
+import os
 from pathlib import Path
 
 import pytest
 
+from app.config import settings
 from app.framework_manifest import (
     FrameworkManifestError,
     load_local_tactic_manifest,
@@ -31,11 +33,8 @@ def _manifest(imports: list[tuple[str, str]], members: list[str]) -> str:
 
 
 @pytest.mark.current_snapshot
-def test_current_local_framework_manifest_yields_the_seven_tactics_in_order():
-    framework_root = Path(__file__).resolve().parents[2] / "aidefense-framework"
-    assert (framework_root / "main.js").is_file(), framework_root
-
-    assert load_local_tactic_manifest(framework_root, "tactics") == [
+def test_current_framework_manifest_yields_the_seven_tactics_in_order():
+    expected = [
         "model.js",
         "harden.js",
         "detect.js",
@@ -44,6 +43,29 @@ def test_current_local_framework_manifest_yields_the_seven_tactics_in_order():
         "evict.js",
         "restore.js",
     ]
+
+    if os.getenv("LOCAL_FRAMEWORK_PATH"):
+        framework_root = Path(os.environ["LOCAL_FRAMEWORK_PATH"])
+        assert load_local_tactic_manifest(framework_root, "tactics") == expected
+        return
+
+    # CI stages the immutable upstream manifest directly under RAW_PATH before
+    # running the explicit current-snapshot gate; it does not check out a
+    # sibling framework repository.
+    staged_manifest = settings.RAW_PATH / "main.js"
+    if staged_manifest.is_file():
+        assert (
+            parse_tactic_manifest(staged_manifest.read_text(encoding="utf-8"))
+            == expected
+        )
+        return
+
+    framework_root = Path(__file__).resolve().parents[2] / "aidefense-framework"
+    if (framework_root / "main.js").is_file():
+        assert load_local_tactic_manifest(framework_root, "tactics") == expected
+        return
+
+    pytest.fail("No AIDEFEND framework main.js is available for the release gate")
 
 
 def test_synthetic_future_manifest_adds_and_renames_tactics_in_framework_order(tmp_path):

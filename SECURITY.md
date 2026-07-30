@@ -38,14 +38,16 @@ AIDEFEND MCP Service operates in two modes with different security models:
 - **Purpose**: Local development, personal use
 - **Security**: NO authentication required
 - **Suitable for**:
-  - ✅ Local development on `127.0.0.1` (localhost)
+  - ✅ Local development on `localhost`, `127.0.0.0/8`, or `::1`
   - ✅ Personal use on your own machine
-  - ✅ Trusted private networks
 - **NOT suitable for**:
   - ❌ Production deployment
   - ❌ Public networks
+  - ❌ Private/LAN network bindings
   - ❌ Team collaboration over network
-- **Enforced Safety**: Service refuses to start if `API_HOST=0.0.0.0` with `no_auth`
+- **Enforced Safety**: With `no_auth`, the service starts only for an explicit
+  loopback IP or `localhost`; wildcard, LAN/public IP, empty, and unknown
+  hostname bindings are rejected
 
 ##### `AUTH_MODE=api_key` (Production)
 - **Purpose**: Production deployment, team collaboration

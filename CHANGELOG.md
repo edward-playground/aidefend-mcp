@@ -5,6 +5,29 @@ All notable changes to AIDEFEND MCP Service will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Materialize the framework's bounded static `join` / `replace` / arrow-expression
+  `map` chains without executing tactic source code.
+- Reject unsupported calls, computed members, spreads, free variables, dynamic
+  templates, and other non-static AST shapes at the parser boundary instead of
+  silently emitting `null`, marker strings, or incomplete objects.
+- Bound parser AST nodes, evaluation operations, call-chain depth, array size,
+  individual string results, and serialized output size.
+- Report the effective configured REST host and port in the CLI startup banner.
+- Permit unauthenticated REST binding only on an explicit IPv4/IPv6 loopback
+  address, fail closed for wildcard/LAN/unknown hosts, and render IPv6 URLs correctly.
+
+### Changed
+- Advance the exact release snapshot sentinel to AIDEFEND 1.20260728 and make the
+  manual CI snapshot gate execute every `current_snapshot` test against either an
+  explicit local source or the immutable framework files staged by CI.
+- Upgrade the FastAPI/Starlette, MCP SDK, multipart parser, and FastEmbed/Pillow
+  dependency chain to releases that clear the current vulnerability audit.
+- Refresh the pinned pytest, pytest-asyncio, Black, Safety, and pip-audit
+  development toolchain so the complete release environment also audits cleanly.
+
 ## [1.2.0] - 2026-07-24
 
 ### Added

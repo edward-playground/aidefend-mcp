@@ -254,6 +254,59 @@ def test_resync_failure_does_not_predelete_live_database_or_version(
     assert version_path.read_text(encoding="utf-8") == '{"source_revision":"current"}'
 
 
+def test_api_cli_banner_uses_effective_host_and_port(monkeypatch, capsys):
+    import uvicorn
+
+    calls = []
+
+    def fake_run(_app, **kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(settings, "API_HOST", "127.0.0.2")
+    monkeypatch.setattr(settings, "API_PORT", 18765)
+    monkeypatch.setattr(settings, "API_WORKERS", 1)
+    monkeypatch.setattr(settings, "LOG_LEVEL", "INFO")
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["aidefend-mcp", "--api"])
+
+    cli_module.main()
+
+    stderr = capsys.readouterr().err
+    assert "API will be available at: http://127.0.0.2:18765" in stderr
+    assert "API documentation: http://127.0.0.2:18765/docs" in stderr
+    assert calls == [
+        {
+            "host": "127.0.0.2",
+            "port": 18765,
+            "workers": 1,
+            "log_level": "info",
+        }
+    ]
+
+
+def test_api_cli_banner_brackets_ipv6_host(monkeypatch, capsys):
+    import uvicorn
+
+    calls = []
+
+    def fake_run(_app, **kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(settings, "API_HOST", "::1")
+    monkeypatch.setattr(settings, "API_PORT", 18766)
+    monkeypatch.setattr(settings, "API_WORKERS", 1)
+    monkeypatch.setattr(settings, "LOG_LEVEL", "INFO")
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["aidefend-mcp", "--api"])
+
+    cli_module.main()
+
+    stderr = capsys.readouterr().err
+    assert "API will be available at: http://[::1]:18766" in stderr
+    assert "API documentation: http://[::1]:18766/docs" in stderr
+    assert calls[0]["host"] == "::1"
+
+
 def test_container_definition_static_contracts():
     repository_root = Path(__file__).resolve().parents[1]
     dockerfile = (repository_root / 'Dockerfile').read_text(encoding='utf-8')

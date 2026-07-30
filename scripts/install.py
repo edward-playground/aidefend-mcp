@@ -66,7 +66,7 @@ def check_python_version() -> Tuple[bool, str]:
     """
     Check if Python version meets requirements (3.10+).
 
-    Note: the effective floor is 3.10 because mcp==1.21.0 (and ipython in the dev extra)
+    Note: the effective floor is 3.10 because mcp==1.29.0 (and ipython in the dev extra)
     require Python >=3.10; a 3.9 install fails at dependency resolution.
 
     Returns:
@@ -1522,7 +1522,7 @@ def main():
         if py_valid:
             print(f"   ✅ Python {py_version} (OK)")
         else:
-            print(f"   ❌ Python {py_version} - Need 3.9+")
+            print(f"   ❌ Python {py_version} - Need 3.10+")
             print(f"      Download: https://www.python.org/downloads/")
             all_ok = False
 
@@ -1612,7 +1612,7 @@ def main():
     print(f"   Python version: {py_version}")
 
     if not py_valid:
-        print(f"❌ Python 3.9+ required, found {py_version}")
+        print(f"❌ Python 3.10+ required, found {py_version}")
         print("   Please upgrade Python: https://www.python.org/downloads/")
         return 1
     print("✅ Python version OK")

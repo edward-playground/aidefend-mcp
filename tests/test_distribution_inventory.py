@@ -13,6 +13,7 @@ from scripts.verify_distribution_inventory import (
     WHEEL_REQUIRED_ASSET_SUFFIXES,
     COMMON_REQUIRED_FILES,
     DistributionInventoryError,
+    _expected_requires_dist_lines,
     verify_distribution_inventory,
     verify_sdist,
     verify_wheel,
@@ -25,12 +26,50 @@ WHEEL_ASSET_FILES = {
 WHEEL_REQUIRED_FILES = COMMON_REQUIRED_FILES | WHEEL_ASSET_FILES
 
 
-def _write_wheel(path: Path, members=None) -> Path:
+def _metadata_payload(
+    requires_dist=None,
+    *,
+    name: str = "aidefend-mcp",
+    version: str = "1.2.0",
+) -> bytes:
+    selected = (
+        _expected_requires_dist_lines()
+        if requires_dist is None
+        else list(requires_dist)
+    )
+    lines = [
+        "Metadata-Version: 2.4",
+        f"Name: {name}",
+        f"Version: {version}",
+        *(f"Requires-Dist: {requirement}" for requirement in selected),
+        "",
+    ]
+    return "\n".join(lines).encode("utf-8")
+
+
+def _write_wheel(
+    path: Path,
+    members=None,
+    *,
+    requires_dist=None,
+    metadata_name: str = "aidefend-mcp",
+    metadata_version: str = "1.2.0",
+) -> Path:
     selected = set(WHEEL_REQUIRED_FILES) if members is None else set(members)
-    selected.add("aidefend_mcp-1.2.0.dist-info/METADATA")
+    metadata_member = "aidefend_mcp-1.2.0.dist-info/METADATA"
+    selected.add(metadata_member)
     with zipfile.ZipFile(path, mode="w") as archive:
         for member in sorted(selected):
-            archive.writestr(member, b"fixture")
+            payload = (
+                _metadata_payload(
+                    requires_dist,
+                    name=metadata_name,
+                    version=metadata_version,
+                )
+                if member == metadata_member
+                else b"fixture"
+            )
+            archive.writestr(member, payload)
     return path
 
 
@@ -152,6 +191,39 @@ def test_wheel_rejects_mismatched_data_and_metadata_prefixes(tmp_path):
         members,
     )
     with pytest.raises(DistributionInventoryError, match="same distribution/version"):
+        verify_wheel(wheel)
+
+
+def test_wheel_rejects_requires_dist_that_differs_from_pyproject(tmp_path):
+    wheel = _write_wheel(
+        tmp_path / "aidefend_mcp-1.2.0-py3-none-any.whl",
+        requires_dist=["attacker-package==9.9.9"],
+    )
+
+    with pytest.raises(
+        DistributionInventoryError,
+        match="METADATA dependencies differ from pyproject.toml",
+    ):
+        verify_wheel(wheel)
+
+
+@pytest.mark.parametrize(
+    ("metadata_name", "metadata_version"),
+    [("attacker-project", "1.2.0"), ("aidefend-mcp", "9.9.9")],
+)
+def test_wheel_rejects_metadata_identity_that_differs_from_pyproject(
+    tmp_path, metadata_name, metadata_version
+):
+    wheel = _write_wheel(
+        tmp_path / "aidefend_mcp-1.2.0-py3-none-any.whl",
+        metadata_name=metadata_name,
+        metadata_version=metadata_version,
+    )
+
+    with pytest.raises(
+        DistributionInventoryError,
+        match="METADATA identity differs from pyproject.toml",
+    ):
         verify_wheel(wheel)
 
 

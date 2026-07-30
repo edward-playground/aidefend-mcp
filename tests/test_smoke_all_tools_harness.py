@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from fastapi import APIRouter, FastAPI
 
 from scripts.smoke_all_tools import (
     ANY_AIDEFEND_ID_RE,
@@ -13,6 +14,7 @@ from scripts.smoke_all_tools import (
     SmokeFailure,
     assert_no_generic_mcp_error,
     build_smoke_cases,
+    openapi_route_inventory,
     select_dynamic_fixtures,
     validate_mcp_text,
     validate_rest_payload,
@@ -101,6 +103,19 @@ def test_smoke_inventory_pairs_exactly_18_tools_and_routes():
     compliance = next(case for case in cases if case.name == "map_to_compliance_framework")
     assert coverage.rest_json == list(fixtures.control_ids)
     assert compliance.rest_json == list(fixtures.control_ids)
+
+
+def test_route_inventory_uses_public_openapi_for_included_routers():
+    router = APIRouter(prefix="/api/v1")
+
+    @router.get("/status")
+    async def status():
+        return {"status": "ok"}
+
+    app = FastAPI()
+    app.include_router(router)
+
+    assert ("GET", "/api/v1/status") in openapi_route_inventory(app)
 
 
 @pytest.mark.parametrize(

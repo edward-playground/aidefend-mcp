@@ -3,6 +3,7 @@ Configuration module for AIDEFEND MCP Service.
 Uses Pydantic BaseSettings for environment variable management.
 """
 
+import ipaddress
 import logging
 import os
 import sys
@@ -309,11 +310,11 @@ class Settings(BaseSettings):
         )
     )
     CORS_ORIGIN_REGEX: str = Field(
-        default=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        default=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
         description=(
-            "Regex matched against the request Origin for CORS. Default allows localhost / "
-            "127.0.0.1 on any port (any local dev UI). Set to '' to disable regex matching "
-            "and rely solely on CORS_ORIGINS."
+            "Regex matched against the request Origin for CORS. Default allows localhost, "
+            "127.0.0.1, and [::1] on any port (any local dev UI). Set to '' to disable "
+            "regex matching and rely solely on CORS_ORIGINS."
         )
     )
 
@@ -431,21 +432,39 @@ class Settings(BaseSettings):
             )
         return self
 
+    @field_validator("API_HOST")
+    @classmethod
+    def normalize_api_host(cls, value: str) -> str:
+        """Normalize a bind host and reject values Uvicorn cannot use safely."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("API_HOST must be a non-empty host or IP address")
+        return normalized
+
     @model_validator(mode='after')
     def validate_api_host_with_auth(self):
         """
         Validate API host binding with authentication mode.
 
-        Security Policy: Binding to 0.0.0.0 (all interfaces) requires authentication.
-        This prevents accidental exposure of unauthenticated service to network.
+        Security Policy: no-auth mode is allowed only on an explicit loopback
+        address (or ``localhost``). Wildcard, LAN, public, empty, and unknown
+        hostname bindings require authentication.
 
         Note: Uses model_validator(mode='after') to ensure all fields are validated
         before cross-field validation is performed.
         """
-        # Check if binding to external interfaces (0.0.0.0 or empty string)
-        is_external_binding = self.API_HOST in ["0.0.0.0", ""]  # nosec B104
+        host = self.API_HOST.strip()
+        if host.lower() == "localhost":
+            is_loopback_binding = True
+        else:
+            try:
+                is_loopback_binding = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                # Hostnames can resolve differently across machines or change
+                # after validation, so unknown names fail closed in no-auth mode.
+                is_loopback_binding = False
 
-        if is_external_binding and self.AUTH_MODE == "no_auth":
+        if not is_loopback_binding and self.AUTH_MODE == "no_auth":
             raise ValueError(
                 "\n" + "=" * 70 + "\n"
                 "SECURITY ERROR: Cannot bind to external IP without authentication!\n\n"

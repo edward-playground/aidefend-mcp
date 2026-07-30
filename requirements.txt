@@ -1,11 +1,12 @@
 # AIDEFEND MCP Service Dependencies
-# Requires Python >= 3.10 (mcp==1.21.0 and ipython require >=3.10). Verified on 3.13.
-# Last updated: 2025-11-10
+# Requires Python >= 3.10 (mcp==1.29.0 and ipython require >=3.10). Verified on 3.13.
+# Last updated: 2026-07-29
 
 # FastAPI and server
-fastapi==0.121.1
+fastapi==0.139.2
+starlette==1.3.1
 uvicorn[standard]==0.38.0
-python-multipart==0.0.20
+python-multipart==0.0.32
 
 # Pydantic and settings
 pydantic==2.12.4
@@ -22,10 +23,11 @@ pandas>=2.0.0
 numpy>=1.24,<3
 
 # Embedding and ML (lightweight ONNX-based)
-fastembed==0.7.3
+fastembed==0.8.0
+pillow==12.3.0
 
 # MCP (Model Context Protocol) SDK
-mcp==1.21.0
+mcp==1.29.0
 
 # Windows-specific: MCP SDK requires pywin32 for Windows platform APIs
 pywin32==311; sys_platform == 'win32'

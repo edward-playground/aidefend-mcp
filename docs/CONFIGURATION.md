@@ -87,12 +87,13 @@ Load Balancer
 **Default mode for local development:**
 
 - No authentication required
-- Suitable for local development on `127.0.0.1`
-- **Safety**: Service refuses to start if `API_HOST=0.0.0.0` with `no_auth`
+- Suitable only for local development on `localhost`, `127.0.0.0/8`, or `::1`
+- **Safety**: Wildcard, LAN/public IP, empty, and unknown hostname bindings are
+  rejected when `AUTH_MODE=no_auth`
 
 ```bash
 AUTH_MODE=no_auth
-API_HOST=127.0.0.1  # Required for no_auth mode
+API_HOST=127.0.0.1  # Any explicit loopback IP, or localhost
 ```
 
 ### Production Mode (`AUTH_MODE=api_key`)

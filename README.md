@@ -7,7 +7,7 @@
 [![CI](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.13-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.121.1-009688.svg)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.139.2-009688.svg)](https://fastapi.tiangolo.com)
 
 Local retrieval service for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework).
 
@@ -37,7 +37,7 @@ This repository is **not** the framework itself. It is the service layer on top 
 
 ## Rolling Framework Compatibility
 
-The current release validation snapshot is AIDEFEND **1.20260724** with
+The current release validation snapshot is AIDEFEND **1.20260728** with
 authoring schema **1.7**, public schema **2.3**, and index schema **3.2**. It
 includes all three framework tool categories: open-source,
 source-available/open-weight, and commercial. Snapshot IDs, titles, counts,

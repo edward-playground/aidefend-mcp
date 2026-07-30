@@ -190,9 +190,10 @@ class TestStatusAPIIntegration:
         """Status endpoint should be defined in main.py."""
         from app.main import app
 
-        # Verify app has the endpoint
-        routes = [route.path for route in app.routes]
-        assert "/api/v1/status" in routes or any("/status" in route for route in routes)
+        # Use FastAPI's public OpenAPI contract. Newer FastAPI versions retain
+        # included routers as private lazy wrapper objects in ``app.routes``.
+        routes = app.openapi()["paths"]
+        assert "/api/v1/status" in routes
 
 
 class TestStatusMCPIntegration:

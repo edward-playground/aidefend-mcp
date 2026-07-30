@@ -3,7 +3,7 @@
 本文件提供 AIDEFEND MCP Service 中所有 **18 個 MCP 工具**的詳細文件。
 
 > **即時資料說明：** 本文件中的 ID、名稱與語料筆數已對齊 AIDEFEND
-> 1.20260724（authoring schema 1.7、public schema 2.3、index schema
+> 1.20260728（authoring schema 1.7、public schema 2.3、index schema
 > 3.2：92 個 techniques + 265 個 sub-techniques + 851 筆 guidance =
 > 1,208 份文件）。排名、分數、時間、framework coverage 總數與工具數量
 > 都會依客戶實際同步的版本重新計算；這些快照筆數只是範例，不是 runtime
@@ -91,7 +91,7 @@ curl http://localhost:8000/api/v1/status
   "total_documents": 1208,
   "embedding_model": "Xenova/multilingual-e5-base",
   "last_sync": "2025-01-18T10:30:00Z",
-  "framework_version": "1.20260724"
+  "framework_version": "1.20260728"
 }
 ```
 
@@ -115,7 +115,7 @@ Claude：[使用 sync_aidefend 工具]
         下載最新內容...
         解析技術...
         生成 embeddings...
-        ✅ 同步完成！知識庫已更新至版本 1.20260724
+        ✅ 同步完成！知識庫已更新至版本 1.20260728
 ```
 
 #### REST API 範例：
@@ -129,7 +129,7 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20260724",
+  "framework_version": "1.20260728",
   "documents_synced": 1208,
   "sync_duration_seconds": 42.3
 }

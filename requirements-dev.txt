@@ -1,23 +1,24 @@
 # Development dependencies
 # Updated to latest stable versions for Python 3.13 compatibility
-# Last updated: 2025-11-10
+# Last updated: 2026-07-29
 
 -r requirements.txt
 
 # Testing
-pytest==8.3.4
-pytest-asyncio==0.25.2
+pytest==9.1.1
+pytest-asyncio==1.4.0
 pytest-cov==6.0.0
 httpx==0.28.1  # For testing async endpoints
 
 # Code quality
-black==24.10.0
+black==26.5.1
 flake8==7.1.1
 mypy==1.14.1
 isort==5.13.2
 
 # Security scanning
-safety==3.2.11
+safety==3.8.1
+pip-audit==2.10.1
 bandit==1.8.0
 
 # Development tools
