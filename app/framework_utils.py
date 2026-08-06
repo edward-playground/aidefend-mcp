@@ -35,7 +35,29 @@ UNKNOWN_FRAMEWORK_KEY_PREFIX = "framework:"
 _CoverageValue = TypeVar("_CoverageValue")
 
 
-def framework_coverage_key(framework_name: str) -> Optional[str]:
+class FrameworkLabelMap(dict[str, str]):
+    """Active labels plus non-serialized aliases from prior registry editions.
+
+    The object intentionally remains a normal ``dict`` for public response and
+    Pydantic compatibility.  Edition aliases are runtime lookup metadata only;
+    callers still see one active label per stable framework key.
+    """
+
+    def __init__(
+        self,
+        labels: Mapping[str, str],
+        *,
+        edition_aliases: Iterable[tuple[str, str]] = (),
+    ) -> None:
+        super().__init__(labels)
+        self.edition_aliases = tuple(edition_aliases)
+
+
+def framework_coverage_key(
+    framework_name: str,
+    *,
+    framework_labels: Optional[Mapping[str, str]] = None,
+) -> Optional[str]:
     """Return the stable coverage key for a framework label.
 
     Known AIDEFEND framework labels keep their long-standing internal keys.
@@ -45,7 +67,10 @@ def framework_coverage_key(framework_name: str) -> Optional[str]:
     if not isinstance(framework_name, str):
         return None
 
-    known_key = framework_key(framework_name)
+    known_key = framework_key(
+        framework_name,
+        framework_labels=framework_labels,
+    )
     if known_key:
         return known_key
 
@@ -53,10 +78,86 @@ def framework_coverage_key(framework_name: str) -> Optional[str]:
     return f"{UNKNOWN_FRAMEWORK_KEY_PREFIX}{exact_label}" if exact_label else None
 
 
-def framework_coverage_label(coverage_key: str) -> str:
+def framework_labels_from_registry(
+    registry: Optional[Mapping[str, Any]],
+) -> Dict[str, str]:
+    """Return effective labels for one atomically activated framework registry.
+
+    ``FRAMEWORK_LABELS`` deliberately remains the legacy/no-registry fallback.
+    That lets a newly installed MCP package continue to describe an existing
+    2025 index truthfully until a successful sync atomically activates the 2026
+    corpus and its migration registry together.
+    """
+    labels = dict(FRAMEWORK_LABELS)
+    if registry is None:
+        return FrameworkLabelMap(labels)
+
+    from app.framework_migrations import validate_framework_migration_registry
+
+    # Absence means a supported legacy index. Presence plus invalid content is
+    # corruption or an unsupported contract and must not be mislabeled as 2025.
+    validated = validate_framework_migration_registry(registry)
+
+    frameworks = validated.get("frameworks")
+    if not isinstance(frameworks, Mapping):
+        return labels
+
+    edition_aliases: List[tuple[str, str]] = []
+    for key in labels:
+        entry = frameworks.get(key)
+        if not isinstance(entry, Mapping) or entry.get("stableKey") != key:
+            continue
+        active_label = entry.get("activeLabel")
+        if isinstance(active_label, str) and active_label.strip() == active_label:
+            labels[key] = active_label
+        editions = entry.get("editions")
+        if isinstance(editions, Mapping):
+            for edition_record in editions.values():
+                if not isinstance(edition_record, Mapping):
+                    continue
+                edition_label = edition_record.get("label")
+                if isinstance(edition_label, str):
+                    edition_aliases.append((edition_label, key))
+    effective = FrameworkLabelMap(
+        labels,
+        edition_aliases=edition_aliases,
+    )
+    _framework_label_index(effective)
+    return effective
+
+
+def framework_labels_from_version_info(
+    version_info: Optional[Mapping[str, Any]],
+) -> Dict[str, str]:
+    """Resolve labels from the migration registry in atomic version metadata.
+
+    A genuinely absent registry key identifies the supported legacy index.
+    Once the key is present, its value is part of the activated atomic contract;
+    malformed values must fail closed instead of being mistaken for absence.
+    """
+    if not isinstance(version_info, Mapping) or (
+        "framework_migrations" not in version_info
+    ):
+        return framework_labels_from_registry(None)
+
+    registry = version_info["framework_migrations"]
+    if not isinstance(registry, Mapping):
+        from app.framework_migrations import FrameworkMigrationRegistryError
+
+        raise FrameworkMigrationRegistryError(
+            "version_info.framework_migrations must be an object when present"
+        )
+    return framework_labels_from_registry(registry)
+
+
+def framework_coverage_label(
+    coverage_key: str,
+    framework_labels: Optional[Mapping[str, str]] = None,
+) -> str:
     """Return the source-facing label for a known or additive coverage key."""
-    if coverage_key in FRAMEWORK_LABELS:
-        return FRAMEWORK_LABELS[coverage_key]
+    labels = _effective_framework_labels(framework_labels)
+    if coverage_key in labels:
+        return labels[coverage_key]
     return framework_public_coverage_key(coverage_key)
 
 
@@ -228,8 +329,10 @@ def canonicalize_maestro_identifier(value: str) -> Optional[str]:
     return _MAESTRO_BY_CASEFOLD.get(candidate.casefold())
 
 
-def framework_key(framework_name: str) -> Optional[str]:
-    """Map AIDEFEND framework labels to stable internal keys."""
+def _legacy_framework_key(framework_name: str) -> Optional[str]:
+    """Classify labels understood before the migration registry existed."""
+    if not isinstance(framework_name, str):
+        return None
     name = framework_name.upper().strip()
 
     if "OWASP" in name and "LLM" in name:
@@ -252,6 +355,112 @@ def framework_key(framework_name: str) -> Optional[str]:
         return "databricks"
 
     return None
+
+
+def _framework_label_index(
+    framework_labels: Mapping[str, str],
+) -> Dict[str, str]:
+    """Validate and index active plus superseded edition labels."""
+    from app.framework_migrations import FrameworkMigrationRegistryError
+
+    exact: Dict[str, str] = {}
+
+    def register(key: str, label: str, *, label_kind: str) -> None:
+        if key not in FRAMEWORK_LABELS:
+            raise FrameworkMigrationRegistryError(
+                f"unknown stable framework key in {label_kind}: {key!r}"
+            )
+        if (
+            not isinstance(label, str)
+            or not label
+            or label != label.strip()
+        ):
+            raise FrameworkMigrationRegistryError(
+                f"{label_kind} for {key!r} must be a non-empty non-padded string"
+            )
+        folded = label.casefold()
+        prior_key = exact.get(folded)
+        if prior_key is not None and prior_key != key:
+            raise FrameworkMigrationRegistryError(
+                "effective framework labels and edition aliases collide "
+                "case-insensitively: "
+                f"{prior_key!r} and {key!r} both use {label!r}"
+            )
+        legacy_key = _legacy_framework_key(label)
+        if legacy_key is not None and legacy_key != key:
+            raise FrameworkMigrationRegistryError(
+                f"{label_kind} {label!r} for {key!r} is classified as "
+                f"legacy stable key {legacy_key!r}"
+            )
+        exact[folded] = key
+
+    for key, label in framework_labels.items():
+        register(key, label, label_kind="active label")
+
+    aliases = getattr(framework_labels, "edition_aliases", ())
+    if not isinstance(aliases, tuple):
+        raise FrameworkMigrationRegistryError(
+            "framework edition aliases must be an immutable sequence"
+        )
+    for alias in aliases:
+        if (
+            not isinstance(alias, tuple)
+            or len(alias) != 2
+        ):
+            raise FrameworkMigrationRegistryError(
+                "framework edition aliases must contain label/key pairs"
+            )
+        label, key = alias
+        register(key, label, label_kind="edition label")
+    return exact
+
+
+def _effective_framework_labels(
+    framework_labels: Optional[Mapping[str, str]],
+) -> Dict[str, str]:
+    labels = dict(FRAMEWORK_LABELS)
+    edition_aliases: Iterable[tuple[str, str]] = ()
+    if framework_labels is not None:
+        if not isinstance(framework_labels, Mapping):
+            from app.framework_migrations import FrameworkMigrationRegistryError
+
+            raise FrameworkMigrationRegistryError(
+                "effective framework labels must be an object"
+            )
+        for key, label in framework_labels.items():
+            if key not in FRAMEWORK_LABELS:
+                from app.framework_migrations import FrameworkMigrationRegistryError
+
+                raise FrameworkMigrationRegistryError(
+                    f"unknown stable framework key in active labels: {key!r}"
+                )
+            labels[key] = label
+        edition_aliases = getattr(framework_labels, "edition_aliases", ())
+    effective = FrameworkLabelMap(
+        labels,
+        edition_aliases=edition_aliases,
+    )
+    _framework_label_index(effective)
+    return effective
+
+
+def framework_key(
+    framework_name: str,
+    *,
+    framework_labels: Optional[Mapping[str, str]] = None,
+) -> Optional[str]:
+    """Map an active, legacy, or static framework label to a stable key."""
+    if not isinstance(framework_name, str):
+        return None
+
+    if framework_labels is not None:
+        labels = _effective_framework_labels(framework_labels)
+        exact = _framework_label_index(labels)
+        exact_key = exact.get(framework_name.strip().casefold())
+        if exact_key is not None:
+            return exact_key
+
+    return _legacy_framework_key(framework_name)
 
 
 def parse_json_list(value: Any) -> List[Any]:
@@ -371,7 +580,12 @@ def coverage_lists_from_sets(coverage: Dict[str, Set[str]]) -> Dict[str, List[st
     )
 
 
-def normalize_framework_item(framework_name: str, item: str) -> Optional[str]:
+def normalize_framework_item(
+    framework_name: str,
+    item: str,
+    *,
+    framework_labels: Optional[Mapping[str, str]] = None,
+) -> Optional[str]:
     """Normalize a framework mapping item into a stable canonical identifier."""
     if not item or not isinstance(item, str):
         return None
@@ -380,7 +594,10 @@ def normalize_framework_item(framework_name: str, item: str) -> Optional[str]:
     if not item or item.upper().startswith("N/A"):
         return None
 
-    key = framework_key(framework_name)
+    key = framework_key(
+        framework_name,
+        framework_labels=framework_labels,
+    )
     item_upper = item.upper()
 
     if key == "owasp_llm":
@@ -436,18 +653,29 @@ def normalize_framework_item(framework_name: str, item: str) -> Optional[str]:
     return item
 
 
-def extract_framework_coverage(defends_against: Iterable[Dict[str, Any]]) -> Dict[str, Set[str]]:
+def extract_framework_coverage(
+    defends_against: Iterable[Dict[str, Any]],
+    *,
+    framework_labels: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Set[str]]:
     """Extract normalized framework coverage sets from a defendsAgainst list."""
     coverage = empty_framework_sets()
 
     for mapping in defends_against or []:
         framework_name = mapping.get("framework", "")
-        key = framework_coverage_key(framework_name)
+        key = framework_coverage_key(
+            framework_name,
+            framework_labels=framework_labels,
+        )
         if not key:
             continue
 
         for item in mapping.get("items", []):
-            normalized = normalize_framework_item(framework_name, item)
+            normalized = normalize_framework_item(
+                framework_name,
+                item,
+                framework_labels=framework_labels,
+            )
             if normalized:
                 coverage.setdefault(key, set()).add(normalized)
 
@@ -474,8 +702,11 @@ def merge_framework_coverage_sets(*coverage_sets: Dict[str, Set[str]]) -> Dict[s
 def build_framework_metrics(
     covered_sets: Dict[str, Set[str]],
     total_sets: Dict[str, Set[str]],
+    *,
+    framework_labels: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Any]:
     """Build a consistent metrics payload for framework coverage."""
+    labels = _effective_framework_labels(framework_labels)
     metrics: Dict[str, Any] = {
         "by_framework": {},
     }
@@ -491,7 +722,7 @@ def build_framework_metrics(
         )
 
         metrics["by_framework"][key] = {
-            "label": FRAMEWORK_LABELS[key],
+            "label": labels[key],
             "items_covered": covered_count,
             "total_items": total,
             "coverage_percentage": percentage,
@@ -508,7 +739,7 @@ def build_framework_metrics(
     dynamic_metrics = {}
     for key in dynamic_keys:
         dynamic_metrics[key] = {
-            "label": framework_coverage_label(key),
+            "label": framework_coverage_label(key, labels),
             "items_covered": len(covered_sets.get(key, set())),
             "total_items": None,
             "coverage_percentage": None,

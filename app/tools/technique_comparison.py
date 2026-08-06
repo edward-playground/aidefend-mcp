@@ -8,7 +8,7 @@ All scoring is 100% local using metadata analysis - no ML inference required.
 """
 
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Mapping, Optional
 
 from app.logger import get_logger
 from app.security import InputValidationError, sanitize_technique_id
@@ -16,6 +16,7 @@ from app.core import decode_framework_record, query_engine
 from app.exceptions import QueryEngineNotInitializedError
 from app.framework_utils import (
     extract_framework_coverage,
+    framework_labels_from_version_info,
     merge_framework_coverage_sets,
     public_framework_coverage_mapping,
 )
@@ -251,7 +252,11 @@ def _calculate_cost_score(technique_doc: Dict[str, Any]) -> int:
     return max(0, min(score, 100))
 
 
-def _extract_technique_info(technique_doc: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_technique_info(
+    technique_doc: Dict[str, Any],
+    *,
+    framework_labels: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Any]:
     """
     Extract and format technique information for comparison.
 
@@ -269,7 +274,10 @@ def _extract_technique_info(technique_doc: Dict[str, Any]) -> Dict[str, Any]:
     commercial_tools = technique_doc['tools_commercial']
 
     coverage_sets = merge_framework_coverage_sets(
-        extract_framework_coverage(defends_against)
+        extract_framework_coverage(
+            defends_against,
+            framework_labels=framework_labels,
+        )
     )
     threat_summary = {
         "owasp": len(coverage_sets["owasp"]),
@@ -387,7 +395,27 @@ async def compare_techniques(
     )
 
     try:
-        # Fetch all requested techniques
+        # Fetch the comparison population and its framework-name registry under
+        # one reader lock. This also prevents parent and child records from
+        # crossing database generations during an atomic sync.
+        raw_documents, version_info = await query_engine.read_table_snapshot(
+            lambda table: table.search().where(
+                "type = 'technique' OR type = 'subtechnique'"
+            ).to_pandas().to_dict('records')
+        )
+        documents = [decode_framework_record(doc) for doc in raw_documents]
+        records_by_id = {
+            doc.get("source_id"): doc for doc in documents if doc.get("source_id")
+        }
+        children_by_parent: Dict[str, List[Dict[str, Any]]] = {}
+        for doc in documents:
+            parent_id = doc.get("parent_technique_id")
+            if parent_id and doc.get("type") == "subtechnique":
+                children_by_parent.setdefault(parent_id, []).append(doc)
+        effective_framework_labels = framework_labels_from_version_info(
+            version_info
+        )
+
         comparison_matrix = []
         not_found = []
 
@@ -397,35 +425,22 @@ async def compare_techniques(
             # Sanitize technique_id to prevent filter injection
             sanitized_id = sanitize_technique_id(technique_id)
 
-            docs = await query_engine.read_table(
-                lambda table, tid=sanitized_id: table.search()
-                .where(f"source_id = '{tid}'")
-                .limit(1)
-                .to_pandas()
-                .to_dict('records')
-            )
-
-            if not docs:
+            technique_doc = records_by_id.get(sanitized_id)
+            if technique_doc is None:
                 logger.warning(f"Technique not found: {technique_id}")
                 not_found.append(technique_id)
                 continue
 
             # Extract and score technique
-            technique_doc = decode_framework_record(docs[0])
             if technique_doc['is_parent_family']:
-                child_docs = await query_engine.read_table(
-                    lambda table, tid=sanitized_id: table.search()
-                    .where(
-                        f"parent_technique_id = '{tid}' AND type = 'subtechnique'"
-                    )
-                    .to_pandas()
-                    .to_dict('records')
-                )
                 technique_doc = _aggregate_parent_family(
-                    technique_doc, child_docs
+                    technique_doc, children_by_parent.get(sanitized_id, [])
                 )
 
-            technique_info = _extract_technique_info(technique_doc)
+            technique_info = _extract_technique_info(
+                technique_doc,
+                framework_labels=effective_framework_labels,
+            )
             comparison_matrix.append(technique_info)
 
         if len(comparison_matrix) < 2:
@@ -511,7 +526,8 @@ async def compare_techniques(
             "input_techniques": technique_ids,
             "comparison_matrix": comparison_matrix,
             "summary": summary,
-            "recommendations": recommendations if include_recommendations else []
+            "recommendations": recommendations if include_recommendations else [],
+            "framework_labels": effective_framework_labels,
         }
 
         logger.info(

@@ -7,20 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Synchronize and strictly validate the framework's public edition-migration registry from
+  the same immutable source snapshot as the indexed tactics.
+- Resolve current, bare, `latest`, named, and superseded OWASP LLM references to canonical
+  2026 IDs with structured `canonical`, `migrated`, `normalized`, `fallback_latest`,
+  `ambiguous`, or `invalid` metadata.
+
 ### Fixed
+- Bind every physical index build to a unique generation identity, durably pair
+  LanceDB table renames with version metadata, and preserve verified rollback
+  generations across crashes, transient I/O failures, initialization failures,
+  and cancellation.
+- Retain database reader/writer and `DATA_PATH` ownership locks until underlying
+  thread workers actually finish, even when an HTTP, MCP, CLI, background-sync,
+  recovery, or maintenance caller is cancelled.
+- Require `DB_PATH`, `RAW_PATH`, and `VERSION_FILE` to resolve inside the
+  canonical `DATA_PATH` ownership boundary so path aliases or shared external
+  artifacts cannot bypass process exclusivity.
+- Keep the development security-audit environment on `cryptography` 50.0.0 or
+  later, which fixes PYSEC-2026-3552 inherited through Safety/Authlib.
 - Materialize the framework's bounded static `join` / `replace` / arrow-expression
   `map` chains without executing tactic source code.
 - Reject unsupported calls, computed members, spreads, free variables, dynamic
   templates, and other non-static AST shapes at the parser boundary instead of
   silently emitting `null`, marker strings, or incomplete objects.
+- Preserve every declared framework-edition label as an alias of its stable key,
+  reject cross-framework label collisions and active-label drift, and validate
+  multi-word framework item IDs with framework-specific normalization.
 - Bound parser AST nodes, evaluation operations, call-chain depth, array size,
   individual string results, and serialized output size.
+- Bound Framework Public Schema JSON nesting before decoding so malformed
+  metadata fails closed consistently across CPython 3.10-3.14.
+- Render launcher-aware CLI help and recovery guidance so an installed wheel
+  recommends `aidefend-mcp`, while a source checkout continues to recommend
+  `python __main__.py`.
 - Report the effective configured REST host and port in the CLI startup banner.
 - Permit unauthenticated REST binding only on an explicit IPv4/IPv6 loopback
   address, fail closed for wildcard/LAN/unknown hosts, and render IPv6 URLs correctly.
 
 ### Changed
-- Advance the exact release snapshot sentinel to AIDEFEND 1.20260728 and make the
+- Extend the configured Python support and hosted CI matrix through Python
+  3.14; release publication remains gated on the complete Python/OS matrix.
+- Use `app` as the canonical Python package, remove the redundant repository-root
+  package marker, and retain `__main__.py` only as the source-checkout CLI shim.
+- Run parser and clean-install CI on the latest Node.js 24 LTS patch release
+  while retaining the documented Node.js 18+ parser compatibility floor.
+- Upgrade the exact lock-pinned and vendored Acorn parser runtime to 8.18.0,
+  with official npm integrity, license, vendored-file digest, and parser checks.
+- Upgrade RapidFuzz to 3.14.5 so the fuzzy-classification dependency has native
+  CPython 3.14 wheels on the supported release platforms.
+- Refresh the compatible FastAPI, Starlette, Uvicorn, Pydantic, settings,
+  Windows runtime, rate-limit, parser, lock, and release-tool dependencies to
+  their current Python 3.10-3.14-compatible stable lines.
+- Define the 1.3.0 embedding contract as `fastembed==0.8.0` with the declared
+  CPU `onnxruntime` dependency. Retire the previous unvalidated GPU setup and
+  performance claims; accelerator support now requires a separate,
+  conflict-free dependency path and complete release testing.
+- Discover the Framework Public Schema dynamically from the root
+  `version.schemaVersion` value in `data/data.json` from the same local source
+  root or immutable GitHub revision as the indexed tactics. Remove the unused
+  authoring-only metadata discovery path and its REST/status response fields;
+  these fields were not present in a tagged or formally published release.
+- Treat each configured `DATA_PATH` as a lifetime single-process ownership
+  boundary across REST, stdio MCP, resync, and maintenance operations. REST
+  and MCP running concurrently, or multiple service replicas, require
+  independent storage copies; horizontal scaling with shared state requires an
+  external data layer designed for concurrent clients.
+- Keep `DATA_PATH/sync.lock` as a stable operating-system lock rendezvous rather
+  than using file presence, age, manual deletion, or replacement as ownership
+  evidence. Upgrades from pre-lifetime-lock releases require all older service
+  and maintenance processes to stop first.
+- Update the active OWASP mapping surface from LLM Top 10 2025 to the semantically
+  re-reviewed LLM Top 10 2026 corpus; legacy 2025 queries migrate by concept rather than
+  by same-rank number.
+- Commit the validated migration registry and index provenance in one atomic version
+  marker; source-manifest and registry digest changes force the required rebuild without
+  invalidating otherwise reusable embeddings.
+- Advance the exact release snapshot sentinel to AIDEFEND 1.20260805 and make the
   manual CI snapshot gate execute every `current_snapshot` test against either an
   explicit local source or the immutable framework files staged by CI.
 - Upgrade the FastAPI/Starlette, MCP SDK, multipart parser, and FastEmbed/Pillow
@@ -37,11 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parent-family semantics.
 - Record source kind, repository, ref, revision kind, and staged content digest so local
   development syncs and immutable GitHub deployments have explicit provenance.
-- Discover authoring and public schema versions from the optional same-source
-  `data-schema.md` and record its SHA-256 digest. Missing or unrecognized schema metadata
-  is non-fatal and may be reported as `unknown`.
 - Add end-to-end smoke coverage for all 18 MCP tools and their 18 REST counterparts.
-- Add an exact AIDEFEND 1.20260724 / authoring 1.7 / public 2.3 / index 3.2
+- Add an exact AIDEFEND 1.20260724 / public 2.3 / index 3.2
   release-snapshot gate plus a rolling daily canary against the latest upstream framework.
 
 ### Changed

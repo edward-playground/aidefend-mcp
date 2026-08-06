@@ -13,6 +13,67 @@ from app.tools.implementation_plan import (
 )
 
 
+@pytest.fixture
+def deterministic_query_engine(monkeypatch):
+    """Provide a real-shape, deterministic corpus for implementation-plan tests."""
+    import app.core as core_module
+
+    records = [
+        {
+            "source_id": "AID-H-900",
+            "name": "Deterministic Prompt Validation",
+            "type": "technique",
+            "tactic": "Harden",
+            "text": "Validate prompts before model execution.",
+            "pillar": ["app"],
+            "phase": ["building"],
+            "defends_against": [
+                {
+                    "framework": "OWASP LLM Top 10 2026",
+                    "items": ["LLM01:2026 Prompt Injection"],
+                }
+            ],
+            "tools_opensource": ["Example Validator"],
+            "tools_source_available": [],
+            "tools_commercial": [],
+            "parent_technique_id": "",
+            "implementation_guidance": [
+                {
+                    "id": "AID-H-900-G001",
+                    "implementation": "Validate prompt inputs",
+                    "howTo": (
+                        "<p>Validate prompt inputs before model execution and record "
+                        "policy decisions for review.</p>"
+                        '<pre><code class="language-python">'
+                        "def validate_prompt(prompt):\n    return bool(prompt.strip())\n"
+                        "</code></pre>"
+                    ),
+                }
+            ],
+            "guidance_id": "",
+            "scope_boundary": {},
+            "is_actionable": True,
+            "is_parent_family": False,
+            "has_code_snippets": True,
+            "warnings": [],
+        }
+    ]
+
+    class FakeQueryEngine:
+        is_ready = True
+
+        def __init__(self):
+            self.calls = 0
+
+        async def read_table(self, _operation):
+            self.calls += 1
+            if self.calls == 1:
+                return [dict(record) for record in records]
+            return []
+
+    monkeypatch.setattr(core_module, "query_engine", FakeQueryEngine())
+
+
 class TestHelperFunctions:
     """Test HTML parsing helper functions."""
 
@@ -67,6 +128,7 @@ class TestHelperFunctions:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("deterministic_query_engine")
 class TestImplementationPlanBasic:
     """Test basic mode (original behavior)."""
 
@@ -94,7 +156,7 @@ class TestImplementationPlanBasic:
 
         except Exception as e:
             if "not initialized" in str(e).lower():
-                pytest.skip("Database not initialized - skipping integration test")
+                pytest.fail(f"Deterministic query engine was not initialized: {e}")
             raise
 
     async def test_basic_mode_explicit(self):
@@ -114,11 +176,12 @@ class TestImplementationPlanBasic:
 
         except Exception as e:
             if "not initialized" in str(e).lower():
-                pytest.skip("Database not initialized - skipping integration test")
+                pytest.fail(f"Deterministic query engine was not initialized: {e}")
             raise
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("deterministic_query_engine")
 class TestImplementationPlanCompound:
     """Test Compound Tool Pattern (standard and detailed modes)."""
 
@@ -164,7 +227,7 @@ class TestImplementationPlanCompound:
 
         except Exception as e:
             if "not initialized" in str(e).lower():
-                pytest.skip("Database not initialized - skipping integration test")
+                pytest.fail(f"Deterministic query engine was not initialized: {e}")
             raise
 
     async def test_detailed_mode(self):
@@ -210,7 +273,7 @@ class TestImplementationPlanCompound:
 
         except Exception as e:
             if "not initialized" in str(e).lower():
-                pytest.skip("Database not initialized - skipping integration test")
+                pytest.fail(f"Deterministic query engine was not initialized: {e}")
             raise
 
 

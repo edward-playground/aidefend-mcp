@@ -47,6 +47,9 @@ venv.bak/
 *~
 .DS_Store
 
+# Machine-local MCP client configuration (contains absolute paths)
+.mcp.json
+
 # Environment variables
 .env
 .env.local
@@ -54,6 +57,7 @@ venv.bak/
 
 # Data directories (contains downloaded content and database)
 data/
+models/
 *.lancedb/
 *.log
 
@@ -78,6 +82,9 @@ dmypy.json
 
 # Docker volumes and runtime data
 docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
 
 # Logs
 logs/
@@ -109,6 +116,7 @@ UPDATE*.md
 # tests/fixtures/test_example.js - Example file for parser testing
 
 # Temporary diagnostic/troubleshooting scripts (created during development)
+devtools/
 scripts/diagnose_*.py
 scripts/compare_*.py
 scripts/find_*.py
@@ -123,10 +131,27 @@ scripts/test_*.py
 *.key
 *.pem
 *.p12
+*.pfx
+*.p8
+*.ppk
+*.jks
+*.keystore
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+.npmrc
+.pypirc
+.netrc
+_netrc
 *_secret*
 *_private*
-credentials*.json
-secrets*.json
+*credentials*.json
+*credentials*.yaml
+*credentials*.yml
+*secrets*.json
+*secrets*.yaml
+*secrets*.yml
 
 # Windows command error artifacts
 nul

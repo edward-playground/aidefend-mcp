@@ -126,10 +126,13 @@ def test_version_write_failure_preserves_previous_marker(tmp_path, monkeypatch):
     version_file.write_bytes(original)
     monkeypatch.setattr(settings, "VERSION_FILE", version_file)
 
-    def fail_replace(_source, _destination):
+    def fail_replace(_source, _destination, **_kwargs):
         raise OSError("simulated atomic replace failure")
 
-    monkeypatch.setattr(utils_module.os, "replace", fail_replace)
+    if utils_module.os.name == "nt":
+        monkeypatch.setattr(utils_module, "_windows_move_file", fail_replace)
+    else:
+        monkeypatch.setattr(utils_module.os, "replace", fail_replace)
 
     with pytest.raises(OSError, match="simulated atomic replace failure"):
         utils_module.save_version_info("new-revision", {"total_documents": 1208})
@@ -151,11 +154,18 @@ def test_version_serialization_failure_before_replace_preserves_previous_marker(
 
     replace_called = False
 
-    def unexpected_replace(_source, _destination):
+    def unexpected_replace(_source, _destination, **_kwargs):
         nonlocal replace_called
         replace_called = True
 
-    monkeypatch.setattr(utils_module.os, "replace", unexpected_replace)
+    if utils_module.os.name == "nt":
+        monkeypatch.setattr(
+            utils_module,
+            "_windows_move_file",
+            unexpected_replace,
+        )
+    else:
+        monkeypatch.setattr(utils_module.os, "replace", unexpected_replace)
 
     with pytest.raises(TypeError):
         utils_module.save_version_info(

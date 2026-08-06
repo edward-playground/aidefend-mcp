@@ -15,6 +15,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.config import settings
 from app.logger import get_logger
+from app.sync import (
+    _acquire_sync_lock,
+    _await_operation_to_completion,
+    _release_sync_lock,
+    service_instance_guard,
+)
 
 logger = get_logger(__name__)
 
@@ -23,9 +29,8 @@ async def create_index():
     """
     Create IVF_PQ index for faster vector search.
 
-    Performance improvement:
-    - Before: 500-1000ms per search
-    - After: 100-300ms per search (2-5x faster)
+    Measure performance before and after indexing on the target deployment;
+    latency depends on the dataset, hardware, and query workload.
 
     Index parameters:
     - metric="cosine": Match the similarity metric used in search
@@ -83,7 +88,7 @@ async def create_index():
         logger.info(f"{'='*60}\n")
 
         logger.info("🔨 Creating index...")
-        logger.info("⏱️  This may take 5-10 minutes for large databases...")
+        logger.info("⏱️  This may take several minutes for large databases...")
         logger.info("   (Progress: LanceDB will show progress logs)")
 
         # Create index
@@ -97,7 +102,9 @@ async def create_index():
         logger.info(f"\n{'='*60}")
         logger.info("✅ Index created successfully!")
         logger.info(f"{'='*60}")
-        logger.info("Expected performance improvement: 2-5x faster searches")
+        logger.info(
+            "Benchmark the target workload to quantify the index performance benefit"
+        )
         logger.info("Restart the service to use the new index:")
         logger.info("  python __main__.py")
         logger.info(f"{'='*60}\n")
@@ -120,7 +127,17 @@ async def main():
     logger.info("LANCEDB INDEX CREATION TOOL")
     logger.info(f"{'#'*60}\n")
 
-    success = await create_index()
+    async with service_instance_guard("the LanceDB index maintenance tool"):
+        if not await _acquire_sync_lock():
+            logger.error("Another sync or recovery operation is already running")
+            raise SystemExit(1)
+        try:
+            success = await _await_operation_to_completion(
+                create_index(),
+                task_name="aidefend-index-maintenance",
+            )
+        finally:
+            _release_sync_lock()
 
     if success:
         logger.info("\n✅ Index creation completed successfully")

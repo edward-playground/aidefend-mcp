@@ -8,7 +8,7 @@ This tool performs reverse mapping: given a list of implemented techniques,
 it identifies which threats are covered and calculates coverage rates.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Mapping, Optional, Tuple
 
 from app.logger import get_logger
 from app.core import decode_framework_record
@@ -21,12 +21,17 @@ from app.framework_utils import (
     parse_json_list,
     public_framework_coverage_mapping,
     resolve_control_ids,
+    framework_labels_from_version_info,
 )
 
 logger = get_logger(__name__)
 
 
-async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, Any]:
+async def get_threat_coverage(
+    implemented_techniques: List[str],
+    *,
+    _snapshot: Optional[Tuple[List[Dict[str, Any]], Optional[Mapping[str, Any]]]] = None,
+) -> Dict[str, Any]:
     """
     Analyze threat coverage for implemented defense techniques.
 
@@ -89,10 +94,16 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
         # Load all technique-like records once. We filter in Python because the
         # latest framework distinguishes actionable sub-techniques from umbrella
         # parent techniques.
-        all_records = await query_engine.read_table(
-            lambda table: table.search().where(
-                "type = 'technique' OR type = 'subtechnique'"
-            ).to_pandas().to_dict('records')
+        if _snapshot is None:
+            all_records, version_info = await query_engine.read_table_snapshot(
+                lambda table: table.search().where(
+                    "type = 'technique' OR type = 'subtechnique'"
+                ).to_pandas().to_dict('records')
+            )
+        else:
+            all_records, version_info = _snapshot
+        effective_framework_labels = framework_labels_from_version_info(
+            version_info
         )
         all_records = [decode_framework_record(record) for record in all_records]
 
@@ -107,7 +118,10 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
         for record in actionable_records.values():
             total_threats = merge_framework_coverage_sets(
                 total_threats,
-                extract_framework_coverage(record['defends_against']),
+                extract_framework_coverage(
+                    record['defends_against'],
+                    framework_labels=effective_framework_labels,
+                ),
             )
 
         resolution = resolve_control_ids(normalized_techniques, all_records)
@@ -147,7 +161,10 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
             for doc in docs_to_analyze:
                 technique_coverage = merge_framework_coverage_sets(
                     technique_coverage,
-                    extract_framework_coverage(doc['defends_against']),
+                    extract_framework_coverage(
+                        doc['defends_against'],
+                        framework_labels=effective_framework_labels,
+                    ),
                 )
 
             covered_threats = merge_framework_coverage_sets(covered_threats, technique_coverage)
@@ -183,6 +200,7 @@ async def get_threat_coverage(implemented_techniques: List[str]) -> Dict[str, An
             "covered": coverage_lists_from_sets(covered_threats),
             "coverage_rate": public_framework_coverage_mapping(coverage_rate),
             "framework_totals": public_framework_coverage_mapping(framework_totals),
+            "framework_labels": effective_framework_labels,
             "by_technique": by_technique
         }
 

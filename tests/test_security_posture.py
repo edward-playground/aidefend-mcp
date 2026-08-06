@@ -11,8 +11,15 @@ from pathlib import Path
 
 import pytest
 
+import app.core as core_module
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+class FakeSnapshotQueryEngine:
+    async def read_table_snapshot(self, _operation):
+        return ([], None)
 
 
 def test_imports():
@@ -72,18 +79,21 @@ async def test_parameter_validation(monkeypatch):
             view="invalid",
         )
 
-    async def technical_stub(*, implemented_techniques, system_type=None):
+    async def technical_stub(
+        *, implemented_techniques, system_type=None, _snapshot=None
+    ):
         return {
             "implemented": implemented_techniques,
             "system_type": system_type,
             "analysis_summary": {"coverage_percentage": 0},
         }
 
-    async def threat_stub(*, implemented_techniques):
+    async def threat_stub(*, implemented_techniques, _snapshot=None):
         return {"implemented": implemented_techniques, "coverage_rate": {}}
 
     monkeypatch.setattr(posture_module, "analyze_coverage", technical_stub)
     monkeypatch.setattr(posture_module, "get_threat_coverage", threat_stub)
+    monkeypatch.setattr(core_module, "query_engine", FakeSnapshotQueryEngine())
 
     for view in ("both", "technical", "threat"):
         result = await posture_module.analyze_security_posture([], view=view)
@@ -103,7 +113,9 @@ async def test_current_ids_parent_expansion_and_stale_ids_are_reported(monkeypat
         "AID-H-010": ["AID-H-010.001", "AID-H-010.002"]
     }
 
-    async def technical_stub(*, implemented_techniques, system_type=None):
+    async def technical_stub(
+        *, implemented_techniques, system_type=None, _snapshot=None
+    ):
         assert implemented_techniques == expected_input
         return {
             "analysis_summary": {
@@ -116,7 +128,7 @@ async def test_current_ids_parent_expansion_and_stale_ids_are_reported(monkeypat
             "recommendations": [],
         }
 
-    async def threat_stub(*, implemented_techniques):
+    async def threat_stub(*, implemented_techniques, _snapshot=None):
         assert implemented_techniques == expected_input
         return {
             "valid_count": 2,
@@ -130,6 +142,7 @@ async def test_current_ids_parent_expansion_and_stale_ids_are_reported(monkeypat
 
     monkeypatch.setattr(posture_module, "analyze_coverage", technical_stub)
     monkeypatch.setattr(posture_module, "get_threat_coverage", threat_stub)
+    monkeypatch.setattr(core_module, "query_engine", FakeSnapshotQueryEngine())
 
     result = await posture_module.analyze_security_posture(
         [" aid-h-010 ", "AID-H-010", "AID-D-001", "AID-H-025.003"],

@@ -362,7 +362,9 @@ def test_statistics_fast_and_fallback_contracts_match(monkeypatch):
     monkeypatch.setattr(query_engine, "_initialized", True)
     monkeypatch.setattr(query_engine, "_table", object())
     monkeypatch.setattr(
-        query_engine, "read_table", AsyncMock(return_value=records)
+        query_engine,
+        "read_table_snapshot",
+        AsyncMock(return_value=(records, None)),
     )
     fallback = asyncio.run(get_statistics())
 

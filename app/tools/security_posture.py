@@ -10,11 +10,15 @@ This tool merges functionality from analyze_coverage and get_threat_coverage
 into a unified interface for holistic security assessment.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from app.logger import get_logger
 from app.security import InputValidationError
-from app.framework_utils import FRAMEWORK_LABELS, framework_coverage_label
+from app.framework_utils import (
+    FRAMEWORK_LABELS,
+    framework_coverage_label,
+    framework_labels_from_version_info,
+)
 from app.tools.coverage_analysis import analyze_coverage
 from app.tools.threat_coverage import get_threat_coverage
 
@@ -107,31 +111,48 @@ async def analyze_security_posture(
         extra={"count": len(implemented_techniques), "view": view, "system_type": system_type}
     )
 
-    result = {
-        "view": view,
-        "requested_count": len(implemented_techniques),
-        "implemented_count": 0,
-        "implemented_actionable_count": 0,
-        "invalid_count": 0,
-        "invalid_technique_ids": [],
-        "expanded_parent_families": {},
-        "system_type": system_type
-    }
-
     try:
+        # Both child analyses must see the same table and migration registry.
+        # A concurrent sync cannot otherwise be prevented from splitting a
+        # composed posture report across two valid but different generations.
+        from app.core import query_engine
+
+        snapshot = await query_engine.read_table_snapshot(
+            lambda table: table.search().where(
+                "type = 'technique' OR type = 'subtechnique'"
+            ).to_pandas().to_dict('records')
+        )
+        _, version_info = snapshot
+        effective_framework_labels = framework_labels_from_version_info(
+            version_info
+        )
+        result = {
+            "view": view,
+            "requested_count": len(implemented_techniques),
+            "implemented_count": 0,
+            "implemented_actionable_count": 0,
+            "invalid_count": 0,
+            "invalid_technique_ids": [],
+            "expanded_parent_families": {},
+            "system_type": system_type,
+            "framework_labels": effective_framework_labels,
+        }
+
         # Execute analysis based on requested view
         if view in ["both", "technical"]:
             logger.debug("Running technical coverage analysis...")
             technical_result = await analyze_coverage(
                 implemented_techniques=implemented_techniques,
-                system_type=system_type
+                system_type=system_type,
+                _snapshot=snapshot,
             )
             result["technical_coverage"] = technical_result
 
         if view in ["both", "threat"]:
             logger.debug("Running threat coverage analysis...")
             threat_result = await get_threat_coverage(
-                implemented_techniques=implemented_techniques
+                implemented_techniques=implemented_techniques,
+                _snapshot=snapshot,
             )
             result["threat_coverage"] = threat_result
 
@@ -181,7 +202,8 @@ async def analyze_security_posture(
             result["summary"] = _generate_unified_summary(
                 result.get("technical_coverage"),
                 result.get("threat_coverage"),
-                actionable_count
+                actionable_count,
+                framework_labels=effective_framework_labels,
             )
 
         logger.info(
@@ -210,7 +232,9 @@ async def analyze_security_posture(
 def _generate_unified_summary(
     technical_cov: Optional[Dict[str, Any]],
     threat_cov: Optional[Dict[str, Any]],
-    technique_count: int
+    technique_count: int,
+    *,
+    framework_labels: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Generate unified summary combining technical and threat perspectives.
@@ -238,7 +262,10 @@ def _generate_unified_summary(
     tech_coverage_pct = technical_cov.get("analysis_summary", {}).get("coverage_percentage", 0)
     # get_threat_coverage returns coverage_rate as fractions (0.0-1.0), convert to percentage
     coverage_rate = threat_cov.get("coverage_rate", {})
-    framework_keys = set(FRAMEWORK_LABELS) | (set(coverage_rate) - {"owasp"})
+    labels = dict(FRAMEWORK_LABELS)
+    if framework_labels:
+        labels.update(framework_labels)
+    framework_keys = set(labels) | (set(coverage_rate) - {"owasp"})
     framework_percentages = {
         key: coverage_rate.get(key, 0) * 100 for key in framework_keys
     }
@@ -263,11 +290,11 @@ def _generate_unified_summary(
         f"Technical coverage: {tech_coverage_pct:.1f}% of AIDEFEND techniques"
     )
     framework_order = [
-        *FRAMEWORK_LABELS,
-        *sorted(set(framework_percentages) - set(FRAMEWORK_LABELS)),
+        *labels,
+        *sorted(set(framework_percentages) - set(labels)),
     ]
     for key in framework_order:
-        label = framework_coverage_label(key)
+        label = framework_coverage_label(key, labels)
         summary["key_insights"].append(
             f"{label}: {framework_percentages[key]:.1f}% threat coverage"
         )
@@ -292,7 +319,7 @@ def _generate_unified_summary(
         ])
 
     low_coverage_frameworks = [
-        (framework_coverage_label(key), pct)
+        (framework_coverage_label(key, labels), pct)
         for key, pct in framework_percentages.items()
         if pct < 50
     ]
@@ -310,7 +337,8 @@ def _generate_unified_summary(
     uncovered_owasp = [t for t in all_owasp if t not in covered_owasp]
     if uncovered_owasp:
         summary["top_priorities"].append(
-            f"OWASP threats not covered: {', '.join(uncovered_owasp[:3])}"
+            f"{framework_coverage_label('owasp_llm', labels)} risks not covered: "
+            f"{', '.join(uncovered_owasp[:3])}"
         )
 
     return summary

@@ -154,9 +154,18 @@ class Settings(BaseSettings):
     #                list field as a JSON array in LanceDB.
     # 3.2 (2026-07): Keep scope and all tool inventories inside the embedding
     #                token window and verify exact tokenizer visibility.
+    # 3.3 (2026-08): Persist a generation ID in every Lance row and atomically
+    #                bind table activation/rollback to version metadata.
     CACHE_SCHEMA_VERSION: str = Field(
-        default="3.2",
+        default="3.3",
         description="Cache schema version for automatic invalidation on breaking changes"
+    )
+    # Embedding inputs did not change in index schema 3.3. Keep this contract
+    # separate so the mandatory Lance rebuild reuses content/model-validated
+    # 3.2 vectors instead of forcing a costly CPU re-embedding.
+    EMBEDDING_CACHE_SCHEMA_VERSION: str = Field(
+        default="3.2",
+        description="Embedding cache schema version, independent of Lance index layout"
     )
 
     # Fuzzy Matching Configuration (for classify_threat tool)
@@ -186,7 +195,10 @@ class Settings(BaseSettings):
     )
     AUTO_CREATE_INDEX: bool = Field(
         default=True,
-        description="Automatically create LanceDB vector index after first sync for 2-5x faster queries"
+        description=(
+            "Automatically create a LanceDB vector index after the first sync "
+            "when the dataset is large enough"
+        )
     )
     ENABLE_AUTO_SYNC: bool = Field(
         default=True,
@@ -432,6 +444,33 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode='after')
+    def validate_authoritative_storage_is_lease_scoped(self):
+        """Keep every mutable sync artifact under the locked DATA_PATH.
+
+        The service-instance lease is anchored at ``DATA_PATH/sync.lock``. If
+        an authoritative database, raw-source directory, or version file could
+        live outside that canonical root, two processes with different
+        DATA_PATH values could mutate the same generation while holding
+        different locks. Resolve aliases and existing symlinks before enforcing
+        containment so the ownership boundary cannot be bypassed by spelling.
+        """
+        canonical_data_path = self.DATA_PATH.resolve(strict=False)
+        self.DATA_PATH = canonical_data_path
+
+        for field_name in ("DB_PATH", "RAW_PATH", "VERSION_FILE"):
+            configured_path = getattr(self, field_name)
+            canonical_path = configured_path.resolve(strict=False)
+            if not canonical_path.is_relative_to(canonical_data_path):
+                raise ValueError(
+                    f"{field_name} must be contained within DATA_PATH because "
+                    "DATA_PATH/sync.lock is the exclusive ownership boundary. "
+                    f"Resolved DATA_PATH={canonical_data_path}; "
+                    f"resolved {field_name}={canonical_path}"
+                )
+            setattr(self, field_name, canonical_path)
+        return self
+
     @field_validator("API_HOST")
     @classmethod
     def normalize_api_host(cls, value: str) -> str:
@@ -544,7 +583,7 @@ class Settings(BaseSettings):
                     f"    - CORS_ORIGINS: {v} (allows broad access)\n\n"
                     f"  Recommendation:\n"
                     f"    Restrict CORS_ORIGINS to specific domains in production:\n"
-                    f"      CORS_ORIGINS=[\"https://your-domain.com\"]\n\n"
+                    f"      CORS_ORIGINS=[\"https://example.com\"]\n\n"
                     f"  This prevents unauthorized websites from making requests\n"
                     f"  with users' API keys via browser.\n"
                     + "=" * 70

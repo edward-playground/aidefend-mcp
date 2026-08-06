@@ -159,10 +159,6 @@ class SyncStatus(BaseModel):
         default=None,
         description="AIDEFEND framework semantic version (e.g., '1.20251107')"
     )
-    framework_authoring_schema_version: Optional[str] = Field(
-        default=None,
-        description="AIDEFEND framework authoring schema version"
-    )
     framework_public_schema_version: Optional[str] = Field(
         default=None,
         description="AIDEFEND framework public schema version"
@@ -195,9 +191,17 @@ class SyncStatus(BaseModel):
         default=None,
         description="SHA-256 digest of the normalized framework source content"
     )
-    framework_schema_metadata_sha256: Optional[str] = Field(
+    framework_migrations_schema_version: Optional[str] = Field(
         default=None,
-        description="SHA-256 digest of optional same-source data-schema.md metadata"
+        description="Validated framework migration registry schema version"
+    )
+    framework_migrations_registry_version: Optional[str] = Field(
+        default=None,
+        description="Validated framework migration registry release version"
+    )
+    framework_migrations_sha256: Optional[str] = Field(
+        default=None,
+        description="SHA-256 digest of the same-source migration registry"
     )
     total_documents: Optional[int] = Field(
         default=None,
@@ -239,22 +243,23 @@ class StatusResponse(BaseModel):
                     "sync_info": {
                         "last_synced_at": "2025-11-09T09:00:00Z",
                         "current_commit_sha": "abc123def456...",
-                        "framework_version": "1.20260728",
-                        "framework_authoring_schema_version": "1.7",
+                        "framework_version": "1.20260805",
                         "framework_public_schema_version": "2.3",
-                        "index_schema_version": "3.2",
+                        "index_schema_version": "3.3",
                         "source_kind": "github",
                         "source_revision_kind": "git_commit_sha",
                         "source_revision": "abc123def456...",
                         "source_repository": "edward-playground/aidefense-framework",
                         "source_ref": "main",
                         "source_content_sha256": "0123456789abcdef...",
-                        "framework_schema_metadata_sha256": "fedcba9876543210...",
+                        "framework_migrations_schema_version": "1.0",
+                        "framework_migrations_registry_version": "2026-08-05",
+                        "framework_migrations_sha256": "abcdef0123456789...",
                         "total_documents": 1250,
                         "is_syncing": False
                     },
                     "message": "Service is online and synchronized",
-                    "version": "1.1.0",
+                    "version": "1.3.0",
                     "timestamp": "2025-11-09T10:30:00Z"
                 }
             ]
@@ -391,10 +396,17 @@ class ThreatCoverageResponse(BaseModel):
         description="Covered threats grouped by framework key"
     )
     coverage_rate: Dict[str, float] = Field(
-        description="Coverage percentage for each framework"
+        description="Coverage fraction from 0.0 through 1.0 for each framework"
     )
     framework_totals: Dict[str, int] = Field(
         description="Total normalized threat items available in each framework"
+    )
+    framework_labels: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Display labels atomically associated with the framework editions "
+            "used for this coverage result"
+        ),
     )
     by_technique: List[Dict[str, Any]] = Field(
         description="Detailed threat coverage per technique"
@@ -435,6 +447,13 @@ class ThreatCoverageResponse(BaseModel):
                         "owasp_agentic": 10,
                         "atlas": 43,
                         "maestro": 54
+                    },
+                    "framework_labels": {
+                        "owasp_llm": "OWASP LLM Top 10 2026",
+                        "owasp_ml": "OWASP ML Top 10 2023",
+                        "owasp_agentic": "OWASP Top 10 for Agentic Applications 2026",
+                        "atlas": "MITRE ATLAS",
+                        "maestro": "MAESTRO"
                     },
                     "by_technique": [
                         {
@@ -784,6 +803,30 @@ class ClassifyThreatMappingStatus(BaseModel):
         default_factory=list,
         description="Matched keywords suppressed because they had no canonical mapping"
     )
+    classifier_owasp_llm_edition: str = Field(
+        default="2026",
+        description="OWASP LLM edition emitted by the bundled classifier catalog",
+    )
+    classifier_owasp_llm_label: str = Field(
+        default="OWASP LLM Top 10 2026",
+        description="OWASP LLM label emitted by the bundled classifier catalog",
+    )
+    active_index_owasp_llm_edition: Optional[str] = Field(
+        default=None,
+        description="OWASP LLM edition atomically activated with the current index",
+    )
+    active_index_owasp_llm_label: Optional[str] = Field(
+        default=None,
+        description="OWASP LLM label atomically activated with the current index",
+    )
+    migration_registry_status: str = Field(
+        default="unavailable",
+        description="Migration registry state: active, legacy_absent, invalid, or unavailable",
+    )
+    owasp_llm_catalog_aligned: bool = Field(
+        default=False,
+        description="Whether classifier and active-index OWASP LLM editions agree",
+    )
 
 
 class ClassifyThreatResponse(BaseModel):
@@ -834,13 +877,13 @@ class ClassifyThreatResponse(BaseModel):
                         }
                     ],
                     "normalized_threats": {
-                        "owasp": ["LLM01", "LLM02"],
+                        "owasp": ["LLM01:2026", "LLM10:2026"],
                         "atlas": [],
                         "maestro": []
                     },
                     "threat_details": [
                         {
-                            "threat_id": "OWASP-LLM01",
+                            "threat_id": "LLM01:2026",
                             "threat_name": "Prompt Injection",
                             "confidence": 0.9,
                             "matched_keyword": "prompt injection",
@@ -851,8 +894,8 @@ class ClassifyThreatResponse(BaseModel):
                     "recommended_actions": [
                         {
                             "tool": "get_defenses_for_threat",
-                            "args": {"threat_id": "LLM01"},
-                            "reason": "Find defense techniques for LLM01"
+                            "args": {"threat_id": "LLM01:2026"},
+                            "reason": "Find current defense techniques for LLM01:2026"
                         },
                         {
                             "tool": "get_quick_reference",
@@ -864,9 +907,15 @@ class ClassifyThreatResponse(BaseModel):
                         "all_emitted_claims_resolvable": True,
                         "corpus_mapping_available": True,
                         "unresolved_claims": [],
-                        "unmapped_keywords": []
+                        "unmapped_keywords": [],
+                        "classifier_owasp_llm_edition": "2026",
+                        "classifier_owasp_llm_label": "OWASP LLM Top 10 2026",
+                        "active_index_owasp_llm_edition": "2026",
+                        "active_index_owasp_llm_label": "OWASP LLM Top 10 2026",
+                        "migration_registry_status": "active",
+                        "owasp_llm_catalog_aligned": True
                     },
-                    "timestamp": "2025-11-12T10:30:00Z"
+                    "timestamp": "2026-08-05T10:30:00Z"
                 }
             ]
         }

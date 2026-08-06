@@ -1,25 +1,35 @@
 # Development dependencies
-# Updated to latest stable versions for Python 3.13 compatibility
-# Last updated: 2026-07-29
+# Updated to latest stable versions for Python 3.14 compatibility
+# Last updated: 2026-08-06
 
 -r requirements.txt
 
 # Testing
 pytest==9.1.1
 pytest-asyncio==1.4.0
-pytest-cov==6.0.0
+pytest-cov==7.1.0
 httpx==0.28.1  # For testing async endpoints
+httpx2==2.9.1  # Starlette 1.x TestClient backend
+tokenizers>=0.15,<1.0  # Imported directly by tokenizer contract tests
 
 # Code quality
 black==26.5.1
-flake8==7.1.1
+flake8==7.3.0
 mypy==1.14.1
 isort==5.13.2
 
 # Security scanning
 safety==3.8.1
 pip-audit==2.10.1
-bandit==1.8.0
+bandit==1.9.4
+# Safety/Authlib pulls cryptography into CI; 49.0.0 is affected by
+# PYSEC-2026-3552. Keep the audited development environment on the fixed line.
+cryptography==50.0.0
 
 # Development tools
-ipython==8.31.0
+ipython==8.39.0
+
+# Release artifact inventory verification (imported directly by
+# scripts/verify_distribution_inventory.py)
+packaging==26.3
+tomli==2.4.1; python_version < '3.11'

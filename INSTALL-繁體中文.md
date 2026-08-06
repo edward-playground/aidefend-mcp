@@ -28,9 +28,21 @@ python __main__.py
 | 想完全手動控制 | 走下面的手動安裝 |
 | 容器化部署 | 使用 Docker Compose |
 
+## 每個資料目錄只允許一個程序
+
+每個 REST server、stdio MCP server、`--resync` 與維護指令都必須獨占自己設定的
+`DATA_PATH`。請勿讓 REST 與 MCP 同時使用預設資料目錄。若兩者必須保持運行，
+請分別設定獨立的 `DATA_PATH`，並讓各 instance 的 `DB_PATH`、`RAW_PATH` 與
+`VERSION_FILE` 都位於自己的資料根目錄；兩個 instance 不可共用其中任何路徑。
+
+`DATA_PATH/sync.lock` 會刻意保留，作為作業系統鎖使用的固定協調檔案。這個檔案
+存在不代表目前仍有程序持鎖，時間戳記較舊也不是刪除它的理由。請勿為了
+繞過正在運行的服務或 resync 而刪除或替換它；應停止目前的持有者，或改用另一個
+資料目錄。
+
 ## 前置需求
 
-- Python 3.10 到 3.13
+- Python 3.10 到 3.14
 - Node.js 18+
 - Git
 - 2 到 3 GB 可用磁碟空間
@@ -162,6 +174,9 @@ MCP：
 python __main__.py --mcp
 ```
 
+同一個 `DATA_PATH` 請只運行 REST 或 MCP 其中一種模式。第二個 runtime 必須使用
+完全獨立的一組儲存路徑。
+
 ### 7. 驗證服務
 
 REST 健康檢查：
@@ -189,7 +204,23 @@ python scripts/generate_api_key.py     # 將產生的值填入 .env 的 AIDEFEND
 docker compose up -d
 ```
 
+同一個可寫入 data volume 只能運行一個服務 replica。多個 replica 必須各自使用
+獨立 volume，或改用經過設計、可支援多 client 併發的外部資料層；內建的本地
+LanceDB 目錄不是共享儲存層。
+
 驗證細節請參考 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
+
+## 從舊版升級
+
+若要從尚未在整個服務生命週期持有資料目錄鎖的版本升級：
+
+1. 停止使用這套安裝的所有 REST 服務。
+2. 關閉可能啟動其 stdio server 的 MCP client。
+3. 等候所有 resync 與維護指令完成。
+4. 完成升級後，每個 `DATA_PATH` 只啟動一個程序。
+
+不能假設仍在運行的舊版程序會遵守新的全生命週期鎖定契約，因此升級前必須
+先完成上述停止步驟。
 
 ## 可選的本機 framework 來源
 
@@ -206,7 +237,8 @@ LOCAL_FRAMEWORK_PATH=/path/to/aidefense-framework
 使用 Docker 時，主機路徑無法直接當成 Linux 容器內的路徑。請把 framework
 checkout 以唯讀方式掛載到 `/framework`，並將設定指向這個容器路徑。以下假設
 兩個 repo 位於同一層目錄；先以本機來源重建持久化索引，再使用同一個 data
-volume 啟動 REST 服務。
+volume 啟動 REST 服務。執行 resync 前，請先停止目前占用該 volume 的服務；
+必須等一次性 resync container 結束後，才能啟動 REST container，兩者不可重疊。
 
 macOS / Linux：
 

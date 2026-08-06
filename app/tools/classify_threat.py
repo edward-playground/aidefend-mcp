@@ -5,7 +5,7 @@ Maps threat keywords from unstructured text to standard framework IDs
 (OWASP LLM Top 10, MITRE ATLAS, MAESTRO) using 2-tier matching strategy:
 
 Tier 1: Static keyword matching (exact matches)
-Tier 2: Enhanced fuzzy matching with RapidFuzz (typo-tolerant, 10-100x faster)
+Tier 2: Enhanced fuzzy matching with RapidFuzz (optimized and typo-tolerant)
 
 100% LOCAL - No external API calls, all processing happens locally.
 FREE - Zero cost, no tokens consumed.
@@ -22,20 +22,62 @@ from app.threat_keywords import (
     canonicalize_classifier_frameworks,
 )
 from app.config import settings
+from app.framework_migrations import (
+    FrameworkMigrationRegistryError,
+    validate_framework_migration_registry,
+)
 from app.utils import load_version_info
 
 logger = get_logger(__name__)
 
 
-def _current_index_threat_ids() -> Optional[set[str]]:
-    """Return threat IDs that resolve to at least one control in the live index."""
+def _current_index_mapping_context() -> tuple[Optional[set[str]], Dict[str, Any]]:
+    """Return live IDs plus the active index's OWASP edition context."""
     version_info = load_version_info() or {}
     statistics = version_info.get("statistics")
     mappings = statistics.get("threat_mappings") if isinstance(statistics, dict) else None
-    if not isinstance(mappings, dict):
-        return None
+    registry = version_info.get("framework_migrations")
+    context: Dict[str, Any] = {
+        "classifier_owasp_llm_edition": "2026",
+        "classifier_owasp_llm_label": "OWASP LLM Top 10 2026",
+        "active_index_owasp_llm_edition": None,
+        "active_index_owasp_llm_label": None,
+        "migration_registry_status": "unavailable",
+    }
 
-    return {
+    validated_registry = None
+    if registry is None:
+        if isinstance(mappings, dict):
+            context.update(
+                {
+                    "active_index_owasp_llm_edition": "2025",
+                    "active_index_owasp_llm_label": "OWASP LLM Top 10 2025",
+                    "migration_registry_status": "legacy_absent",
+                }
+            )
+    else:
+        try:
+            validated_registry = validate_framework_migration_registry(registry)
+            catalog = validated_registry["frameworks"]["owasp_llm"]
+            context.update(
+                {
+                    "active_index_owasp_llm_edition": catalog["activeEdition"],
+                    "active_index_owasp_llm_label": catalog["activeLabel"],
+                    "migration_registry_status": "active",
+                }
+            )
+        except FrameworkMigrationRegistryError:
+            context["migration_registry_status"] = "invalid"
+
+    context["owasp_llm_catalog_aligned"] = (
+        context["active_index_owasp_llm_edition"]
+        == context["classifier_owasp_llm_edition"]
+    )
+
+    if not isinstance(mappings, dict):
+        return None, context
+
+    live_ids = {
         str(threat_id).strip().casefold()
         for threat_id, control_ids in mappings.items()
         if str(threat_id).strip()
@@ -43,13 +85,30 @@ def _current_index_threat_ids() -> Optional[set[str]]:
         and bool(control_ids)
     }
 
+    # OWASP LLM mappings use stable bare reverse-index keys (LLMdd), while the
+    # classifier publishes editioned canonical IDs. Co-resolve only aliases
+    # declared by the atomically activated registry.
+    if validated_registry is not None:
+        catalog = validated_registry["frameworks"]["owasp_llm"]
+        for item in catalog["activeItems"]:
+            bare_id = item["id"].split(":", 1)[0]
+            if bare_id.casefold() in live_ids:
+                live_ids.add(item["id"].casefold())
+
+    return live_ids, context
+
+
+def _current_index_threat_ids() -> Optional[set[str]]:
+    """Compatibility wrapper returning only resolvable live threat IDs."""
+    return _current_index_mapping_context()[0]
+
 
 async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
     """
     Classify threats in text using 2-tier local matching strategy.
 
     Tier 1: Static keyword matching (exact string matches)
-    Tier 2: Enhanced fuzzy matching with RapidFuzz (typo-tolerant, 10-100x faster than difflib)
+    Tier 2: Enhanced fuzzy matching with RapidFuzz (optimized and typo-tolerant)
 
     100% LOCAL - No external API calls, all processing happens locally.
     FREE - Zero cost, no tokens consumed.
@@ -83,7 +142,7 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
         >>> print(result['source'])
         'static_keyword'
         >>> print(result['normalized_threats']['owasp'])
-        ['LLM01']
+        ['LLM01:2026']
     """
     # Input validation
     if not text:
@@ -127,7 +186,7 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
     normalized_threats = {"owasp": set(), "atlas": set(), "maestro": set()}
     threat_details = []
     unmapped_keywords = []
-    live_threat_ids = _current_index_threat_ids()
+    live_threat_ids, index_context = _current_index_mapping_context()
     unresolved_claims: List[str] = []
 
     for match in top_matches:
@@ -207,6 +266,7 @@ async def classify_threat(text: str, top_k: int = 5) -> Dict[str, Any]:
             "corpus_mapping_available": live_threat_ids is not None,
             "unresolved_claims": list(dict.fromkeys(unresolved_claims)),
             "unmapped_keywords": list(dict.fromkeys(unmapped_keywords)),
+            **index_context,
         },
     }
 
@@ -267,8 +327,13 @@ def _match_threats(text: str) -> List[Dict]:
     # Prefer the most specific matched phrase. Without this, a shorter, broad
     # phrase such as "compromised agent" can hide the canonical
     # "compromised agent registry" classification when top_k is small.
+    match_type_priority = {"primary": 2, "alias": 1}
     matches.sort(
-        key=lambda x: (x.get("match_specificity", 0), x["confidence"]),
+        key=lambda x: (
+            x.get("match_specificity", 0),
+            match_type_priority.get(x.get("match_type", ""), 0),
+            x["confidence"],
+        ),
         reverse=True,
     )
 
@@ -324,7 +389,7 @@ def _generate_recommended_actions(
 
 def _fuzzy_match_threats(text: str) -> List[Dict]:
     """
-    Enhanced Tier 2: Fuzzy string matching with RapidFuzz (10-100x faster than difflib).
+    Enhanced Tier 2: Optimized fuzzy string matching with RapidFuzz.
 
     Uses multiple fuzzy matching strategies:
     - Token set ratio: Word order doesn't matter

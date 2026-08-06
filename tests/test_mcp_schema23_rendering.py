@@ -376,6 +376,80 @@ async def test_mcp_renderers_honor_requested_result_counts(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_defense_handler_renders_semantic_edition_migration(monkeypatch):
+    _disable_audit(monkeypatch)
+
+    async def fake_defenses(**_kwargs):
+        return {
+            "threat_query": {
+                "threat_id": "LLM03:2025",
+                "lookup_threat_id": "LLM04",
+                "canonical_threat_id": "LLM04:2026",
+                "resolution": {
+                    "status": "migrated",
+                    "canonical": {
+                        "id": "LLM04:2026",
+                        "label": "LLM04:2026 Supply Chain",
+                    },
+                    "migratedFrom": {
+                        "id": "LLM03:2025",
+                        "label": "LLM03:2025 Supply Chain",
+                    },
+                    "reason": "The risk moved rank after semantic review.",
+                },
+            },
+            "total_results": 0,
+            "defense_techniques": [],
+        }
+
+    monkeypatch.setattr(mcp_server, "get_defenses_for_threat", fake_defenses)
+    output = (
+        await mcp_server.handle_get_defenses_for_threat(
+            {"threat_id": "LLM03:2025"}
+        )
+    )[0].text
+
+    assert "**Resolution:** migrated" in output
+    assert "**Canonical current risk:** LLM04:2026 Supply Chain" in output
+    assert "**Migrated from:** LLM03:2025 Supply Chain" in output
+    assert "rank after semantic review" in output
+
+
+@pytest.mark.asyncio
+async def test_defense_handler_renders_ambiguity_without_guessing(monkeypatch):
+    _disable_audit(monkeypatch)
+
+    async def fake_defenses(**_kwargs):
+        return {
+            "threat_query": {
+                "threat_id": "LLM03:2025 / LLM06:2025",
+                "resolution": {
+                    "status": "ambiguous",
+                    "candidates": [
+                        {"id": "LLM03:2026", "label": "LLM03:2026 Excessive Agency"},
+                        {"id": "LLM04:2026", "label": "LLM04:2026 Supply Chain"},
+                    ],
+                    "reason": "Specify one risk concept; no rank is guessed.",
+                },
+            },
+            "total_results": 0,
+            "defense_techniques": [],
+        }
+
+    monkeypatch.setattr(mcp_server, "get_defenses_for_threat", fake_defenses)
+    output = (
+        await mcp_server.handle_get_defenses_for_threat(
+            {"threat_id": "LLM03:2025 / LLM06:2025"}
+        )
+    )[0].text
+
+    assert "**Resolution:** ambiguous" in output
+    assert "LLM03:2026 Excessive Agency" in output
+    assert "LLM04:2026 Supply Chain" in output
+    assert "no rank is guessed" in output
+
+
+@pytest.mark.asyncio
 async def test_compare_techniques_renders_only_present_scope_boundaries(monkeypatch):
     _disable_audit(monkeypatch)
     records = [

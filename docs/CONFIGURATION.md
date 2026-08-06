@@ -50,11 +50,33 @@ unless those fields are explicitly set. In a source checkout, relative storage
 overrides resolve from the repository root. In an installed wheel, they resolve
 under the per-user AIDEFEND data directory and never under site-packages.
 
-## Critical: Single Worker Limitation
+### Runtime Storage Ownership
+
+A configured `DATA_PATH` is a single-process ownership boundary. At most one
+REST service, stdio MCP server, `--resync` command, or maintenance process may
+open that runtime storage at a time. The process keeps an operating-system lock
+on `DATA_PATH/sync.lock` while it owns the data directory; lock contention must
+be resolved by stopping the current owner, not by removing the file.
+
+The `sync.lock` file is a stable rendezvous file. Its presence does **not** mean
+that a process still owns the lock, and an old timestamp does not prove that it
+is safe to delete. The operating-system lock is authoritative. Never manually
+delete or replace `sync.lock` to force a service or resync to start.
+
+If REST and MCP must run at the same time, give them different `DATA_PATH`
+values and independent storage. Keep each instance's `DB_PATH`, `RAW_PATH`, and
+`VERSION_FILE` aligned with its own data directory; do not point two otherwise
+separate instances at any of the same runtime paths.
+
+## Critical: Single Data Owner and Worker
 
 **⚠️ This service requires `API_WORKERS=1`**
 
-The sync architecture uses file-based locking and in-memory state management that requires a single worker process. Running with `API_WORKERS > 1` will cause:
+The local LanceDB architecture combines a lifetime data-directory lease with
+in-memory query state, so one configured data directory supports one process
+and one API worker. Running with `API_WORKERS > 1`, starting REST and MCP over
+the same paths, or mounting one writable data volume into several replicas is
+unsupported because it can cause:
 
 - Sync conflicts and race conditions
 - Stale data served by some workers after sync
@@ -64,21 +86,27 @@ The sync architecture uses file-based locking and in-memory state management tha
 
 If you need horizontal scaling for production:
 
-1. **Deploy multiple independent instances** behind a load balancer
-2. **Use a separate sync service/cron job** to update a shared database
-3. **Each API instance runs with `API_WORKERS=1`**
+1. **Give every instance its own complete data directory or persistent volume**
+2. **Keep `DB_PATH`, `RAW_PATH`, and `VERSION_FILE` private to that instance**
+3. **Run every API instance with `API_WORKERS=1`**
+4. **Or replace local storage with an external data layer designed and tested
+   for concurrent clients** before sharing state
+
+Do not place the current local LanceDB directory on one shared writable volume
+and attach it to several service replicas. A separate sync process also cannot
+update a local database while another process is serving it.
 
 **Example architecture:**
 ```
 Load Balancer
-   ├─ Instance 1 (API_WORKERS=1)
-   ├─ Instance 2 (API_WORKERS=1)
-   └─ Instance 3 (API_WORKERS=1)
-         ↓
-   Shared LanceDB
-         ↑
-   Separate Sync Service
+   ├─ Instance 1 (API_WORKERS=1) → Data copy / volume 1
+   ├─ Instance 2 (API_WORKERS=1) → Data copy / volume 2
+   └─ Instance 3 (API_WORKERS=1) → Data copy / volume 3
 ```
+
+An external database or retrieval service may be used for a different scaling
+architecture, but that is a separate deployment design; the bundled local
+LanceDB files are not a shared multi-replica storage layer.
 
 ## Authentication Configuration
 
@@ -122,25 +150,26 @@ API_HOST=127.0.0.1  # Any explicit loopback IP, or localhost
 
 **See [SECURITY.md](../SECURITY.md) for best practices.**
 
-## 100% Local Processing - Privacy Guaranteed
+## Local Query Processing and Network Boundaries
 
-**This service is COMPLETELY LOCAL and PRIVATE:**
+**User query processing stays on the configured host:**
 
-✅ **Zero External API Calls**
+✅ **No External Inference API Calls**
 - All threat classification happens locally using 2-tier matching (static + RapidFuzz)
 - All knowledge base queries processed on your machine
 - Embedding generation uses local ONNX models (FastEmbed)
-- No data ever leaves your infrastructure
+- Query content is not sent to GitHub or Hugging Face
+- Initial framework synchronization uses GitHub, and initial model acquisition may use Hugging Face
 
-✅ **FREE - No API Costs**
-- No API keys required for any functionality
+✅ **No Third-Party Inference API Costs**
+- No third-party inference API key is required; REST authentication can still require your locally configured `API_KEY`
 - No token consumption
-- Zero ongoing costs
+- No usage-based fee from this project
 
-✅ **Works 100% Offline**
-- After initial sync from GitHub, works completely offline
+✅ **Offline Query Operation After Setup**
+- After framework data and the model are present locally, queries work offline
 - No internet connection needed for queries
-- Perfect for air-gapped/restricted environments
+- Air-gapped environments must pre-stage all required framework and model assets
 
 ✅ **Privacy First**
 - Your queries, data, and threat intelligence stay on your machine
@@ -169,7 +198,8 @@ For advanced usage (changing models, custom ONNX models), see [Advanced Configur
 
 **Features:**
 - **Multilingual**: Supports 100+ languages
-- **Performance**: Fast on CPU (~500-1000ms per query)
+- **Performance**: Runs locally on CPU; measure representative queries on the
+  target host because latency depends on hardware, cache state, and workload
 - **Accuracy**: High semantic matching quality
 - **Service code license**: MIT; synchronized framework content remains CC BY 4.0
 
@@ -190,9 +220,13 @@ For advanced usage (changing models, custom ONNX models), see [Advanced Configur
 
 3. Wait for re-embedding (may take several minutes)
 
-### GPU Acceleration (Optional)
+### GPU Acceleration Status
 
-For faster embedding generation, see [GPU Acceleration Guide](advanced/GPU_ACCELERATION.md).
+AIDEFEND MCP 1.3.0 supports `fastembed==0.8.0` with the project's declared CPU
+`onnxruntime` dependency. GPU and accelerator-specific package substitutions
+are not supported or release-tested. Do not replace the declared CPU packages
+with GPU variants. See [GPU Acceleration Status](advanced/GPU_ACCELERATION.md)
+for the dependency boundary and future support requirements.
 
 ## Rate Limiting
 
@@ -249,6 +283,24 @@ ENABLE_AUTO_SYNC=false  # Manual sync only via API/MCP
 ```bash
 python __main__.py --resync
 ```
+
+Run `--resync` only when no REST server, MCP server, or other maintenance
+command owns the same `DATA_PATH`. For a running service, use its MCP sync tool
+or REST sync endpoint instead of starting a second process against its files.
+
+### Upgrading to the Lifetime-Lock Release
+
+Before upgrading an installation from a version that did not hold the data-path
+lock for the complete service lifetime:
+
+1. Stop the REST service.
+2. Close every MCP client that can launch the AIDEFEND stdio server.
+3. Wait for any resync or maintenance command to finish.
+4. Upgrade the service, then start only one process for that `DATA_PATH`.
+
+An older running service cannot be assumed to participate in the new lifetime
+lock contract. Stopping all old processes is therefore a required upgrade step,
+not an optional stale-lock cleanup.
 
 ## Advanced Configuration
 
@@ -323,6 +375,16 @@ ENABLE_AUTO_SYNC=false  # No auto-sync
 **Error:** `Sync conflicts detected`
 
 **Solution:** Ensure `API_WORKERS=1` in `.env`
+
+### Data directory already owned
+
+**Error:** Startup or resync reports that another process owns the configured
+data directory.
+
+**Solution:** Stop the REST service, MCP server, resync, or maintenance process
+that uses the same `DATA_PATH`. If both REST and MCP must remain active, assign
+independent `DATA_PATH`, `DB_PATH`, `RAW_PATH`, and `VERSION_FILE` values. Do
+not delete `sync.lock`; an unheld rendezvous file is harmless and reusable.
 
 ### Authentication failures
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 
 # The only subprocess is the fixed current-interpreter ``-m build`` command.
@@ -22,9 +23,16 @@ else:
 
 def _run_build(*arguments: str) -> None:
     # A fixed argv prefix is used and no shell is involved.
+    environment = os.environ.copy()
+    # Build logs contain tracked zh-TW filenames. Force the child interpreter
+    # to use UTF-8 so Windows consoles cannot emit logging tracebacks while an
+    # otherwise valid sdist or wheel is being produced.
+    environment["PYTHONUTF8"] = "1"
+    environment["PYTHONIOENCODING"] = "utf-8"
     subprocess.run(  # nosec B603
         [sys.executable, "-m", "build", *arguments],
         check=True,
+        env=environment,
     )
 
 

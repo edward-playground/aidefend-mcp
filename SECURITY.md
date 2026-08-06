@@ -14,6 +14,31 @@ The AIDEFEND MCP Service is built with security-first principles. All processing
 - ✅ **Secure Logging** - Automatic filtering of sensitive data
 - ✅ **Flexible Authentication** - API key auth for production, optional for local dev
 
+## Local Data-Path Isolation
+
+The local LanceDB deployment treats each configured `DATA_PATH` as an exclusive
+single-process boundary. One REST server, stdio MCP server, `--resync` command,
+or maintenance process may own that directory at a time. This protects the
+database table, raw source snapshot, and version metadata from cross-process
+replacement while another process retains live database handles.
+
+- Do not run REST and MCP concurrently against the same `DATA_PATH`.
+- If both modes are required, use independent `DATA_PATH` values and keep each
+  instance's `DB_PATH`, `RAW_PATH`, and `VERSION_FILE` private to that instance.
+- Do not mount one writable data volume into multiple service replicas.
+- For horizontal scaling, use independent data copies or an external data layer
+  designed for concurrent clients; do not share the bundled LanceDB files.
+
+`DATA_PATH/sync.lock` is a persistent rendezvous file. File presence and file
+age are not proof that a live lock exists; the operating-system lock is the
+authority. Never delete or replace `sync.lock` to force startup or resync.
+Stop the current owner or select a different complete storage-path set.
+
+Before upgrading from a release that did not hold the data-path lock throughout
+the service lifetime, stop all REST processes, close MCP clients that launch
+the stdio server, and allow every maintenance operation to finish. Older
+processes cannot be assumed to honor the new ownership contract.
+
 ## Authentication & Authorization
 
 ### Dual-Mode Security Model
@@ -138,6 +163,9 @@ To report security vulnerabilities, please contact [Edward Lee on LinkedIn](http
 - [ ] Log monitoring set up for authentication failures
 - [ ] Alerts configured for unusual access patterns
 - [ ] Regular log review scheduled (`data/logs/aidefend_mcp.log`)
+- [ ] Exactly one REST, MCP, resync, or maintenance process uses each `DATA_PATH`
+- [ ] Every replica has independent storage; no writable LanceDB volume is shared
+- [ ] Operational procedures never delete `sync.lock` to bypass ownership
 
 ### Dependencies & Updates
 - [ ] Dependencies scanned for vulnerabilities (`pip list --outdated`, `safety check`)
@@ -153,6 +181,6 @@ Security researchers who responsibly disclose vulnerabilities will be:
 ---
 
 **Maintainer**: [Edward Lee](https://github.com/edward-playground)
-**Last Updated**: 2025-11-09
+**Last Updated**: 2026-08-04
 
 For questions, [open an issue](https://github.com/edward-playground/aidefend-mcp/issues).

@@ -6,7 +6,7 @@ Thank you for your interest in contributing to the AIDEFEND MCP Service! This gu
 
 ### Prerequisites
 
-- Python 3.10 - 3.13
+- Python 3.10 - 3.14
 - Node.js 18+ (for JavaScript parsing)
 - Git
 
@@ -69,25 +69,28 @@ pytest -m "not slow"
 
 ### Code Quality
 
-**Format code:**
+**Format the files you change:**
 ```bash
-black app/
-isort app/
+black path/to/changed_file.py
+isort path/to/changed_file.py
 ```
 
-**Lint:**
+**Fatal Python static checks used by the release audit:**
 ```bash
-flake8 app/
-mypy app/
+python -m flake8 app mcp_server.py __main__.py scripts tests --select=E9,F63,F7,F82
 ```
+
+The repository does not currently use `mypy` as a release gate. Add and
+maintain accurate type annotations in changed code, but do not treat a clean
+whole-repository `mypy app/` run as an existing project guarantee.
 
 **Security scanning:**
 ```bash
-# Static security analysis
-bandit -r app/
+# Static security analysis for production code
+python -m bandit -q -r app mcp_server.py __main__.py
 
 # Dependency vulnerability scanning
-safety check
+python -m pip_audit -r requirements-dev.txt
 ```
 
 ### Running the Service Locally
@@ -113,19 +116,29 @@ python __main__.py --resync
 
 ```
 aidefend-mcp/
-├── __main__.py              # Unified entry point
+├── __main__.py              # Source-checkout CLI compatibility shim
 ├── mcp_server.py            # MCP protocol server
 ├── parse_js_module.mjs      # JavaScript parser (Node.js)
 ├── app/
+│   ├── __init__.py          # Canonical Python package and version
+│   ├── cli.py               # Installed console-script implementation
 │   ├── main.py              # FastAPI REST API
 │   ├── core.py              # QueryEngine (shared by both modes)
 │   ├── sync.py              # Background sync service
+│   ├── framework_manifest.py    # Source and index manifest validation
+│   ├── framework_migrations.py  # Framework edition migration registry
+│   ├── framework_utils.py       # Framework normalization helpers
+│   ├── generation_identity.py   # Physical index-generation identity
+│   ├── instance_lock.py         # Cross-process DATA_PATH ownership
 │   ├── config.py            # Configuration management
+│   ├── schemas.py           # REST and tool response contracts
 │   ├── security.py          # Input validation and security
 │   ├── audit.py             # Audit logging
 │   ├── logger.py            # Structured logging
 │   ├── chunking.py          # Smart text chunking
 │   ├── embedding_cache.py   # Embedding cache system
+│   ├── threat_keywords.py   # Static threat-classification vocabulary
+│   ├── utils.py             # Parser and durable filesystem utilities
 │   └── tools/               # P0 specialized tools
 │       ├── statistics.py
 │       ├── validation.py
@@ -320,10 +333,10 @@ test: add coverage for chunked search
 
 - [ ] Tests added/updated and passing
 - [ ] Documentation updated
-- [ ] Code formatted with `black` and `isort`
-- [ ] No new linting errors (`flake8`)
-- [ ] Type hints added (`mypy` passes)
-- [ ] Security scan passes (`bandit`)
+- [ ] Changed Python files formatted with `black` and `isort`
+- [ ] Fatal Python static checks pass (`flake8 --select=E9,F63,F7,F82`)
+- [ ] Type annotations updated where the changed interfaces require them
+- [ ] Production-code security scan passes (`bandit`)
 - [ ] Commit messages follow convention
 
 ## Community

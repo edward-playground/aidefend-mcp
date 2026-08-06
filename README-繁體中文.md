@@ -6,8 +6,8 @@
 
 [![CI](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.13-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.139.2-009688.svg)](https://fastapi.tiangolo.com)
+[![Python 3.10-3.14](https://img.shields.io/badge/python-3.10%20|%203.14-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-009688.svg)](https://fastapi.tiangolo.com)
 
 這個 repo 是 [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework) 的本地檢索服務層。
 
@@ -37,22 +37,35 @@
 
 ## 持續相容上游更新
 
-目前 release 的精確驗證快照是 AIDEFEND **1.20260728**、authoring schema
-**1.7**、public schema **2.3** 與 index schema **3.2**，並涵蓋 framework
-的三種工具分類：開源、source-available/open-weight 與商業工具。快照中的
+目前 release 的精確驗證快照是 AIDEFEND **1.20260805**、public schema
+**2.3** 與 MCP index schema **3.3**，並涵蓋 framework 的三種工具分類：
+開源、source-available/open-weight 與商業工具。快照中的
 ID、標題、筆數與順序只是這個 release 的驗證範例，不是永久的 runtime 限制。
 
 在已支援的 framework 契約內，每次同步都會從指定來源動態重建 MCP 與 REST
 共用的資料。新增或移除內容、ID 重新編號、標題或 guidance 修改、筆數或順序
 改變，以及相容的新增欄位，都不需要針對個別客戶設定。威脅框架標籤也由來源資料決定；
 新增或更名的標籤會繼續進入涵蓋率與分析結果，不會綁死在這份快照裡現有的名稱。
+同一個已支援框架日後再次更名時，active label 會成為顯示名稱，而 registry 宣告的各版名稱仍會
+作為同一個穩定 API key 的輸入別名。跨框架名稱碰撞、active edition 名稱不一致，或無法依該框架
+規則正規化的多字詞項目 ID，都會在同步時明確拒絕，不會猜測。
 即使極長的 scope boundary 或工具內容超過 embedding model 可搜尋的 token window，
 完整值仍會保留在 MCP／REST 的結構化 metadata；此情況會留下警告，不會拒絕其他部分都有效的更新。
 
-每次檢查更新時，服務會嘗試讀取與 tactic 檔相同的本機 framework root，或同一個不可變
-GitHub commit 根目錄中的 `data-schema.md`。檔案存在時，會記錄 authoring、public schema 版本
-與 SHA-256 digest。如果這份選用的 metadata 不存在，或無法辨識其中版本，可記為 `unknown`，
-但不會只因這點中斷相容內容的同步；候選 index 仍必須通過完整驗證。
+Framework 版本遷移資料會從相同不可變來源快照中的
+`data/framework-migrations.json` 一併同步。目前啟用的 OWASP LLM 版本是 **2026**：
+未附年份的 ID 與 `latest` 會解析到最新版；明確指定 2025 的 ID，則依登錄的語意後繼項目遷移，
+絕不沿用同一排名數字。回應會提供 canonical 2026 ID 與結構化解析 metadata；不支援或確實有歧義的
+輸入會安全失敗，不執行威脅查詢。通過驗證的遷移 registry 會與 index provenance 一起寫入原子替換的
+版本 metadata，因此失敗的更新不會讓新版解析 catalog 搭配舊資料庫。
+
+Framework Public Schema 會從 `data/data.json` 根物件的
+`version.schemaVersion` 動態取得。Local source 會從與 tactics 相同的
+framework root 讀取該檔案；GitHub source 則從與 tactics 完全相同的不可變
+commit 取得，不會另外從 floating branch 讀取。這份 public dataset 只用於
+schema metadata discovery，不會再次索引，也不會取代 tactics authoring source。
+若 metadata 缺少或無效，public schema 會安全降級為無法取得，不會猜測，
+也不會放鬆既有 parser 與 index 的完整驗證。
 
 自動同步預設啟用，服務啟動時會立即檢查一次，之後每隔 `SYNC_INTERVAL_SECONDS` 秒檢查；
 預設為 3600 秒，可設為 60 到 86400 秒，連續失敗時會退避。這是 runtime 更新節奏；另外，
@@ -69,7 +82,7 @@ rolling daily upstream canary 會每天驗證最新公開 framework，並保留�
 
 ## 需求
 
-- Python 3.10 到 3.13
+- Python 3.10 到 3.14
 - Node.js 18+
 - Git
 - 約 2 到 3 GB 可用磁碟空間，包含依賴、embedding model 與本地資料庫
@@ -119,11 +132,27 @@ MCP server：
 python __main__.py --mcp
 ```
 
+每個資料目錄同一時間只能有一個持有者。REST 程序、stdio MCP 程序、
+`--resync` 或維護指令都必須獨占自己設定的 `DATA_PATH`。若 REST 與 MCP 必須
+同時運行，請分別設定不同的資料目錄，並讓各自的 `DB_PATH`、`RAW_PATH` 與
+`VERSION_FILE` 都隸屬於該 instance；不可共用其中任何路徑。
+
 健康檢查：
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
+
+### 資料目錄鎖與升級
+
+`DATA_PATH/sync.lock` 是作業系統鎖所使用的固定協調檔案。服務正常停止後，
+這個檔案仍可能保留；檔案存在或時間戳記較舊，都不代表目前仍有程序持鎖。
+請勿為了強制啟動另一個服務或 resync 而刪除或替換它。正確做法是停止目前占用
+資料目錄的程序，或改用另一套完整且獨立的儲存路徑。
+
+若要從尚未在整個服務生命週期持鎖的舊版升級，請先停止所有 REST 服務、關閉會
+啟動 stdio server 的 MCP client，並等候 resync 或維護指令完成；完成升級後，
+每個 `DATA_PATH` 只啟動一個持有者。
 
 ## 從乾淨環境手動安裝
 
@@ -219,6 +248,10 @@ python scripts/generate_api_key.py     # 將產生的值填入 .env 的 AIDEFEND
 docker compose up -d
 ```
 
+每個可寫入的 data volume 只能供一個服務 replica 使用。若要水平擴展，每個
+replica 必須有獨立的資料副本或 volume，或改用經過設計、可支援多 client 併發的
+外部資料層；不可讓多個 replica 共用內建的本地 LanceDB 目錄。
+
 驗證細節請參考 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)。
 
 ## 文件
@@ -234,17 +267,25 @@ docker compose up -d
 
 - 從 source checkout 執行時，runtime data 放在 repo 的 `data/`；wheel
   安裝則使用作業系統的使用者資料目錄，Docker 固定使用 `/app/data`。
+- 一個 `DATA_PATH` 同一時間只能由一個 REST、MCP、resync 或維護程序使用；
+  需要同時運行多種模式或多個 replica 時，必須使用彼此獨立的儲存空間。
 - CI 會建立並逐筆驗證最新 upstream index；在 Linux 上，會分別從 source
   checkout 與 repo 外安裝的 wheel 跑完 18 個 MCP 及 18 個 REST tool path。
-  Windows、macOS、Linux 與 Python 3.10-3.13 matrix 則驗證乾淨 wheel 安裝、
-  parser 與 console 契約，另有 Bandit、實際 container build/runtime 契約，
+  Windows、macOS、Linux 與 Python 3.10-3.14 matrix 則驗證乾淨 wheel 安裝、
+  parser 與 console 契約；正式 release 前，這個 hosted matrix 必須全數通過。另有 Bandit、
+  實際 container build/runtime 契約，
   以及每天驗證最新公開 framework 的 rolling upstream canary。
 - Source contract 會從 framework 的 `main.js` manifest 動態取得有順序的
   tactic 檔案集合，不會把 runtime 綁死在目前七個檔名或標題。
-- 目前 release contract 已對齊 AIDEFEND **1.20260728**、authoring schema
-  **1.7**、public schema **2.3** 與 index schema **3.2**。這是精確驗證快照，
+- 目前 release contract 已對齊 AIDEFEND **1.20260805**、public schema
+  **2.3** 與 MCP index schema **3.3**。這是精確驗證快照，
   不是對未來 framework ID、標題、內容、筆數或順序的固定限制。
 
 ## 授權
 
-MIT，詳見 [LICENSE](LICENSE)。
+本 MCP Service 程式碼採 MIT，詳見 [LICENSE](LICENSE)。同步、索引與回傳的
+AIDEFEND framework 內容仍適用其原授權：framework software 為 Apache-2.0，
+framework 內容與資料為 CC BY 4.0。版本遷移 registry 中正規化的 OWASP 衍生 ID、
+名稱、metadata 與摘要另適用 CC BY-SA 4.0；registry 內的 `sourceLicense` 會保留
+來源標示、授權連結、適用範圍與修改說明。完整資訊請參考
+[THIRD_PARTY_CONTENT.md](THIRD_PARTY_CONTENT.md) 與 framework repository 的授權文件。

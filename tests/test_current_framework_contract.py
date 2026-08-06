@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 
 from app.config import settings
-from app.framework_utils import FRAMEWORK_LABELS
 from app.sync import (
     EXPECTED_FRAMEWORK_LABELS,
     _compute_staged_framework_digest,
+    _framework_source_files,
     extract_documents_from_tactic,
     extract_framework_version,
     parse_tactic_file,
@@ -125,9 +125,9 @@ def test_current_framework_is_fully_parseable_and_contract_valid(tmp_path, monke
         field: (stats["controls"], stats["entries"], len(stats["unique"]))
         for field, stats in tool_category_stats.items()
     } == {
-        "toolsOpenSource": (299, 1781, 627),
-        "toolsSourceAvailable": (34, 69, 28),
-        "toolsCommercial": (275, 1343, 666),
+        "toolsOpenSource": (300, 1952, 769),
+        "toolsSourceAvailable": (45, 84, 37),
+        "toolsCommercial": (275, 1371, 694),
     }
     assert scope_boundary_controls == 355
     assert len(scope_references) == 751
@@ -137,7 +137,6 @@ def test_current_framework_is_fully_parseable_and_contract_valid(tmp_path, monke
         if target_id not in seen_ids
     }
     assert framework_labels == set(EXPECTED_FRAMEWORK_LABELS)
-    assert framework_labels == set(FRAMEWORK_LABELS.values())
     assert all(document["source_id"] != "Unknown" for document in all_documents)
     strategy_ids = {
         document["source_id"]
@@ -216,17 +215,25 @@ def test_current_framework_version_export_is_resolved():
         pytest.fail("aidefend-intro.js is not available for the release gate")
 
     version = extract_framework_version(intro)
-    assert version == "1.20260728"
+    assert version == "1.20260805"
     assert "Identifier" not in version
 
-    staged_files = [intro]
-    staged_files.extend(
-        _tactic_path(root, file_name)
-        for file_name in settings.AIDEFEND_FILES[1:]
+    migration_path = root / "data" / "framework-migrations.json"
+    if not migration_path.is_file():
+        migration_path = settings.RAW_PATH / "framework-migrations.json"
+    assert migration_path.is_file()
+    tactic_files = list(EXPECTED_TACTIC_NAMES)
+    source_files = _framework_source_files(
+        tactic_files,
+        include_framework_migrations=True,
     )
+    staged_files = [intro, migration_path]
+    staged_files.extend(_tactic_path(root, file_name) for file_name in tactic_files)
     assert _compute_staged_framework_digest(
-        staged_files, algorithm="sha256"
-    ) == "2961b92e2f26fbc5df465304bbb05eee814ed78c42e2faec26a997b55281ddc1"
+        staged_files,
+        algorithm="sha256",
+        source_files=source_files,
+    ) == "65a0f785b368f28e8a1afb7e19dd53113adeeb8a4bde8ab40387b546b067eb5d"
 
 
 @pytest.mark.current_snapshot

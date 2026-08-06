@@ -9,6 +9,7 @@ get_defenses_for_threat tools.
 """
 
 import asyncio
+import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
@@ -21,6 +22,56 @@ from app.tools.classify_threat import classify_threat
 from app.tools.defenses_for_threat import get_defenses_for_threat
 
 logger = get_logger(__name__)
+
+
+_OWASP_LLM_2026_ID_PATTERN = re.compile(r"LLM(?:0[1-9]|10):2026")
+
+
+def _classified_framework_ids(
+    threat_classification: Optional[Dict[str, Any]],
+    framework: str,
+) -> set[str]:
+    """Return exact classified IDs for one framework.
+
+    ``normalized_threats`` is the canonical classifier contract. The detail
+    fallback keeps the playbook helper usable with stored classifier responses
+    that contain only the prefixed ``threat_id`` representation.
+    """
+    if not threat_classification:
+        return set()
+
+    framework_key = framework.casefold()
+    ids = {
+        str(threat_id).strip()
+        for threat_id in (
+            threat_classification.get("normalized_threats", {}).get(
+                framework_key, []
+            )
+            or []
+        )
+        if str(threat_id).strip()
+    }
+
+    detail_prefix = f"{framework.upper()}-"
+    for detail in threat_classification.get("threat_details", []) or []:
+        raw_threat_id = str(detail.get("threat_id", "")).strip()
+        if raw_threat_id.upper().startswith(detail_prefix):
+            ids.add(raw_threat_id[len(detail_prefix):])
+
+    return ids
+
+
+def _classified_owasp_llm_2026_ids(
+    threat_classification: Optional[Dict[str, Any]],
+) -> set[str]:
+    """Return only exact OWASP LLM Top 10 2026 classifier claims."""
+    return {
+        threat_id.upper()
+        for threat_id in _classified_framework_ids(
+            threat_classification, "owasp"
+        )
+        if _OWASP_LLM_2026_ID_PATTERN.fullmatch(threat_id.upper())
+    }
 
 
 def _framework_label_from_threat_id(threat_id: str) -> str:
@@ -69,36 +120,46 @@ def _generate_immediate_actions(
         }
     ]
 
-    # Add threat-specific immediate actions
-    if threat_classification and threat_classification.get('threat_details'):
-        threat_details = threat_classification['threat_details']
+    # Route threat-specific actions by exact 2026 risk semantics. Keyword
+    # fragments are too broad here: for example, "training" is not itself
+    # evidence of poisoning, and rate limiting alone does not bound agent loops.
+    owasp_llm_ids = _classified_owasp_llm_2026_ids(threat_classification)
 
-        # Check for specific high-risk threats
-        threat_keywords = ' '.join([t.get('matched_keyword', '') for t in threat_details]).lower()
+    if "LLM01:2026" in owasp_llm_ids:
+        actions.append({
+            "action": "Isolate Affected LLM Interaction Path",
+            "priority": "CRITICAL",
+            "description": (
+                "Fail closed or disable the affected prompt, retrieval, tool, "
+                "memory, or multimodal ingestion path; preserve the triggering "
+                "content and resulting model/tool traces for replay."
+            ),
+            "estimated_time": "5 minutes"
+        })
 
-        if 'prompt injection' in threat_keywords or 'jailbreak' in threat_keywords:
-            actions.append({
-                "action": "Isolate Affected LLM Endpoints",
-                "priority": "CRITICAL",
-                "description": "Temporarily disable or rate-limit affected LLM API endpoints to prevent exploitation",
-                "estimated_time": "5 minutes"
-            })
+    if "LLM05:2026" in owasp_llm_ids:
+        actions.append({
+            "action": "Freeze Mutable Learning Sources",
+            "priority": "CRITICAL",
+            "description": (
+                "Stop writes and promotion from affected training, fine-tuning, "
+                "RAG-corpus, long-term-memory, and feedback sources; snapshot "
+                "their versions, lineage, and hashes before remediation."
+            ),
+            "estimated_time": "2-5 minutes"
+        })
 
-        if 'data poisoning' in threat_keywords or 'training' in threat_keywords:
-            actions.append({
-                "action": "Halt Training Pipelines",
-                "priority": "CRITICAL",
-                "description": "Immediately stop any active model training to prevent poisoned data propagation",
-                "estimated_time": "2-5 minutes"
-            })
-
-        if 'denial of service' in threat_keywords or 'resource' in threat_keywords:
-            actions.append({
-                "action": "Implement Rate Limiting",
-                "priority": "HIGH",
-                "description": "Apply emergency rate limits and resource quotas to mitigate service degradation",
-                "estimated_time": "5-10 minutes"
-            })
+    if "LLM06:2026" in owasp_llm_ids:
+        actions.append({
+            "action": "Trip Consumption Circuit Breakers",
+            "priority": "HIGH",
+            "description": (
+                "Enforce emergency request, input/output/reasoning-token, "
+                "concurrency, session, tool-iteration, and cost ceilings; stop "
+                "runaway work while retaining usage and billing evidence."
+            ),
+            "estimated_time": "5-10 minutes"
+        })
 
     return actions
 
@@ -217,25 +278,46 @@ def _generate_containment_actions(
                 "reference": tech.get('id', '')
             })
 
-    # Add threat-specific containment
-    if threat_classification and threat_classification.get('threat_details'):
-        threat_keywords = ' '.join([t.get('matched_keyword', '') for t in threat_classification['threat_details']]).lower()
+    # Add containment steps tied to the actual 2026 risk mechanisms.
+    owasp_llm_ids = _classified_owasp_llm_2026_ids(threat_classification)
 
-        if 'prompt injection' in threat_keywords:
-            actions.append({
-                "action": "Implement Prompt Validation",
-                "priority": "HIGH",
-                "description": "Deploy input sanitization and prompt injection detection mechanisms",
-                "estimated_time": "2-4 hours"
-            })
+    if "LLM01:2026" in owasp_llm_ids:
+        actions.append({
+            "action": "Enforce Instruction and Data Boundaries",
+            "priority": "HIGH",
+            "description": (
+                "Treat external content as untrusted data, validate structured "
+                "tool calls, constrain tool permissions, add approval gates for "
+                "consequential actions, and replay the captured payload as a "
+                "regression test."
+            ),
+            "estimated_time": "2-4 hours"
+        })
 
-        if 'model theft' in threat_keywords or 'extraction' in threat_keywords:
-            actions.append({
-                "action": "Enhance API Protection",
-                "priority": "HIGH",
-                "description": "Implement rate limiting, query filtering, and response obfuscation",
-                "estimated_time": "2-3 hours"
-            })
+    if "LLM05:2026" in owasp_llm_ids:
+        actions.append({
+            "action": "Quarantine and Rebuild Poisoned State",
+            "priority": "CRITICAL",
+            "description": (
+                "Identify the last known-good dataset, model, retrieval index, "
+                "memory, or feedback artifact; quarantine suspect versions, "
+                "verify lineage and integrity, then rebuild or retrain the "
+                "affected state before promotion."
+            ),
+            "estimated_time": "4-8 hours"
+        })
+
+    if "LLM06:2026" in owasp_llm_ids:
+        actions.append({
+            "action": "Deploy End-to-End Consumption Budgets",
+            "priority": "HIGH",
+            "description": (
+                "Apply tenant and workload budgets across inference, reasoning, "
+                "queues, sessions, multimodal processing, and tool calls with "
+                "timeouts, bounded iterations, backpressure, and cost alerts."
+            ),
+            "estimated_time": "2-4 hours"
+        })
 
     return actions
 

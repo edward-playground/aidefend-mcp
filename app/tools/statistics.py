@@ -5,6 +5,8 @@ Provides comprehensive statistics about the AIDEFEND knowledge base including
 total documents, breakdown by type, tactic, pillar, and phase.
 """
 
+from copy import deepcopy
+
 from typing import Dict, Any, List
 from datetime import datetime
 from collections import defaultdict
@@ -14,6 +16,7 @@ from app.config import settings
 from app.framework_utils import (
     build_framework_metrics,
     extract_framework_coverage,
+    framework_labels_from_version_info,
     is_actionable_record,
     merge_framework_coverage_sets,
     parse_json_list,
@@ -53,7 +56,16 @@ async def get_statistics() -> Dict[str, Any]:
 
     if version_info and "statistics" in version_info:
         logger.info("Using pre-computed statistics from version file (fast path)")
-        statistics = version_info["statistics"]
+        statistics = deepcopy(version_info["statistics"])
+        framework_labels = framework_labels_from_version_info(version_info)
+        by_framework = statistics.get("threat_framework_coverage", {}).get(
+            "by_framework", {}
+        )
+        if isinstance(by_framework, dict):
+            for key, label in framework_labels.items():
+                metric = by_framework.get(key)
+                if isinstance(metric, dict):
+                    metric["label"] = label
         model_name = query_engine.active_embedding_model
         if model_name == "Xenova/multilingual-e5-base":
             model_name = "Xenova/multilingual-e5-base (Quantized Int8)"
@@ -75,10 +87,13 @@ async def get_statistics() -> Dict[str, Any]:
         # Get all documents (we need to scan to get accurate stats)
         # Note: This is a full table scan, but for ~500 documents it's acceptable
         logger.info("Scanning all documents for statistics...")
-        all_docs = await query_engine.read_table(
+        (all_docs, version_info) = await query_engine.read_table_snapshot(
             lambda table: table.to_pandas().to_dict('records')
         )
         all_docs = [decode_framework_record(doc) for doc in all_docs]
+        effective_framework_labels = framework_labels_from_version_info(
+            version_info
+        )
 
         logger.info(f"Retrieved {len(all_docs)} documents")
 
@@ -141,7 +156,10 @@ async def get_statistics() -> Dict[str, Any]:
 
                 if defends_against:
                     techniques_with_defenses += 1
-                    coverage = extract_framework_coverage(defends_against)
+                    coverage = extract_framework_coverage(
+                        defends_against,
+                        framework_labels=effective_framework_labels,
+                    )
                     covered_framework_sets = merge_framework_coverage_sets(covered_framework_sets, coverage)
                     total_framework_sets = merge_framework_coverage_sets(total_framework_sets, coverage)
 
@@ -164,14 +182,13 @@ async def get_statistics() -> Dict[str, Any]:
             if doc_type == 'strategy' and doc['guidance_id']:
                 canonical_guidance_documents += 1
 
-        # Get last sync time from version file
-        from app.utils import load_version_info
-        version_info = load_version_info()
+        # The version file was loaded under the same reader lock as this scan.
         last_synced = version_info.get("last_sync", "Unknown") if version_info else "Unknown"
 
         threat_framework_coverage = build_framework_metrics(
             covered_sets=covered_framework_sets,
             total_sets=total_framework_sets,
+            framework_labels=effective_framework_labels,
         )
         threat_framework_coverage["techniques_with_threat_mappings"] = techniques_with_defenses
         threat_framework_coverage["techniques_mapped_percentage"] = round(

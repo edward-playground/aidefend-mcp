@@ -81,9 +81,10 @@ class EmbeddingCache:
 
             # Check if schema version changed
             cached_schema = cache.get("schema_version", "1.0")
-            if cached_schema != settings.CACHE_SCHEMA_VERSION:
+            if cached_schema != settings.EMBEDDING_CACHE_SCHEMA_VERSION:
                 logger.warning(
-                    f"🔄 Cache schema changed from '{cached_schema}' to '{settings.CACHE_SCHEMA_VERSION}'. "
+                    f"🔄 Cache schema changed from '{cached_schema}' to "
+                    f"'{settings.EMBEDDING_CACHE_SCHEMA_VERSION}'. "
                     f"Invalidating {len(cache.get('embeddings', {}))} cached entries for safety. "
                     f"This ensures data consistency after metadata format changes."
                 )
@@ -111,7 +112,7 @@ class EmbeddingCache:
         """Create an empty cache structure."""
         return {
             "cache_version": "1.0",
-            "schema_version": settings.CACHE_SCHEMA_VERSION,
+            "schema_version": settings.EMBEDDING_CACHE_SCHEMA_VERSION,
             "model_name": self.model_name,
             "model_dimension": self.dimension,
             "embeddings": {},
@@ -216,7 +217,7 @@ class EmbeddingCache:
             self.cache["metadata"]["last_updated"] = datetime.now().isoformat()
             self.cache["model_name"] = self.model_name
             self.cache["model_dimension"] = self.dimension
-            self.cache["schema_version"] = settings.CACHE_SCHEMA_VERSION
+            self.cache["schema_version"] = settings.EMBEDDING_CACHE_SCHEMA_VERSION
 
             # Ensure directory exists
             self.cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -232,7 +233,8 @@ class EmbeddingCache:
             cache_size_mb = self.cache_file.stat().st_size / (1024 * 1024)
             logger.info(
                 f"✅ Cache saved: {len(self.cache['embeddings'])} entries, "
-                f"{cache_size_mb:.1f}MB, schema={settings.CACHE_SCHEMA_VERSION}"
+                f"{cache_size_mb:.1f}MB, "
+                f"schema={settings.EMBEDDING_CACHE_SCHEMA_VERSION}"
             )
 
         except Exception as e:

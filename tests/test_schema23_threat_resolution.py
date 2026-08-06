@@ -105,7 +105,7 @@ async def test_incident_playbook_merges_every_classified_threat(monkeypatch):
         "keywords_found": [{"keyword": "prompt injection", "confidence": 0.98}],
         "threat_details": [
             {
-                "threat_id": "OWASP-LLM01",
+                "threat_id": "OWASP-LLM01:2026",
                 "threat_name": "Prompt Injection",
                 "confidence": 0.98,
                 "matched_keyword": "prompt injection",
@@ -157,7 +157,7 @@ async def test_incident_playbook_merges_every_classified_threat(monkeypatch):
     )
 
     assert [threat_id for threat_id, _ in calls] == [
-        "LLM01",
+        "LLM01:2026",
         "AML.T0051",
         "Compromised Agent Registry (L7)",
     ]
@@ -170,7 +170,7 @@ async def test_incident_playbook_merges_every_classified_threat(monkeypatch):
         if entry["technique"]["id"] == "AID-H-999.001"
     )
     assert duplicate["matched_classified_threat_ids"] == [
-        "LLM01",
+        "LLM01:2026",
         "AML.T0051",
     ]
 

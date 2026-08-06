@@ -10,7 +10,7 @@ import math
 import re
 import lancedb
 from contextlib import asynccontextmanager
-from typing import Any, List, Optional, Dict
+from typing import Any, List, Mapping, Optional, Dict
 from pathlib import Path
 from fastembed import TextEmbedding
 from aiorwlock import RWLock
@@ -18,7 +18,13 @@ from aiorwlock import RWLock
 from app.config import settings
 from app.logger import get_logger
 from app.schemas import QueryRequest, ContextChunk
-from app.utils import load_version_info
+from app.utils import _await_cancellation_safe, load_version_info
+from app.generation_identity import (
+    GENERATION_ID_FIELD,
+    GenerationIdentityError,
+    assert_table_generation,
+    bind_version_generation,
+)
 
 logger = get_logger(__name__)
 
@@ -276,6 +282,7 @@ class QueryEngine:
         self._id_cache: Optional[List] = None  # ID cache for validation tool
         self._active_embedding_model: str = settings.EMBEDDING_MODEL
         self._active_embedding_dimension: int = settings.EMBEDDING_DIMENSION
+        self._active_generation_id: Optional[str] = None
 
         logger.info("QueryEngine instance created (lazy initialization)")
 
@@ -414,7 +421,11 @@ class QueryEngine:
 
         return resolved_model
 
-    async def _do_initialize(self) -> bool:
+    async def _do_initialize(
+        self,
+        *,
+        expected_version_info: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
         """
         Initialize database connection and embedding model.
         Must be called with writer lock held.
@@ -439,26 +450,53 @@ class QueryEngine:
             # Connect to database before loading embedding model so we can detect
             # which vector dimension is stored in LanceDB.
             logger.info(f"Connecting to LanceDB: {settings.DB_PATH.name}")
-            self._db = await asyncio.to_thread(
-                lancedb.connect,
-                str(settings.DB_PATH)
+            self._db = await _await_cancellation_safe(
+                asyncio.to_thread(lancedb.connect, str(settings.DB_PATH)),
+                task_name="aidefend-lancedb-connect",
             )
 
             # Open table
             try:
-                self._table = await asyncio.to_thread(
-                    self._db.open_table,
-                    "aidefend"
+                self._table = await _await_cancellation_safe(
+                    asyncio.to_thread(self._db.open_table, "aidefend"),
+                    task_name="aidefend-lancedb-open-table",
                 )
                 logger.info("Opened 'aidefend' table")
             except Exception as e:
                 logger.error(f"Failed to open 'aidefend' table: {e}")
                 return False
 
+            # Startup accepts a fully legacy pre-3.3 pair long enough for the
+            # schema-version sync to rebuild it. Transactional activation and
+            # rollback always pass expected metadata and therefore require a
+            # persisted table ID before the engine can become ready.
+            identity_version = (
+                expected_version_info
+                if expected_version_info is not None
+                else load_version_info()
+            )
+            if not isinstance(identity_version, Mapping):
+                raise GenerationIdentityError(
+                    "Active LanceDB table has no usable version metadata"
+                )
+            await self._assert_table_generation_locked(
+                self._table,
+                identity_version,
+                allow_legacy_unbound=expected_version_info is None,
+                task_name="aidefend-lancedb-initialize-generation-assert",
+            )
+            self._active_generation_id = bind_version_generation(
+                identity_version,
+                allow_legacy=True,
+            )[GENERATION_ID_FIELD]
+
             # Detect stored vector dimension (if possible) and resolve model.
-            detected_dimension = await asyncio.to_thread(
-                self._detect_table_vector_dimension,
-                self._table
+            detected_dimension = await _await_cancellation_safe(
+                asyncio.to_thread(
+                    self._detect_table_vector_dimension,
+                    self._table,
+                ),
+                task_name="aidefend-lancedb-detect-vector-dimension",
             )
 
             if detected_dimension:
@@ -479,51 +517,41 @@ class QueryEngine:
                 else:
                     logger.info(f"Loading embedding model: {resolved_model_name}")
 
-                # GPU acceleration: Try CUDA first, fallback to CPU if unavailable
-                # Requires: onnxruntime-gpu, CUDA Toolkit, cuDNN
-                # See: docs/GPU_OPTIMIZATION.md for setup instructions
-                # Optional persisted cache dir (None = FastEmbed default, unchanged behavior).
-                model_cache_dir = str(settings.MODEL_CACHE_DIR) if settings.MODEL_CACHE_DIR else None
-                try:
-                    self._model = await asyncio.to_thread(
+                # AIDEFEND MCP 1.3.0 ships one supported inference runtime:
+                # the CPU packages declared by its distribution metadata.
+                # Optional persisted cache dir (None = FastEmbed default).
+                model_cache_dir = (
+                    str(settings.MODEL_CACHE_DIR)
+                    if settings.MODEL_CACHE_DIR
+                    else None
+                )
+                self._model = await _await_cancellation_safe(
+                    asyncio.to_thread(
                         TextEmbedding,
                         model_name=resolved_model_name,
                         cache_dir=model_cache_dir,
-                        providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
-                    )
-
-                    # Check which provider is actually being used
-                    try:
-                        active_provider = self._model._model.get_providers()[0]
-                        if active_provider == "CUDAExecutionProvider":
-                            logger.info("✅ Embedding model loaded with GPU acceleration (CUDA)")
-                        else:
-                            logger.info(f"⚠️  Embedding model loaded with CPU (provider: {active_provider})")
-                            logger.info("For faster performance, see docs/GPU_OPTIMIZATION.md")
-                    except Exception:
-                        # Fallback if get_providers() not available
-                        logger.info("Embedding model loaded (provider detection unavailable)")
-
-                except Exception as e:
-                    # If GPU providers fail, fallback to CPU-only
-                    logger.warning(f"Failed to load with GPU providers: {e}")
-                    logger.info("Falling back to CPU-only execution")
-                    self._model = await asyncio.to_thread(
-                        TextEmbedding,
-                        model_name=resolved_model_name,
-                        cache_dir=model_cache_dir
-                    )
-                    logger.info("Embedding model loaded (CPU only)")
+                    ),
+                    task_name="aidefend-embedding-model-load-cpu",
+                )
+                logger.info("Embedding model loaded (CPU runtime)")
             else:
                 logger.info(f"Reusing loaded embedding model: {resolved_model_name}")
 
             # Get table stats
-            count = await asyncio.to_thread(self._table.count_rows)
+            count = await _await_cancellation_safe(
+                asyncio.to_thread(self._table.count_rows),
+                task_name="aidefend-lancedb-initialize-count",
+            )
 
             # Load ID cache for validation tool (optimization)
             logger.info("Loading ID cache for validation tool...")
-            self._id_cache = await asyncio.to_thread(
-                lambda: self._table.to_pandas()[['source_id', 'name', 'type', 'tactic']].to_dict('records')
+            self._id_cache = await _await_cancellation_safe(
+                asyncio.to_thread(
+                    lambda: self._table.to_pandas()[
+                        ['source_id', 'name', 'type', 'tactic']
+                    ].to_dict('records')
+                ),
+                task_name="aidefend-lancedb-id-cache",
             )
             logger.info(f"ID cache loaded: {len(self._id_cache)} entries")
 
@@ -535,9 +563,12 @@ class QueryEngine:
             self._initialized = True
             return True
 
+        except asyncio.CancelledError:
+            self._reset_database_handles_locked()
+            raise
         except Exception as e:
             logger.error(f"Failed to initialize QueryEngine: {e}", exc_info=True)
-            self._initialized = False
+            self._reset_database_handles_locked()
             return False
 
     async def initialize(self) -> bool:
@@ -551,21 +582,110 @@ class QueryEngine:
         async with self._rw_lock.writer:
             return await self._do_initialize()
 
+    async def _assert_table_generation_locked(
+        self,
+        table: lancedb.Table,
+        version_info: Mapping[str, Any],
+        *,
+        allow_legacy_unbound: bool,
+        task_name: str,
+    ) -> Optional[str]:
+        """Verify table identity without blocking the event loop.
+
+        ``assert_table_generation`` reads the LanceDB schema and row counts.
+        Those are synchronous storage operations, so callers must hold the
+        appropriate database reader or writer lock while this method drains
+        the worker to completion, including when the caller is cancelled.
+        """
+        return await _await_cancellation_safe(
+            asyncio.to_thread(
+                assert_table_generation,
+                table,
+                version_info,
+                allow_legacy_unbound=allow_legacy_unbound,
+            ),
+            task_name=task_name,
+        )
+
+    def _assert_durable_generation_locked(self) -> None:
+        """Fail closed unless the initialized table matches durable metadata.
+
+        The caller must hold the database reader or writer guard.
+        """
+        if not self._initialized or self._table is None:
+            raise QueryEngineNotInitializedError(
+                "Query engine database is not available"
+            )
+        version_info = load_version_info()
+        if not isinstance(version_info, Mapping):
+            raise GenerationIdentityError(
+                "Active LanceDB table has no usable version metadata"
+            )
+        durable_generation = bind_version_generation(
+            version_info,
+            allow_legacy=True,
+        )[GENERATION_ID_FIELD]
+        if durable_generation != self._active_generation_id:
+            raise GenerationIdentityError(
+                "Active version metadata drifted from the initialized table"
+            )
+
     @asynccontextmanager
     async def database_read_guard(self):
         """Yield the active table while preventing a concurrent physical swap."""
         self._ensure_rwlock_for_current_loop()
         async with self._rw_lock.reader:
-            if not self._initialized or self._table is None:
-                raise QueryEngineNotInitializedError(
-                    "Query engine database is not available"
-                )
+            self._assert_durable_generation_locked()
             yield self._table
 
     async def read_table(self, operation):
         """Run one synchronous LanceDB read under the shared reader lock."""
         async with self.database_read_guard() as table:
-            return await asyncio.to_thread(operation, table)
+            return await _await_cancellation_safe(
+                asyncio.to_thread(operation, table),
+                task_name="aidefend-lancedb-read",
+            )
+
+    @asynccontextmanager
+    async def database_snapshot_guard(self):
+        """Yield the active table and its version metadata as one generation.
+
+        Sync activates the physical table and VERSION_FILE while holding the
+        writer side of this same lock.  Loading metadata only after acquiring
+        the reader lock therefore gives callers a generation-consistent view
+        for compound reads that cannot be expressed as one synchronous table
+        callback.
+        """
+        from app.utils import load_version_info
+
+        async with self.database_read_guard() as table:
+            version_info = load_version_info()
+            if not isinstance(version_info, Mapping):
+                raise GenerationIdentityError(
+                    "Active LanceDB table has no usable version metadata"
+                )
+            await self._assert_table_generation_locked(
+                table,
+                version_info,
+                allow_legacy_unbound=True,
+                task_name="aidefend-lancedb-snapshot-generation-assert",
+            )
+            yield table, version_info
+
+    async def read_table_snapshot(self, operation):
+        """Read the active table and its version/registry as one generation.
+
+        Sync commits the physical table and atomic version file while holding
+        the writer side of this same lock. Loading metadata after acquiring the
+        reader therefore prevents a caller from pairing an old registry with a
+        newly activated table (or the reverse).
+        """
+        async with self.database_snapshot_guard() as (table, version_info):
+            result = await _await_cancellation_safe(
+                asyncio.to_thread(operation, table),
+                task_name="aidefend-lancedb-snapshot-read",
+            )
+            return result, version_info
 
     @asynccontextmanager
     async def database_write_guard(self):
@@ -580,6 +700,7 @@ class QueryEngine:
         self._table = None
         self._db = None
         self._id_cache = None
+        self._active_generation_id = None
         # LanceDB has no stable cross-version close API. Releasing references and
         # collecting here prevents Windows file handles from surviving the swap.
         gc.collect()
@@ -616,6 +737,7 @@ class QueryEngine:
                 )
 
             try:
+                self._assert_durable_generation_locked()
                 logger.info(
                     f"Processing query",
                     extra={
@@ -625,16 +747,22 @@ class QueryEngine:
                 )
 
                 # Embed query (fastembed returns generator, get first result)
-                query_embeddings = await asyncio.to_thread(
-                    lambda: list(self._model.embed([request.query_text]))
+                query_embeddings = await _await_cancellation_safe(
+                    asyncio.to_thread(
+                        lambda: list(self._model.embed([request.query_text]))
+                    ),
+                    task_name="aidefend-query-embedding",
                 )
                 query_vector = query_embeddings[0]
 
                 # Perform vector search
-                results = await asyncio.to_thread(
-                    self._perform_search,
-                    query_vector,
-                    request.top_k
+                results = await _await_cancellation_safe(
+                    asyncio.to_thread(
+                        self._perform_search,
+                        query_vector,
+                        request.top_k,
+                    ),
+                    task_name="aidefend-lancedb-vector-search",
                 )
 
                 # Convert to ContextChunk objects
@@ -691,7 +819,7 @@ class QueryEngine:
         Perform batch search with optimized batch embedding generation.
 
         This is more efficient than calling search() multiple times because:
-        - Embeddings are generated in a single batch call (20-30% faster)
+        - Embeddings are generated in a single batch call
         - Reduces overhead from multiple model invocations
 
         Args:
@@ -721,6 +849,7 @@ class QueryEngine:
                 raise QueryEngineNotInitializedError("Query engine components not available")
 
             try:
+                self._assert_durable_generation_locked()
                 logger.info(
                     f"Processing batch search: {len(requests)} queries",
                     extra={"batch_size": len(requests)}
@@ -729,9 +858,10 @@ class QueryEngine:
                 # Extract query texts
                 query_texts = [req.query_text for req in requests]
 
-                # Batch embed (ONE call for all queries - 20-30% faster)
-                query_embeddings = await asyncio.to_thread(
-                    lambda: list(self._model.embed(query_texts))
+                # Batch embed (one model call for all queries).
+                query_embeddings = await _await_cancellation_safe(
+                    asyncio.to_thread(lambda: list(self._model.embed(query_texts))),
+                    task_name="aidefend-batch-query-embedding",
                 )
 
                 logger.debug(f"Generated {len(query_embeddings)} embeddings in batch")
@@ -742,7 +872,10 @@ class QueryEngine:
                     for embedding, req in zip(query_embeddings, requests)
                 ]
 
-                results_list = await asyncio.gather(*search_tasks, return_exceptions=True)
+                results_list = await _await_cancellation_safe(
+                    asyncio.gather(*search_tasks, return_exceptions=True),
+                    task_name="aidefend-lancedb-batch-vector-search",
+                )
 
                 # Convert results to ContextChunk objects
                 all_chunks = []
@@ -782,28 +915,57 @@ class QueryEngine:
 
     async def get_stats(self) -> dict:
         """
-        Get query engine statistics.
+        Get query engine statistics and their generation metadata snapshot.
+
+        ``version_info`` is read while holding the same reader lock as the
+        active table count. Callers that report both values must consume this
+        returned snapshot instead of re-reading VERSION_FILE after the lock is
+        released, because a sync may activate a new generation in between.
 
         Returns:
             Dict with engine stats
         """
-        if not self._initialized:
-            return {
-                "initialized": False,
-                "document_count": 0,
-                "model_loaded": False
-            }
-
-        # Acquire reader lock for stats operation
+        # Acquire the reader lock before inspecting initialization state. A
+        # writer may be activating both the table and version file; checking
+        # state first could pair an unlocked zero count with new metadata.
         self._ensure_rwlock_for_current_loop()
         async with self._rw_lock.reader:
+            version_info = None
             try:
+                # Sync activates the table and atomic version file under this
+                # lock's writer side, so these values describe one generation.
+                version_info = load_version_info()
+                if not self._initialized:
+                    return {
+                        "initialized": False,
+                        "document_count": 0,
+                        "model_loaded": False,
+                        "framework_version": (
+                            version_info.get("framework_version")
+                            if version_info
+                            else None
+                        ),
+                        "version_info": version_info,
+                    }
+
+                if not isinstance(version_info, Mapping):
+                    raise GenerationIdentityError(
+                        "Active LanceDB table has no usable version metadata"
+                    )
+                await self._assert_table_generation_locked(
+                    self._table,
+                    version_info,
+                    allow_legacy_unbound=True,
+                    task_name="aidefend-lancedb-stats-generation-assert",
+                )
+
                 doc_count = 0
                 if self._table:
-                    doc_count = await asyncio.to_thread(self._table.count_rows)
+                    doc_count = await _await_cancellation_safe(
+                        asyncio.to_thread(self._table.count_rows),
+                        task_name="aidefend-lancedb-stats-count",
+                    )
 
-                # Load framework version from version file
-                version_info = load_version_info()
                 framework_version = version_info.get("framework_version") if version_info else None
 
                 return {
@@ -812,14 +974,21 @@ class QueryEngine:
                     "model_loaded": self._model is not None,
                     "embedding_model": self.active_embedding_model,
                     "embedding_dimension": self.active_embedding_dimension,
-                    "framework_version": framework_version
+                    "framework_version": framework_version,
+                    "version_info": version_info,
                 }
             except Exception as e:
                 logger.error(f"Failed to get stats: {e}")
                 return {
-                    "initialized": self._initialized,
+                    "initialized": False,
                     "document_count": 0,
                     "model_loaded": self._model is not None,
+                    "framework_version": (
+                        version_info.get("framework_version")
+                        if version_info
+                        else None
+                    ),
+                    "version_info": version_info,
                     "error": str(e)
                 }
 
@@ -838,9 +1007,18 @@ class QueryEngine:
             # Acquire reader lock for health check operation
             self._ensure_rwlock_for_current_loop()
             async with self._rw_lock.reader:
-                # Try a simple count operation
                 if self._table:
-                    await asyncio.to_thread(self._table.count_rows)
+                    version_info = load_version_info()
+                    if not isinstance(version_info, Mapping):
+                        raise GenerationIdentityError(
+                            "Active LanceDB table has no usable version metadata"
+                        )
+                    await self._assert_table_generation_locked(
+                        self._table,
+                        version_info,
+                        allow_legacy_unbound=True,
+                        task_name="aidefend-lancedb-health-generation-assert",
+                    )
                     return True
 
                 return False
@@ -865,6 +1043,12 @@ class QueryEngine:
 
             # Re-initialize (we already have writer lock, so call _do_initialize directly)
             return await self._do_initialize()
+
+    async def close(self) -> None:
+        """Release all database handles under the exclusive reader/writer guard."""
+        self._ensure_rwlock_for_current_loop()
+        async with self._rw_lock.writer:
+            self._reset_database_handles_locked()
 
     def get_id_cache(self) -> Optional[List]:
         """

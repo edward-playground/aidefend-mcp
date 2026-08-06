@@ -9,6 +9,20 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cross_process_sync_lock(tmp_path, monkeypatch):
+    """Startup recovery tests must never touch the configured service lock."""
+    import app.sync as sync_module
+
+    data_path = tmp_path / "data"
+    monkeypatch.setattr(sync_module.settings, "DATA_PATH", data_path)
+    monkeypatch.setattr(
+        sync_module,
+        "_file_lock",
+        sync_module.SyncFileLock(data_path / "sync.lock"),
+    )
+
+
 def test_imports():
     """Recovery entry points remain importable."""
     from app.config import settings
@@ -100,5 +114,25 @@ def test_sync_file_lock_is_exclusive_and_reusable(tmp_path):
         first.release()
 
     successor = SyncFileLock(lock_path)
+    assert successor.acquire(timeout=0) is True
+    successor.release()
+
+
+def test_stale_lock_cleanup_keeps_stable_rendezvous_file(tmp_path, monkeypatch):
+    """A released old lock file is harmless and must never be unlinked."""
+    import os
+    import time
+    import app.sync as sync_module
+
+    lock_path = sync_module.settings.DATA_PATH / "sync.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("123\n", encoding="utf-8")
+    stale_time = time.time() - sync_module.settings.LOCK_MAX_AGE_SECONDS - 60
+    os.utime(lock_path, (stale_time, stale_time))
+
+    sync_module.cleanup_stale_lock()
+
+    assert lock_path.is_file()
+    successor = sync_module.SyncFileLock(lock_path)
     assert successor.acquire(timeout=0) is True
     successor.release()

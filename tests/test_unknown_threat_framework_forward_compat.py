@@ -136,6 +136,9 @@ async def test_unknown_framework_is_retained_in_threat_coverage_output(monkeypat
                 }
             ]
 
+        async def read_table_snapshot(self, operation):
+            return await self.read_table(operation), None
+
     monkeypatch.setattr(core_module, "query_engine", FakeQueryEngine())
 
     result = await get_threat_coverage(["AID-H-999"])

@@ -1,4 +1,4 @@
-"""Narrow compatibility contracts for the pre-schema public framework."""
+"""Narrow compatibility contracts for the known legacy public framework."""
 
 from copy import deepcopy
 
@@ -7,7 +7,6 @@ from app.sync import (
     LEGACY_FRAMEWORK_REPOSITORY,
     LEGACY_FRAMEWORK_SOURCE_REVISION,
     LEGACY_FRAMEWORK_VERSION,
-    UNKNOWN_FRAMEWORK_SCHEMA_VERSION,
     extract_documents_from_tactic,
     uses_legacy_framework_contract,
     validate_tactic_contract,
@@ -81,24 +80,18 @@ def _profile(**overrides):
         "source_revision": LEGACY_FRAMEWORK_SOURCE_REVISION,
         "source_content_sha256": LEGACY_FRAMEWORK_CONTENT_SHA256,
         "framework_version": LEGACY_FRAMEWORK_VERSION,
-        "schema_metadata_available": False,
-        "framework_authoring_schema_version": UNKNOWN_FRAMEWORK_SCHEMA_VERSION,
-        "framework_public_schema_version": UNKNOWN_FRAMEWORK_SCHEMA_VERSION,
     }
     values.update(overrides)
     return uses_legacy_framework_contract(**values)
 
 
-def test_only_exact_canonical_pre_schema_release_selects_legacy_contract():
+def test_only_exact_canonical_legacy_release_selects_legacy_contract():
     assert _profile() is True
     assert _profile(source_kind="local") is False
     assert _profile(source_repository="example.invalid/aidefense-framework") is False
     assert _profile(source_revision="a" * 40) is False
     assert _profile(source_content_sha256="b" * 64) is False
     assert _profile(framework_version="1.20260724") is False
-    assert _profile(schema_metadata_available=True) is False
-    assert _profile(framework_authoring_schema_version="1.7") is False
-    assert _profile(framework_public_schema_version="2.3") is False
 
 
 def test_legacy_mode_accepts_only_known_missing_ids_and_parent_union_semantics():

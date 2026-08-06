@@ -59,6 +59,16 @@ class FakeQueryEngine:
     async def read_table(self, _operation):
         return [dict(record) for record in self.records]
 
+    async def read_table_snapshot(self, _operation):
+        from app.utils import load_version_info
+
+        records = [dict(record) for record in self.records]
+        return {
+            "embedding_model_changed": False,
+            "documents": records,
+            "semantic_documents": records,
+        }, load_version_info()
+
     def get_id_cache(self):
         return None
 

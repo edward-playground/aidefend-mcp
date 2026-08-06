@@ -173,8 +173,16 @@ def test_framework_version_and_digest_are_resolved_without_snapshot_pin():
         assert "Identifier" not in version
 
     tactic_files = _tactic_files(root)
-    source_files = _framework_source_files(tactic_files)
+    migration_path = root / "data" / "framework-migrations.json"
+    if not migration_path.is_file():
+        migration_path = root / "framework-migrations.json"
+    source_files = _framework_source_files(
+        tactic_files,
+        include_framework_migrations=migration_path.is_file(),
+    )
     staged_files = [intro]
+    if migration_path.is_file():
+        staged_files.append(migration_path)
     staged_files.extend(_tactic_path(root, file_name) for file_name in tactic_files)
     digest = _compute_staged_framework_digest(
         staged_files,

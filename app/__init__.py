@@ -6,4 +6,4 @@ Copyright (c) 2025 Edward Lee (edward-playground)
 Licensed under the MIT License - see LICENSE file for details.
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"

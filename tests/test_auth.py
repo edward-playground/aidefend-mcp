@@ -4,6 +4,8 @@ Unit tests for authentication module (app/auth.py).
 Tests the authentication logic in isolation without FastAPI integration.
 """
 
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
@@ -279,3 +281,32 @@ class TestConfigValidation:
         # Assert
         assert settings.AUTH_MODE == "no_auth"
         assert settings.AIDEFEND_API_KEY is None
+
+    def test_permissive_cors_warning_uses_reserved_example_domain(self, caplog):
+        """CORS guidance uses a safe RFC-reserved documentation domain."""
+        from app.config import Settings
+
+        with caplog.at_level("WARNING", logger="app.config"):
+            Settings(
+                AUTH_MODE="api_key",
+                AIDEFEND_API_KEY="test-key-123",
+                CORS_ORIGINS=["*"],
+                _env_file=None,
+            )
+
+        assert 'CORS_ORIGINS=["https://example.com"]' in caplog.text
+
+    def test_public_env_example_uses_supported_cors_origin_syntax(self):
+        """The public template must not suggest unsupported port wildcards."""
+        env_example = (
+            Path(__file__).resolve().parents[1] / ".env.example"
+        ).read_text(encoding="utf-8")
+
+        cors_origin_examples = [
+            line
+            for line in env_example.splitlines()
+            if line.startswith("# CORS_ORIGINS=")
+        ]
+        assert all("localhost:*" not in line for line in cors_origin_examples)
+        assert 'CORS_ORIGINS=["http://localhost:3000"]' in env_example
+        assert "CORS_ORIGIN_REGEX=" in env_example

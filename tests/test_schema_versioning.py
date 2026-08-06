@@ -46,7 +46,7 @@ def test_schema_version_mismatch_invalidates_cache(tmp_path):
 
     # Cache should be invalidated (empty)
     assert len(cache.cache["embeddings"]) == 0
-    assert cache.cache["schema_version"] == settings.CACHE_SCHEMA_VERSION
+    assert cache.cache["schema_version"] == settings.EMBEDDING_CACHE_SCHEMA_VERSION
 
     print("✅ Schema version mismatch correctly invalidated cache")
 
@@ -59,7 +59,7 @@ def test_schema_version_match_preserves_cache(tmp_path):
     # Create cache with CURRENT schema version
     current_cache = {
         "cache_version": "1.0",
-        "schema_version": settings.CACHE_SCHEMA_VERSION,  # Current version
+        "schema_version": settings.EMBEDDING_CACHE_SCHEMA_VERSION,  # Current version
         "model_name": "Xenova/multilingual-e5-base",
         "model_dimension": 768,
         "embeddings": {
@@ -90,7 +90,7 @@ def test_schema_version_match_preserves_cache(tmp_path):
     # Cache should be preserved
     assert len(cache.cache["embeddings"]) == 1
     assert "abc123" in cache.cache["embeddings"]
-    assert cache.cache["schema_version"] == settings.CACHE_SCHEMA_VERSION
+    assert cache.cache["schema_version"] == settings.EMBEDDING_CACHE_SCHEMA_VERSION
 
     print("✅ Matching schema version preserved cache")
 
@@ -119,7 +119,7 @@ def test_cache_save_includes_schema_version(tmp_path):
         saved_cache = json.load(f)
 
     assert "schema_version" in saved_cache
-    assert saved_cache["schema_version"] == settings.CACHE_SCHEMA_VERSION
+    assert saved_cache["schema_version"] == settings.EMBEDDING_CACHE_SCHEMA_VERSION
     assert len(saved_cache["embeddings"]) == 1
 
     print("✅ Cache save correctly persists schema version")
@@ -139,7 +139,7 @@ def test_new_cache_has_schema_version(tmp_path):
 
     # Check that schema version is set
     assert "schema_version" in cache.cache
-    assert cache.cache["schema_version"] == settings.CACHE_SCHEMA_VERSION
+    assert cache.cache["schema_version"] == settings.EMBEDDING_CACHE_SCHEMA_VERSION
 
     print("✅ New cache has schema version")
 

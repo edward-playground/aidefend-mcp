@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi.routing import serialize_response
 
 import app.cli as cli_module
 import app.config as config_module
@@ -88,12 +89,17 @@ async def test_health_reports_stale_but_queryable_database_as_degraded(monkeypat
     stale_time = datetime.now(timezone.utc) - timedelta(
         seconds=(main_module.settings.SYNC_INTERVAL_SECONDS * 2) + 60
     )
+    engine.get_stats.return_value["version_info"] = {
+        "last_synced_at": stale_time.isoformat(),
+    }
 
     monkeypatch.setattr(main_module, "query_engine", engine)
     monkeypatch.setattr(
         main_module,
         "load_version_info",
-        lambda: {"last_synced_at": stale_time.isoformat()},
+        lambda: (_ for _ in ()).throw(
+            AssertionError("health must use the stats generation snapshot")
+        ),
     )
 
     response = await main_module.health_check()
@@ -138,6 +144,32 @@ def test_security_posture_rest_schema_matches_mcp_empty_baseline_contract():
     assert implemented_schema["maxItems"] == 200
 
 
+def test_threat_coverage_rest_schema_preserves_active_framework_labels():
+    from app.schemas import ThreatCoverageResponse
+
+    response = ThreatCoverageResponse.model_validate(
+        {
+            "input_count": 0,
+            "valid_count": 0,
+            "invalid_count": 0,
+            "invalid_techniques": [],
+            "resolved_actionable_count": 0,
+            "expanded_parent_families": {},
+            "covered": {},
+            "coverage_rate": {},
+            "framework_totals": {},
+            "framework_labels": {
+                "owasp_llm": "OWASP LLM Top 10 2026",
+            },
+            "by_technique": [],
+        }
+    )
+
+    assert response.model_dump()["framework_labels"]["owasp_llm"] == (
+        "OWASP LLM Top 10 2026"
+    )
+
+
 def test_classify_threat_rest_schema_preserves_mapping_status():
     response = ClassifyThreatResponse.model_validate(
         {
@@ -152,6 +184,12 @@ def test_classify_threat_rest_schema_preserves_mapping_status():
                 "corpus_mapping_available": True,
                 "unresolved_claims": [],
                 "unmapped_keywords": [],
+                "classifier_owasp_llm_edition": "2026",
+                "classifier_owasp_llm_label": "OWASP LLM Top 10 2026",
+                "active_index_owasp_llm_edition": "2026",
+                "active_index_owasp_llm_label": "OWASP LLM Top 10 2026",
+                "migration_registry_status": "active",
+                "owasp_llm_catalog_aligned": True,
             },
         }
     )
@@ -160,15 +198,19 @@ def test_classify_threat_rest_schema_preserves_mapping_status():
     assert response.mapping_status.corpus_mapping_available is True
     assert response.mapping_status.unresolved_claims == []
     assert response.mapping_status.unmapped_keywords == []
+    assert response.mapping_status.classifier_owasp_llm_edition == "2026"
+    assert response.mapping_status.classifier_owasp_llm_label == "OWASP LLM Top 10 2026"
+    assert response.mapping_status.active_index_owasp_llm_edition == "2026"
+    assert response.mapping_status.active_index_owasp_llm_label == "OWASP LLM Top 10 2026"
+    assert response.mapping_status.migration_registry_status == "active"
+    assert response.mapping_status.owasp_llm_catalog_aligned is True
 
 
 @pytest.mark.asyncio
-async def test_status_exposes_complete_framework_source_metadata(monkeypatch):
+async def test_status_exposes_complete_current_public_metadata_contract(monkeypatch):
     version_info = {
         "commit_sha": "legacy-commit",
-        "last_synced_at": "2026-07-21T12:34:56+00:00",
         "framework_version": "1.20260721",
-        "framework_authoring_schema_version": "1.8",
         "framework_public_schema_version": "2.4",
         "index_schema_version": "2.0",
         "source_kind": "local",
@@ -177,7 +219,9 @@ async def test_status_exposes_complete_framework_source_metadata(monkeypatch):
         "source_repository": "local-working-tree",
         "source_ref": "working-tree",
         "source_content_sha256": "a" * 64,
-        "framework_schema_metadata_sha256": "b" * 64,
+        "framework_migrations_schema_version": "1.0",
+        "framework_migrations_registry_version": "2026-08-05",
+        "framework_migrations_sha256": "c" * 64,
         "total_documents": 1234,
     }
 
@@ -191,7 +235,6 @@ async def test_status_exposes_complete_framework_source_metadata(monkeypatch):
     assert sync_info is not None
     assert sync_info.current_commit_sha == "local-revision"
     assert sync_info.framework_version == "1.20260721"
-    assert sync_info.framework_authoring_schema_version == "1.8"
     assert sync_info.framework_public_schema_version == "2.4"
     assert sync_info.index_schema_version == "2.0"
     assert sync_info.source_kind == "local"
@@ -200,7 +243,51 @@ async def test_status_exposes_complete_framework_source_metadata(monkeypatch):
     assert sync_info.source_repository == "local-working-tree"
     assert sync_info.source_ref == "working-tree"
     assert sync_info.source_content_sha256 == "a" * 64
-    assert sync_info.framework_schema_metadata_sha256 == "b" * 64
+    assert sync_info.framework_migrations_schema_version == "1.0"
+    assert sync_info.framework_migrations_registry_version == "2026-08-05"
+    assert sync_info.framework_migrations_sha256 == "c" * 64
+
+    status_route = next(
+        route
+        for route in main_module.protected_router.routes
+        if getattr(route, "path", None) == "/api/v1/status"
+    )
+    serialized = await serialize_response(
+        field=status_route.response_field,
+        response_content=response,
+        exclude=status_route.response_model_exclude,
+        by_alias=status_route.response_model_by_alias,
+        exclude_unset=status_route.response_model_exclude_unset,
+        exclude_defaults=status_route.response_model_exclude_defaults,
+        exclude_none=status_route.response_model_exclude_none,
+        is_coroutine=True,
+    )
+    serialized_sync = serialized["sync_info"]
+
+    assert serialized_sync["framework_public_schema_version"] == "2.4"
+    assert serialized_sync["last_synced_at"] is None
+
+    openapi_sync_schema = main_module.app.openapi()["components"]["schemas"][
+        "SyncStatus"
+    ]
+    assert set(openapi_sync_schema["properties"]) == {
+        "last_synced_at",
+        "current_commit_sha",
+        "framework_version",
+        "framework_public_schema_version",
+        "index_schema_version",
+        "source_kind",
+        "source_revision_kind",
+        "source_revision",
+        "source_repository",
+        "source_ref",
+        "source_content_sha256",
+        "framework_migrations_schema_version",
+        "framework_migrations_registry_version",
+        "framework_migrations_sha256",
+        "total_documents",
+        "is_syncing",
+    }
 
 
 def test_resync_failure_does_not_predelete_live_database_or_version(
@@ -252,6 +339,29 @@ def test_resync_failure_does_not_predelete_live_database_or_version(
     assert release_calls == [True]
     assert database_marker.read_text(encoding="utf-8") == "current database"
     assert version_path.read_text(encoding="utf-8") == '{"source_revision":"current"}'
+
+
+@pytest.mark.parametrize(
+    ("argv0", "expected_command"),
+    [
+        ("aidefend-mcp", "aidefend-mcp"),
+        ("aidefend-mcp.exe", "aidefend-mcp"),
+        (str(Path("source") / "__main__.py"), "python __main__.py"),
+    ],
+)
+def test_cli_help_uses_the_launcher_for_the_current_installation(
+    argv0, expected_command, monkeypatch, capsys
+):
+    monkeypatch.setattr(sys, "argv", [argv0, "--help"])
+
+    cli_module.print_help()
+
+    stdout = capsys.readouterr().out
+    assert f"USAGE:\n    {expected_command} [OPTIONS]" in stdout
+    assert f"{expected_command} --mcp" in stdout
+    assert f"{expected_command} --resync" in stdout
+    assert "Installed package: aidefend-mcp [OPTIONS]" in stdout
+    assert "Source checkout:   python __main__.py [OPTIONS]" in stdout
 
 
 def test_api_cli_banner_uses_effective_host_and_port(monkeypatch, capsys):
@@ -469,12 +579,21 @@ def test_ci_release_gate_proves_manifest_all_tools_and_zero_skips():
         "python scripts/smoke_all_tools.py --data-path data --transport both --timeout 180",
         "python scripts/build_release_artifacts.py --outdir dist",
         "python scripts/verify_distribution_inventory.py dist",
+        "python -m pip_audit -r requirements-dev.txt",
+        "npm audit --omit=dev --audit-level=high",
         "docker compose config --quiet",
         "docker build --check .",
         "docker build --tag aidefend-mcp:ci .",
+        'AIDEFEND_CI_DATA_VOLUME: aidefend-mcp-ci-data',
+        "aidefend-mcp:ci __main__.py --resync",
+        "aidefend-mcp:ci scripts/verify_index_manifest.py",
+        "aidefend-mcp:ci scripts/smoke_all_tools.py \\",
+        "--data-path /app/data",
+        "--publish 127.0.0.1:18000:8000",
+        "http://127.0.0.1:18000/health",
         "name: Clean wheel -",
         "os: [ubuntu-latest, windows-latest, macos-latest]",
-        'python: ["3.10", "3.11", "3.12", "3.13"]',
+        'python: ["3.10", "3.11", "3.12", "3.13", "3.14"]',
         "scripts/verify_clean_install.py",
         "cp scripts/verify_index_manifest.py /tmp/aidefend-wheel-smoke/scripts/verify_index_manifest.py",
         'export PYTHONPATH=""',
@@ -487,6 +606,13 @@ def test_ci_release_gate_proves_manifest_all_tools_and_zero_skips():
         assert contract in workflow
 
     assert "timeout-minutes: 60" in workflow
+    assert "timeout-minutes: 75" in workflow
+    assert workflow.count('node-version: "24"') == 2
+    assert 'node-version: "24.19.0"' not in workflow
+    assert 'node-version: "22.7.0"' not in workflow
+    assert '"node": ">=18.0.0"' in (
+        repository_root / "package.json"
+    ).read_text(encoding="utf-8")
     assert "npm ci" not in workflow
     clean_install_job = workflow.split("clean-install:", 1)[1].split(
         "\n  container:", 1
@@ -499,6 +625,54 @@ def test_ci_release_gate_proves_manifest_all_tools_and_zero_skips():
     assert workflow.count(
         "python scripts/verify_distribution_inventory.py dist"
     ) == 2
+    container_job = workflow.split("\n  container:", 1)[1].split("\n  bandit:", 1)[0]
+    assert "GITHUB_BRANCH: ${{ github.event.client_payload.framework_ref" in container_job
+    assert "source=${{ github.workspace }}/scripts,target=/app/scripts,readonly" in container_job
+    assert "scripts/verify_index_manifest.py" in container_job
+    assert "scripts/smoke_all_tools.py" in container_job
+
+
+def test_github_workflows_use_one_current_official_action_major():
+    repository_root = Path(__file__).resolve().parents[1]
+    action_prefixes = (
+        "actions/checkout@",
+        "actions/setup-node@",
+        "actions/setup-python@",
+        "actions/upload-artifact@",
+    )
+
+    action_uses = []
+    for workflow_path in (repository_root / ".github" / "workflows").glob("*.yml"):
+        for raw_line in workflow_path.read_text(encoding="utf-8").splitlines():
+            stripped = raw_line.strip()
+            if stripped.startswith("uses: ") and any(
+                prefix in stripped for prefix in action_prefixes
+            ):
+                action_uses.append((workflow_path.name, stripped))
+
+    assert action_uses
+    assert all(line.endswith("@v7") for _, line in action_uses), action_uses
+
+    security_workflow = (
+        repository_root / ".github" / "workflows" / "security.yml"
+    ).read_text(encoding="utf-8")
+    assert "github/codeql-action/init@v4" in security_workflow
+    assert "github/codeql-action/analyze@v4" in security_workflow
+    assert "github/codeql-action/init@v3" not in security_workflow
+
+
+def test_scheduled_security_workflow_is_fail_closed():
+    repository_root = Path(__file__).resolve().parents[1]
+    workflow = (
+        repository_root / ".github" / "workflows" / "security.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "bandit -q -r app mcp_server.py __main__.py" in workflow
+    assert "python -m pip_audit -r requirements.txt" in workflow
+    assert "if-no-files-found: error" in workflow
+    assert "continue-on-error" not in workflow
+    assert "|| true" not in workflow
+    assert "safety check" not in workflow
 
 
 def test_sync_parser_recovery_guidance_matches_vendored_runtime():
@@ -509,3 +683,45 @@ def test_sync_parser_recovery_guidance_matches_vendored_runtime():
     assert "npm list acorn" not in sync_source
     assert "node --check parse_js_module.mjs" in sync_source
     assert "node --check vendor/acorn.mjs" in sync_source
+
+
+def test_release_runtime_is_explicitly_cpu_only():
+    repository_root = Path(__file__).resolve().parents[1]
+    core_source = (repository_root / "app" / "core.py").read_text(
+        encoding="utf-8"
+    )
+    benchmark_source = (
+        repository_root / "scripts" / "benchmark_search.py"
+    ).read_text(encoding="utf-8")
+    dependency_metadata = "\n".join(
+        (repository_root / name).read_text(encoding="utf-8")
+        for name in ("pyproject.toml", "requirements.txt")
+    ).lower()
+
+    assert 'task_name="aidefend-embedding-model-load-cpu"' in core_source
+    assert "providers=" not in core_source
+    assert "CUDAExecutionProvider" not in core_source
+    assert "embedding-model-load-gpu" not in core_source
+    assert "GPU providers" not in core_source
+    assert "GPU if available" not in benchmark_source
+    assert "fastembed-gpu" not in dependency_metadata
+    assert "onnxruntime-gpu" not in dependency_metadata
+
+
+def test_public_runtime_does_not_promise_unverified_fixed_speedups():
+    repository_root = Path(__file__).resolve().parents[1]
+    public_sources = (
+        repository_root / "app" / "config.py",
+        repository_root / "app" / "core.py",
+        repository_root / "app" / "sync.py",
+        repository_root / "app" / "tools" / "comprehensive_search.py",
+        repository_root / "scripts" / "create_lancedb_index.py",
+    )
+    combined_source = "\n".join(
+        path.read_text(encoding="utf-8") for path in public_sources
+    )
+
+    assert "2-5x" not in combined_source
+    assert "20-30% faster" not in combined_source
+    assert "500-1000ms per search" not in combined_source
+    assert "100-300ms per search" not in combined_source

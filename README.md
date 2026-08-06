@@ -6,8 +6,8 @@
 
 [![CI](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.13-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.139.2-009688.svg)](https://fastapi.tiangolo.com)
+[![Python 3.10-3.14](https://img.shields.io/badge/python-3.10%20|%203.14-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-009688.svg)](https://fastapi.tiangolo.com)
 
 Local retrieval service for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework).
 
@@ -37,9 +37,9 @@ This repository is **not** the framework itself. It is the service layer on top 
 
 ## Rolling Framework Compatibility
 
-The current release validation snapshot is AIDEFEND **1.20260728** with
-authoring schema **1.7**, public schema **2.3**, and index schema **3.2**. It
-includes all three framework tool categories: open-source,
+The current release validation snapshot is AIDEFEND **1.20260805** with public
+schema **2.3** and MCP index schema **3.3**. It includes all three framework
+tool categories: open-source,
 source-available/open-weight, and commercial. Snapshot IDs, titles, counts,
 and ordering are examples of what was validated for this release, not
 permanent runtime constraints.
@@ -50,17 +50,36 @@ removals, ID renumbering, title or guidance edits, count and order changes, and
 compatible additive fields do not require customer-specific configuration.
 Source-defined threat-framework labels are also carried through coverage and
 analytics instead of being limited to the exact label set in this snapshot.
+When a supported framework is renamed again, its active label becomes the
+display name while every declared edition label remains an input alias for the
+same stable API key. Cross-framework label collisions, mismatched active
+edition labels, and malformed multi-word item identifiers are rejected during
+sync rather than guessed.
 Exact scope-boundary and tool values remain available as structured MCP/REST
 metadata even if unusually long content exceeds the embedding model's
 searchable token window; that condition is warned about rather than rejecting
 an otherwise valid update.
 
-Each update check reads the optional root `data-schema.md` from the same local
-framework root or the same immutable GitHub commit as the tactic files. When
-available, its authoring and public versions and SHA-256 digest are recorded in
-the index metadata. Missing or unrecognized schema metadata is non-fatal and
-may be reported as `unknown`; candidate content must still pass the full index
-validation gate.
+Framework-edition migrations are synchronized from
+`data/framework-migrations.json` in the same immutable source snapshot. The
+active OWASP LLM edition is **2026**. Bare IDs and `latest` references resolve
+to that edition; an explicit 2025 ID is migrated by its declared semantic
+successor, never by reusing the same rank. Responses expose the canonical 2026
+ID and structured resolution metadata. Unsupported or genuinely ambiguous
+references fail closed without running a threat lookup. The validated registry
+and index provenance are committed together in the atomically replaced version
+metadata, so a failed update cannot pair a new resolver catalog with an older
+database.
+
+The Framework Public Schema is discovered dynamically from the root
+`version.schemaVersion` value in `data/data.json`. Local-source mode reads that
+file from the same configured framework root as the tactics; GitHub mode reads
+it from the exact immutable commit used for those tactics, never separately
+from a floating branch. This public dataset is used only for schema metadata
+discovery and is not indexed a second time or substituted for the tactic
+authoring sources. Missing or invalid metadata safely reports the public schema
+as unavailable without guessing or weakening the full parser and index
+validation gates.
 
 With automatic sync enabled (the default), the service checks once at startup
 and then every `SYNC_INTERVAL_SECONDS` seconds: 3600 by default, configurable
@@ -83,7 +102,7 @@ treated as a breaking contract and rejected rather than silently discarded.
 
 ## Requirements
 
-- Python 3.10 to 3.13
+- Python 3.10 to 3.14
 - Node.js 18+
 - Git
 - About 2 to 3 GB free disk space for dependencies, embedding model, and local database
@@ -133,11 +152,30 @@ MCP server:
 python __main__.py --mcp
 ```
 
+Choose one runtime for each data directory. A REST process, stdio MCP process,
+`--resync` command, or maintenance command must have exclusive ownership of its
+configured `DATA_PATH`. To run REST and MCP at the same time, configure separate
+data directories and keep each instance's `DB_PATH`, `RAW_PATH`, and
+`VERSION_FILE` with that instance; do not share any of those paths.
+
 Health check:
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
+
+### Data-directory lock and upgrades
+
+`DATA_PATH/sync.lock` is a persistent rendezvous file for the operating-system
+lock. The file may remain after a clean shutdown; its presence or age is not
+evidence that the lock is active. Do not delete or replace it to force another
+service or resync to start. Stop the process that owns the data directory, or
+use a different complete set of storage paths.
+
+Before upgrading from a release that did not hold this lock for the complete
+service lifetime, stop every REST service, close MCP clients that launch the
+stdio server, and let all resync or maintenance commands finish. Then upgrade
+and start one owner for each `DATA_PATH`.
 
 ## Manual Setup From a Fresh Clone
 
@@ -233,6 +271,11 @@ python scripts/generate_api_key.py     # copy the value into AIDEFEND_API_KEY in
 docker compose up -d
 ```
 
+Use one service replica per writable data volume. Horizontal scaling requires
+an independent data copy or volume for every replica, or an external data layer
+designed for concurrent clients; the bundled local LanceDB directory must not
+be shared by multiple replicas.
+
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for auth details.
 
 ## Documentation
@@ -249,10 +292,13 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for auth details.
 - `data/`, local caches, coverage output, and `.env` are ignored by git and are not required in the repository.
 - A source checkout stores runtime data under `data/`. An installed wheel uses
   the OS per-user application-data directory; Docker uses `/app/data`.
+- One `DATA_PATH` supports one REST, MCP, resync, or maintenance process at a
+  time. Concurrent modes or replicas require independent storage.
 - CI builds and verifies a live upstream index, exercises all 18 MCP and 18
   REST tool paths from both the source checkout and an externally installed
   wheel on Linux, and runs clean-wheel install/parser/console checks on
-  Windows, macOS, and Linux across Python 3.10-3.13. Bandit and a real
+  Windows, macOS, and Linux across Python 3.10-3.14. A release is not ready
+  until that hosted matrix passes. Bandit and a real
   container build/runtime contract run alongside the daily rolling-upstream
   canary and framework release dispatches.
 - The source contract discovers the ordered tactic set from the framework's
@@ -272,4 +318,7 @@ its own license:
 
 Framework software is Apache-2.0, framework content/data is CC BY 4.0, and
 trademark rights are not granted. See [THIRD_PARTY_CONTENT.md](THIRD_PARTY_CONTENT.md)
-and the framework repository's licensing files for details.
+and the framework repository's licensing files for details. The synchronized
+edition-migration registry also carries source-specific attribution and
+CC BY-SA 4.0 terms for its normalized OWASP-derived identifiers, names,
+metadata, and summaries; those terms are recorded in the registry itself.

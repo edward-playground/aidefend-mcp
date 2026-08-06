@@ -292,8 +292,8 @@ async def comprehensive_search(
 
         logger.info(f"Executing batch search for {len(query_requests)} queries (with batch embedding optimization)...")
 
-        # Execute batch search (embeddings generated in one call, then parallel search)
-        # This is 20-30% faster than individual searches
+        # Execute batch search (embeddings generated in one call, then parallel search).
+        # Actual latency depends on the model, hardware, and query workload.
         search_results = await query_engine.search_batch(query_requests)
 
         logger.info(

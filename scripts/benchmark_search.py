@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.core import query_engine
 from app.schemas import QueryRequest
 from app.logger import get_logger
+from app.sync import service_instance_guard
 
 logger = get_logger(__name__)
 
@@ -41,7 +42,7 @@ async def benchmark_single_search(query_text: str, top_k: int = 10, warmup: bool
 
     logger.info(f"Query engine ready. Model: {query_engine.active_embedding_model}")
 
-    # Warmup query (loads model into memory, warms up GPU if available)
+    # Warmup query (loads the model and warms the inference runtime)
     if warmup:
         logger.info("Running warmup query...")
         warmup_request = QueryRequest(query_text="test warmup", top_k=5)
@@ -228,22 +229,26 @@ async def comprehensive_search_benchmark():
 
 async def main():
     """Run all benchmarks."""
-    # Single query benchmark
-    await benchmark_single_search("prompt injection attacks", top_k=10)
+    async with service_instance_guard("the search benchmark"):
+        try:
+            # Single query benchmark
+            await benchmark_single_search("prompt injection attacks", top_k=10)
 
-    # Multiple queries benchmark
-    test_queries = [
-        "prompt injection",
-        "jailbreak attacks",
-        "deepfakes detection",
-        "model poisoning",
-        "adversarial examples"
-    ]
+            # Multiple queries benchmark
+            test_queries = [
+                "prompt injection",
+                "jailbreak attacks",
+                "deepfakes detection",
+                "model poisoning",
+                "adversarial examples"
+            ]
 
-    await benchmark_multiple_queries(test_queries, top_k=10)
+            await benchmark_multiple_queries(test_queries, top_k=10)
 
-    # Comprehensive search benchmark
-    await comprehensive_search_benchmark()
+            # Comprehensive search benchmark
+            await comprehensive_search_benchmark()
+        finally:
+            await query_engine.close()
 
 
 if __name__ == "__main__":

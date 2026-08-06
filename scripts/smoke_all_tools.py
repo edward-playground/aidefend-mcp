@@ -627,6 +627,13 @@ def _parse_markdown_count(text: str, label: str) -> int:
     return int(match.group(1).replace(",", ""))
 
 
+def _parse_markdown_value(text: str, label: str) -> str:
+    match = re.search(rf"\*\*{re.escape(label)}:\*\*\s*([^\r\n]+)", text)
+    if not match:
+        raise SmokeFailure(f"MCP response is missing '{label}'")
+    return match.group(1).strip()
+
+
 def assert_no_generic_mcp_error(text: str) -> None:
     """Reject error strings that MCP handlers otherwise return as normal text."""
     leading = text.lstrip().casefold()
@@ -658,9 +665,16 @@ def validate_mcp_text(
     elif case.name == "get_aidefend_status":
         if _parse_markdown_count(text, "Indexed Documents") != fixtures.row_count:
             raise SmokeFailure("MCP status document count differs from the live table")
-        for label in ("Authoring Schema", "Public Data Schema", "MCP Index Schema"):
-            if f"**{label}:**" not in text:
-                raise SmokeFailure(f"MCP status schema omits {label} metadata")
+        for label in (
+            "Framework Public Schema",
+            "MCP Index Schema",
+            "Framework Migration Registry Schema",
+        ):
+            value = _parse_markdown_value(text, label)
+            if value.casefold() in {"n/a", "none", "unknown", "unavailable"}:
+                raise SmokeFailure(
+                    f"MCP status did not report a verified {label} value"
+                )
         if "Service is ready for queries" not in text:
             raise SmokeFailure("MCP status did not report a query-ready service")
     elif case.name == "sync_aidefend":
@@ -798,7 +812,6 @@ def validate_rest_payload(
         if sync_info.get("total_documents") != fixtures.row_count:
             raise SmokeFailure("REST status document count differs from the live table")
         required_metadata = (
-            "framework_authoring_schema_version",
             "framework_public_schema_version",
             "index_schema_version",
             "source_kind",
@@ -807,21 +820,38 @@ def validate_rest_payload(
             "source_repository",
             "source_ref",
             "source_content_sha256",
-            "framework_schema_metadata_sha256",
+            "framework_migrations_schema_version",
+            "framework_migrations_registry_version",
+            "framework_migrations_sha256",
         )
         missing = [key for key in required_metadata if key not in sync_info]
         if missing:
             raise SmokeFailure(f"REST status schema is missing version provenance: {missing}")
+        for schema_field in (
+            "framework_public_schema_version",
+            "index_schema_version",
+            "framework_migrations_schema_version",
+        ):
+            schema_value = sync_info.get(schema_field)
+            if not isinstance(schema_value, str) or schema_value.casefold() in {
+                "",
+                "n/a",
+                "none",
+                "unknown",
+                "unavailable",
+            }:
+                raise SmokeFailure(
+                    f"REST status did not report a verified {schema_field} value"
+                )
         digest = sync_info.get("source_content_sha256")
         if digest is not None and not re.fullmatch(r"[0-9a-fA-F]{64}", str(digest)):
             raise SmokeFailure("REST status source_content_sha256 is not a SHA-256 digest")
-        schema_digest = sync_info.get("framework_schema_metadata_sha256")
-        if schema_digest is not None and not re.fullmatch(
-            r"[0-9a-fA-F]{64}",
-            str(schema_digest),
+        migrations_digest = sync_info.get("framework_migrations_sha256")
+        if migrations_digest is not None and not re.fullmatch(
+            r"[0-9a-fA-F]{64}", str(migrations_digest)
         ):
             raise SmokeFailure(
-                "REST status framework_schema_metadata_sha256 is not a SHA-256 digest"
+                "REST status framework_migrations_sha256 is not a SHA-256 digest"
             )
     elif case.name == "sync_aidefend":
         if data.get("status") != "sync_triggered":

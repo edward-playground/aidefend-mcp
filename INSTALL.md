@@ -28,9 +28,23 @@ If you want Claude Desktop integration, run `python scripts/install.py` instead.
 | Full manual control | Follow the manual setup section below |
 | Container deployment | Use Docker Compose |
 
+## One Process per Data Directory
+
+Every REST server, stdio MCP server, `--resync` command, and maintenance
+command requires exclusive ownership of its configured `DATA_PATH`. Do not
+start REST and MCP at the same time against the default directory. If both must
+remain active, configure independent `DATA_PATH` values and keep each
+instance's `DB_PATH`, `RAW_PATH`, and `VERSION_FILE` with its own data root.
+Two instances must not share any of those paths.
+
+`DATA_PATH/sync.lock` is intentionally retained as a stable operating-system
+lock rendezvous. Its presence does not mean the lock is active, and its age is
+not a reason to remove it. Never delete or replace this file to bypass a busy
+service or resync; stop the current owner or use a separate data directory.
+
 ## Prerequisites
 
-- Python 3.10 to 3.13
+- Python 3.10 to 3.14
 - Node.js 18+
 - Git
 - 2 to 3 GB free disk space
@@ -163,6 +177,9 @@ MCP:
 python __main__.py --mcp
 ```
 
+Run either REST or MCP for this `DATA_PATH`, not both. A second runtime should
+use an entirely separate storage-path set.
+
 ### 7. Verify the service
 
 REST health check:
@@ -190,7 +207,24 @@ python scripts/generate_api_key.py     # copy the value into AIDEFEND_API_KEY in
 docker compose up -d
 ```
 
+Run only one service replica against this writable data volume. Multiple
+replicas require independent volumes or an external data layer designed for
+concurrent clients; the bundled local LanceDB directory is not shared storage.
+
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for authentication details.
+
+## Upgrade from an Earlier Release
+
+Before upgrading from a version that did not hold the data-path lock for the
+complete service lifetime:
+
+1. Stop every REST service using the installation.
+2. Close MCP clients that can launch its stdio server.
+3. Wait for all resync and maintenance commands to finish.
+4. Upgrade, then start only one process for each `DATA_PATH`.
+
+An older running process cannot be assumed to participate in the new lifetime
+lock contract, so this shutdown step is required.
 
 ## Optional Local Framework Source
 
@@ -208,7 +242,9 @@ For Docker, a host path is not a valid path inside the Linux container. Mount
 the checkout read-only at `/framework` and set the setting to that container
 path. The following commands assume the two repositories are sibling
 directories. First rebuild the persisted index from the local source, then
-start the REST service against the same data volume.
+after that one-shot command exits, start the REST service against the same data
+volume. Stop any existing service that owns the volume before running the
+resync command; the two containers must not overlap.
 
 macOS/Linux:
 

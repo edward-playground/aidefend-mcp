@@ -2,6 +2,7 @@
 
 # Data and databases
 data/
+models/
 *.lancedb/
 *.log
 logs/
@@ -36,6 +37,34 @@ env/
 
 # Environment
 .env*
+.mcp.json
+
+# Machine-local credentials and private material. These files are never
+# runtime inputs and must not be sent to local or remote Docker builders.
+*.key
+*.pem
+*.p12
+*.pfx
+*.p8
+*.ppk
+*.jks
+*.keystore
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+.npmrc
+.pypirc
+.netrc
+_netrc
+*_secret*
+*_private*
+*credentials*.json
+*credentials*.yaml
+*credentials*.yml
+*secrets*.json
+*secrets*.yaml
+*secrets*.yml
 
 # Documentation (not needed in container)
 README.md
@@ -50,18 +79,31 @@ coverage.xml
 htmlcov/
 .tox/
 .hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
 test-artifacts/
 .release-check-*/
 .wheelcheck/
+.pytest-*/
+.tmp_pytest*/
 .tmp_*/
+*.tmp
+temp/
+tmp/
 
 # Local dependency and agent/tool state. None of these are runtime inputs, and
 # sending them to a remote builder can leak local artifacts or add hundreds of
 # megabytes to the build context.
 node_modules/
+devtools/
 .claude/
 .agents/
 .codex/
+CLAUDE*.md
+UPGRADE*.md
+UPDATE*.md
+*UPDATE*REPORT*.md
 *.whl
 
 # Development dependencies
@@ -70,8 +112,15 @@ requirements-dev.txt
 # Docker
 Dockerfile
 docker-compose.yml
+docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
 .dockerignore
 
 # CI/CD
 .github/
 .gitlab-ci.yml
+
+# Windows command error artifacts
+nul

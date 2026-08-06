@@ -2,6 +2,8 @@
 Utility functions for AIDEFEND MCP Service.
 """
 
+import asyncio
+import ctypes
 import json
 import math
 import os
@@ -12,10 +14,15 @@ import sys
 import sysconfig
 import tempfile
 import re
+import secrets
+import stat
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 from datetime import datetime, timezone
+
+import anyio
+
 from app.config import settings
 from app.logger import get_logger
 from app.security import (
@@ -35,6 +42,166 @@ _PARSER_COMPANION_PATHS = (
 )
 
 
+async def _await_cancellation_safe(operation, *, task_name: str):
+    """Drain an async operation before re-propagating caller cancellation.
+
+    This is required around ``asyncio.to_thread`` work that is protected by a
+    database or filesystem lock: cancelling the await does not stop the worker
+    thread, so the caller must retain its lock until the worker truly exits.
+    """
+    worker = asyncio.ensure_future(operation)
+    if hasattr(worker, "set_name"):
+        worker.set_name(task_name)
+    cancellation: Optional[asyncio.CancelledError] = None
+
+    try:
+        await asyncio.shield(worker)
+    except asyncio.CancelledError as exc:
+        if worker.done() and worker.cancelled():
+            raise
+        cancellation = exc
+    except BaseException:
+        pass
+
+    if cancellation is not None and not worker.done():
+        # AnyIO cancel scopes use level cancellation: while the surrounding
+        # scope remains cancelled, every checkpoint raises CancelledError.
+        # Repeatedly calling asyncio.shield() without an AnyIO shield therefore
+        # becomes a CPU-bound loop.  The nested scope suppresses only that
+        # surrounding scope while the worker drains.  Direct Task.cancel()
+        # calls still penetrate it, so retain the loop to absorb repeated
+        # direct cancellations without ever abandoning the worker.
+        with anyio.CancelScope(shield=True):
+            while not worker.done():
+                try:
+                    await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    if worker.done() and worker.cancelled():
+                        raise
+                except BaseException:
+                    break
+
+    try:
+        result = worker.result()
+    except asyncio.CancelledError:
+        raise
+    except BaseException as worker_error:
+        if cancellation is not None:
+            logger.error(
+                "%s failed while its cancelled caller waited for safe "
+                "completion: %s",
+                task_name,
+                worker_error,
+                exc_info=(
+                    type(worker_error),
+                    worker_error,
+                    worker_error.__traceback__,
+                ),
+            )
+            raise cancellation from worker_error
+        raise
+
+    if cancellation is not None:
+        raise cancellation
+    return result
+
+
+def _windows_move_file(
+    source: Path,
+    destination: Path,
+    *,
+    replace_existing: bool,
+) -> None:
+    """Move one filesystem object with Windows write-through semantics."""
+    move_file_ex = ctypes.windll.kernel32.MoveFileExW
+    move_file_ex.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+    move_file_ex.restype = ctypes.c_int
+    flags = 0x8  # MOVEFILE_WRITE_THROUGH
+    if replace_existing:
+        flags |= 0x1  # MOVEFILE_REPLACE_EXISTING
+    if not move_file_ex(str(source), str(destination), flags):
+        raise ctypes.WinError()
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Persist a POSIX directory-entry mutation before returning."""
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(str(directory), directory_flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _durable_rename(source: Path, destination: Path) -> None:
+    """Rename without replacement and durably commit its directory entries."""
+    source_path = Path(source)
+    destination_path = Path(destination)
+    if os.path.lexists(destination_path):
+        raise FileExistsError(f"Rename destination already exists: {destination_path}")
+    if os.name == "nt":
+        _windows_move_file(
+            source_path,
+            destination_path,
+            replace_existing=False,
+        )
+        return
+
+    os.rename(source_path, destination_path)
+    _fsync_directory(source_path.parent)
+    if destination_path.parent != source_path.parent:
+        _fsync_directory(destination_path.parent)
+
+
+def _durable_unlink(file_path: Path, *, missing_ok: bool = False) -> None:
+    """Durably remove a file name used as transaction evidence.
+
+    On Windows, a write-through rename first makes the authoritative name
+    durably absent. The tombstone deletion is housekeeping: if it fails, the
+    transaction decision is still unambiguous and the harmless tombstone is
+    retained for later cleanup.
+    """
+    target = Path(file_path)
+    try:
+        target_mode = os.lstat(target).st_mode
+    except FileNotFoundError:
+        if missing_ok:
+            return
+        raise
+    if stat.S_ISDIR(target_mode):
+        raise IsADirectoryError(f"Transaction evidence must be a file: {target}")
+
+    if os.name == "nt":
+        tombstone = target.with_name(
+            f".{target.name}.deleted-{os.getpid()}-{secrets.token_hex(8)}"
+        )
+        try:
+            _durable_rename(target, tombstone)
+        except OSError as exc:
+            if missing_ok and getattr(exc, "winerror", None) in (2, 3):
+                return
+            if missing_ok and not os.path.lexists(target):
+                return
+            raise
+        try:
+            os.unlink(tombstone)
+        except OSError as cleanup_error:
+            logger.warning(
+                "Could not remove durable transaction tombstone %s: %s",
+                tombstone,
+                cleanup_error,
+            )
+        return
+
+    try:
+        os.unlink(target)
+    except FileNotFoundError:
+        if missing_ok:
+            return
+        raise
+    _fsync_directory(target.parent)
+
+
 def _atomic_write_json(file_path: Path, payload: Dict[str, Any]) -> None:
     '''Durably replace JSON without exposing partial contents.'''
     destination = Path(file_path)
@@ -50,7 +217,17 @@ def _atomic_write_json(file_path: Path, payload: Dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         set_secure_file_permissions(temporary_path)
-        os.replace(temporary_path, destination)
+        if os.name == "nt":
+            # MOVEFILE_WRITE_THROUGH waits for the metadata move to reach disk;
+            # opening/fsyncing directory handles is not portable on Windows.
+            _windows_move_file(
+                temporary_path,
+                destination,
+                replace_existing=True,
+            )
+        else:
+            os.replace(temporary_path, destination)
+            _fsync_directory(destination.parent)
         temporary_path = None
     finally:
         if temporary_path is not None:

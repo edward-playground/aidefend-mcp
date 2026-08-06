@@ -23,18 +23,31 @@ import sys
 import os
 import json
 import hashlib
+import re
 import shutil
 import subprocess
 import argparse
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
+from urllib.parse import urlsplit
 
 
-# Acorn 8.15.0 copied from the package pinned in package-lock.json. An
+# Acorn 8.18.0 copied verbatim from dist/acorn.mjs in the official npm package
+# pinned in package.json and package-lock.json. An
 # intentional vendor refresh must update the lockfile, vendor file, and digest
 # together; normal installation never downloads or rewrites this runtime.
-VENDORED_ACORN_SHA256 = "b4c8c70200e72bae33cf1085e0ecb1e792c1b6924ed50cab817caf14f51bb249"
+VENDORED_ACORN_SHA256 = "953573b8fdab71599749ea5f2b33d3e760c2116178f9423ee7458dbe39d59453"
+TRUSTED_INSTALLER_DOWNLOAD_HOSTS = frozenset(
+    {
+        "nodejs.org",
+        "aka.ms",
+        "download.visualstudio.microsoft.com",
+    }
+)
+NODE_RELEASE_VERSION_PATTERN = re.compile(
+    r"^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$"
+)
 
 # Fix Windows console encoding for Unicode characters (emojis)
 if sys.platform == "win32":
@@ -54,6 +67,28 @@ def print_banner(title: str, width: int = 70):
     print(f"  {title}")
     print("=" * width)
     print()
+
+
+def validate_trusted_installer_url(url: str) -> str:
+    """Accept only credential-free HTTPS URLs on the installer allowlist."""
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Installer download URL is malformed") from exc
+
+    hostname = (parsed.hostname or "").lower()
+    if (
+        parsed.scheme.lower() != "https"
+        or hostname not in TRUSTED_INSTALLER_DOWNLOAD_HOSTS
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
+        raise ValueError(
+            "Installer downloads require credential-free HTTPS on an approved host"
+        )
+    return url
 
 
 def print_step(step: int, total: int, description: str):
@@ -135,11 +170,15 @@ def download_with_progress(url: str, target_path: Path, description: str = "Down
     import urllib.request
 
     try:
+        validated_url = validate_trusted_installer_url(url)
         print(f"   📥 {description} from {url}")
         print(f"   💾 Saving to: {target_path}")
 
         # Get file size
-        with urllib.request.urlopen(url) as response:
+        # The requested URL and resolved HTTPS host are both constrained to
+        # the installer allowlist before response bytes are used.
+        with urllib.request.urlopen(validated_url) as response:  # nosec B310
+            validate_trusted_installer_url(response.geturl())
             total_size = int(response.headers.get('content-length', 0))
 
             # Download with progress
@@ -191,16 +230,27 @@ def get_nodejs_lts_info() -> Tuple[bool, dict]:
 
     try:
         # Fetch Node.js version index
-        url = "https://nodejs.org/dist/index.json"
-        with urllib.request.urlopen(url, timeout=10) as response:
+        url = validate_trusted_installer_url("https://nodejs.org/dist/index.json")
+        # Validation enforces an official, credential-free HTTPS host before
+        # and after redirects.
+        with urllib.request.urlopen(url, timeout=10) as response:  # nosec B310
+            validate_trusted_installer_url(response.geturl())
             versions = json.loads(response.read())
 
         # Find latest LTS version
         for version_info in versions:
             if version_info.get('lts'):  # LTS versions have this field set
+                version = version_info.get('version')
+                lts_name = version_info.get('lts')
+                if not isinstance(
+                    version, str
+                ) or not NODE_RELEASE_VERSION_PATTERN.fullmatch(version):
+                    return False, "Node.js API returned an invalid LTS version"
+                if not isinstance(lts_name, str) or not lts_name.strip():
+                    return False, "Node.js API returned an invalid LTS name"
                 return True, {
-                    'version': version_info['version'],  # e.g., "v20.11.0"
-                    'lts_name': version_info['lts'],     # e.g., "Iron"
+                    'version': version,  # e.g., "v20.11.0"
+                    'lts_name': lts_name,  # e.g., "Iron"
                     'files': version_info.get('files', [])
                 }
 
@@ -228,8 +278,16 @@ def download_nodejs_installer(version_info: dict, target_dir: Path = None) -> Tu
     if target_dir is None:
         target_dir = Path(tempfile.gettempdir())
 
-    version = version_info['version']  # e.g., "v20.11.0"
-    lts_name = version_info['lts_name']
+    version = version_info.get('version') if isinstance(version_info, dict) else None
+    lts_name = (
+        version_info.get('lts_name') if isinstance(version_info, dict) else None
+    )
+    if not isinstance(
+        version, str
+    ) or not NODE_RELEASE_VERSION_PATTERN.fullmatch(version):
+        return False, "Invalid Node.js release version"
+    if not isinstance(lts_name, str) or not lts_name.strip():
+        return False, "Invalid Node.js LTS name"
     
     arch = platform.machine().lower()
 
@@ -584,7 +642,7 @@ def install_python_dependencies(verbose: bool = True) -> bool:
     if verbose:
         print("Installing Python dependencies...")
         print(f"   Using: {requirements_file}")
-        print("   This may take 2-4 minutes...")
+        print("   This may take several minutes depending on the connection and host...")
 
     # Strongly recommend a virtual environment. Installing into a system/OS-managed
     # interpreter is fragile: on PEP 668 "externally-managed" systems (recent Debian/Ubuntu,
@@ -1386,7 +1444,9 @@ def configure_claude_code(auto: bool = False, dry_run: bool = False) -> bool:
     """
     Configure Claude Code (VSCode extension) for MCP mode.
 
-    Creates or updates .mcp.json in project root.
+    Creates or updates the machine-local .mcp.json in the project root. The
+    generated entry contains absolute paths for this installation and must not
+    be committed or shared as a portable project configuration.
 
     Returns:
         True if successful
@@ -1475,7 +1535,8 @@ def configure_claude_code(auto: bool = False, dry_run: bool = False) -> bool:
 
         print("\n✅ Claude Code configuration completed successfully!")
         print("\n📝 NOTE: .mcp.json created in project root")
-        print("   You can commit this file to share MCP config with your team")
+        print("   This is machine-local configuration containing absolute paths")
+        print("   Do not commit or share this file")
         print("\n⚠️  IMPORTANT: Reload VSCode window to apply changes")
         print("   1. Press Ctrl+Shift+P (Windows/Linux) or Cmd+Shift+P (macOS)")
         print("   2. Type 'Reload Window' and press Enter")

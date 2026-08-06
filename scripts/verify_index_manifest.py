@@ -24,21 +24,30 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from app.config import settings
 from app.core import decode_framework_record
+from app.framework_utils import framework_labels_from_registry
 from app.sync import (
     FRAMEWORK_MANIFEST_FILENAME,
-    FRAMEWORK_SCHEMA_FILENAME,
+    FRAMEWORK_MIGRATIONS_FILENAME,
+    FRAMEWORK_MIGRATIONS_SOURCE_PATH,
+    FRAMEWORK_PUBLIC_DATA_FILENAME,
+    FRAMEWORK_PUBLIC_DATA_SOURCE_PATH,
+    UNKNOWN_FRAMEWORK_SCHEMA_VERSION,
     _compute_staged_framework_digest,
     _framework_source_files,
-    compute_framework_schema_metadata_sha256,
-    extract_framework_schema_versions,
+    _staged_framework_filename,
+    compute_framework_migrations_sha256,
     extract_documents_from_tactic,
+    extract_framework_public_schema_version,
     extract_framework_version,
+    framework_public_data_staged_filename,
     parse_staged_tactic_manifest,
     parse_tactic_file,
-    resolve_effective_framework_schema_metadata_sha256,
-    resolve_effective_framework_schema_versions,
     uses_legacy_framework_contract,
+    load_and_validate_framework_migrations,
+    validate_framework_migrations_corpus_contract,
     validate_tactic_contract,
+    acquire_service_instance_lock,
+    release_service_instance_lock,
 )
 from app.utils import load_version_info
 
@@ -188,63 +197,56 @@ def _expected_framework_version(intro_path: Path) -> str:
     return extract_framework_version(intro_path) or "unknown"
 
 
-def _expected_framework_schema_metadata(
-    version_info: Dict[str, Any],
+def _expected_framework_public_schema_version(
     *,
     current_source_revision: str,
-) -> tuple[str, str, str | None]:
-    """Mirror sync's dynamic schema metadata resolution for either source mode."""
-    schema_root = settings.LOCAL_FRAMEWORK_PATH or settings.RAW_PATH
-    schema_path = schema_root / FRAMEWORK_SCHEMA_FILENAME
-    discovered_digest = compute_framework_schema_metadata_sha256(
-        schema_path,
-        base_dir=schema_root,
+) -> str:
+    """Discover the public schema from the same source snapshot as runtime sync.
+
+    Local verification intentionally reads the mutable framework working tree.
+    GitHub verification reads the bounded staged copy that runtime obtained from
+    the immutable commit recorded in version metadata.  A transient same-revision
+    fallback remains independently verifiable because runtime retains only the
+    previously validated staged copy for that unchanged immutable revision.
+    """
+    if settings.LOCAL_FRAMEWORK_PATH is not None:
+        source_root = settings.LOCAL_FRAMEWORK_PATH
+        public_data_path = source_root / Path(FRAMEWORK_PUBLIC_DATA_SOURCE_PATH)
+    else:
+        source_root = settings.RAW_PATH
+        public_data_path = source_root / framework_public_data_staged_filename(
+            current_source_revision
+        )
+    return extract_framework_public_schema_version(
+        public_data_path,
+        base_dir=source_root,
     )
-    metadata_available = discovered_digest is not None
-    discovered_versions = extract_framework_schema_versions(
-        schema_path if metadata_available else None,
-        base_dir=schema_root,
-    )
-    source_kind = "local" if settings.LOCAL_FRAMEWORK_PATH else "github"
-    authoring_version, public_version = resolve_effective_framework_schema_versions(
-        discovered_versions,
-        version_info=version_info,
-        current_source_revision=current_source_revision,
-        source_kind=source_kind,
-        metadata_available=metadata_available,
-    )
-    effective_digest = resolve_effective_framework_schema_metadata_sha256(
-        discovered_digest,
-        version_info=version_info,
-        current_source_revision=current_source_revision,
-        source_kind=source_kind,
-        metadata_available=metadata_available,
-    )
-    return authoring_version, public_version, effective_digest
 
 
-def _expected_framework_schema_versions(
-    version_info: Dict[str, Any],
-    *,
-    current_source_revision: str,
-) -> tuple[str, str]:
-    """Compatibility wrapper for focused version-only verifier tests."""
-    authoring, public, _digest = _expected_framework_schema_metadata(
-        version_info,
-        current_source_revision=current_source_revision,
-    )
-    return authoring, public
-
+def _metadata_differences(
+    expected: Dict[str, Any],
+    actual: Dict[str, Any],
+) -> Dict[str, Dict[str, Any]]:
+    """Compare the manifest fields derived from the staged source."""
+    return {
+        key: {"expected": expected_value, "actual": actual.get(key)}
+        for key, expected_value in expected.items()
+        if actual.get(key) != expected_value
+    }
 
 def verify() -> Dict[str, Any]:
     manifest_path = settings.RAW_PATH / FRAMEWORK_MANIFEST_FILENAME
+    migration_path = settings.RAW_PATH / FRAMEWORK_MIGRATIONS_FILENAME
     try:
         tactic_files = parse_staged_tactic_manifest(manifest_path)
-        source_files = _framework_source_files(tactic_files)
+        source_files = _framework_source_files(
+            tactic_files,
+            include_framework_migrations=migration_path.is_file(),
+        )
     except Exception as exc:
         raise ManifestVerificationError(f"Staged framework manifest is invalid: {exc}") from exc
 
-    staged_files = [settings.RAW_PATH / name for name in source_files]
+    staged_files = [settings.RAW_PATH / _staged_framework_filename(name) for name in source_files]
     missing_staged = [str(path) for path in staged_files if not path.is_file()]
     if missing_staged:
         raise ManifestVerificationError(
@@ -254,6 +256,19 @@ def verify() -> Dict[str, Any]:
     version_info = load_version_info()
     if not version_info:
         raise ManifestVerificationError("Version metadata is missing")
+    try:
+        framework_migrations = load_and_validate_framework_migrations(
+            migration_path if migration_path.is_file() else None
+        )
+        framework_migrations_sha256 = (
+            compute_framework_migrations_sha256(migration_path)
+            if framework_migrations is not None
+            else None
+        )
+    except Exception as exc:
+        raise ManifestVerificationError(
+            f"Staged framework migration registry is invalid: {exc}"
+        ) from exc
     framework_version = _expected_framework_version(settings.RAW_PATH / "aidefend-intro.js")
     expected_sha256 = _compute_staged_framework_digest(
         staged_files,
@@ -282,21 +297,8 @@ def verify() -> Dict[str, Any]:
         expected_source_revision = str(
             version_info.get("source_revision") or version_info.get("commit_sha") or ""
         )
-    (
-        framework_authoring_schema_version,
-        framework_public_schema_version,
-        framework_schema_metadata_sha256,
-    ) = _expected_framework_schema_metadata(
-        version_info=version_info,
+    framework_public_schema_version = _expected_framework_public_schema_version(
         current_source_revision=expected_source_revision,
-    )
-    schema_root = settings.LOCAL_FRAMEWORK_PATH or settings.RAW_PATH
-    schema_metadata_available = (
-        compute_framework_schema_metadata_sha256(
-            schema_root / FRAMEWORK_SCHEMA_FILENAME,
-            base_dir=schema_root,
-        )
-        is not None
     )
     legacy_contract = uses_legacy_framework_contract(
         source_kind=expected_source_kind,
@@ -304,12 +306,10 @@ def verify() -> Dict[str, Any]:
         source_revision=expected_source_revision,
         source_content_sha256=expected_sha256,
         framework_version=framework_version,
-        schema_metadata_available=schema_metadata_available,
-        framework_authoring_schema_version=framework_authoring_schema_version,
-        framework_public_schema_version=framework_public_schema_version,
     )
 
     expected_documents = []
+    parsed_tactics = []
     seen_control_ids: set[str] = set()
     seen_guidance_ids: set[str] = set()
     scope_references: list[tuple[str, str]] = []
@@ -330,7 +330,18 @@ def verify() -> Dict[str, Any]:
                 f"Staged framework contract failed for {file_name}: "
                 + "; ".join(contract_errors[:20])
             )
+        parsed_tactics.append(tactic)
         expected_documents.extend(extract_documents_from_tactic(tactic))
+
+    try:
+        validate_framework_migrations_corpus_contract(
+            framework_migrations,
+            parsed_tactics,
+        )
+    except Exception as exc:
+        raise ManifestVerificationError(
+            f"Framework migration registry and staged corpus disagree: {exc}"
+        ) from exc
 
     missing_scope_targets = sorted(
         (owner_id, target_id)
@@ -363,9 +374,7 @@ def verify() -> Dict[str, Any]:
 
     metadata_contract = {
         "framework_version": framework_version,
-        "framework_authoring_schema_version": framework_authoring_schema_version,
         "framework_public_schema_version": framework_public_schema_version,
-        "framework_schema_metadata_sha256": framework_schema_metadata_sha256,
         "index_schema_version": settings.CACHE_SCHEMA_VERSION,
         "total_documents": len(expected_documents),
         "embedding_model": settings.EMBEDDING_MODEL,
@@ -377,16 +386,67 @@ def verify() -> Dict[str, Any]:
         "source_content_sha256": expected_sha256,
         "source_files": source_files,
     }
-    metadata_differences = {
-        key: {"expected": expected_value, "actual": version_info.get(key)}
-        for key, expected_value in metadata_contract.items()
-        if version_info.get(key) != expected_value
-    }
+    if framework_public_schema_version != UNKNOWN_FRAMEWORK_SCHEMA_VERSION:
+        metadata_contract["framework_public_schema_source"] = FRAMEWORK_PUBLIC_DATA_SOURCE_PATH
+    elif (
+        framework_public_schema_version == UNKNOWN_FRAMEWORK_SCHEMA_VERSION
+        and "framework_public_schema_source" in version_info
+    ):
+        raise ManifestVerificationError(
+            "Version metadata binds a public-schema source without a valid public " "schema version"
+        )
+    migration_metadata_keys = (
+        "framework_migrations",
+        "framework_migrations_schema_version",
+        "framework_migrations_registry_version",
+        "framework_migrations_sha256",
+    )
+    if framework_migrations is not None:
+        metadata_contract.update(
+            {
+                "framework_migrations": framework_migrations,
+                "framework_migrations_schema_version": framework_migrations["schemaVersion"],
+                "framework_migrations_registry_version": framework_migrations["registryVersion"],
+                "framework_migrations_sha256": framework_migrations_sha256,
+            }
+        )
+    elif any(key in version_info for key in migration_metadata_keys):
+        raise ManifestVerificationError(
+            "Version metadata contains a migration registry that is absent from staged source"
+        )
+    metadata_differences = _metadata_differences(metadata_contract, version_info)
     if metadata_differences:
         raise ManifestVerificationError(
             "Version/provenance metadata differs from the staged source:\n"
             + json.dumps(metadata_differences, ensure_ascii=False, indent=2, default=str)
         )
+
+    expected_framework_labels = framework_labels_from_registry(framework_migrations)
+    stored_framework_metrics = (
+        version_info.get("statistics", {})
+        .get("threat_framework_coverage", {})
+        .get("by_framework", {})
+    )
+    label_differences = {
+        key: {
+            "expected": expected_label,
+            "actual": (
+                stored_framework_metrics.get(key, {}).get("label")
+                if isinstance(stored_framework_metrics.get(key), dict)
+                else None
+            ),
+        }
+        for key, expected_label in expected_framework_labels.items()
+        if not isinstance(stored_framework_metrics.get(key), dict)
+        or stored_framework_metrics[key].get("label") != expected_label
+    }
+    if label_differences:
+        raise ManifestVerificationError(
+            "Pre-computed framework metric labels differ from the atomically "
+            "activated migration registry:\n"
+            + json.dumps(label_differences, ensure_ascii=False, indent=2)
+        )
+
     source_revision = str(version_info.get("source_revision") or "")
     if expected_source_kind == "local":
         if source_revision != expected_source_revision:
@@ -398,11 +458,9 @@ def verify() -> Dict[str, Any]:
             "GitHub source revision is not an immutable 40-character commit SHA"
         )
 
-    return {
+    summary = {
         "framework_version": framework_version,
-        "framework_authoring_schema_version": framework_authoring_schema_version,
         "framework_public_schema_version": framework_public_schema_version,
-        "framework_schema_metadata_sha256": framework_schema_metadata_sha256,
         "documents": len(expected_documents),
         "controls": sum(
             document["type"] in {"technique", "subtechnique"} for document in expected_documents
@@ -416,14 +474,32 @@ def verify() -> Dict[str, Any]:
         "index_schema_version": settings.CACHE_SCHEMA_VERSION,
         "vector_dimension": settings.EMBEDDING_DIMENSION,
     }
+    if framework_migrations is not None:
+        summary.update(
+            {
+                "framework_migrations_schema_version": framework_migrations["schemaVersion"],
+                "framework_migrations_registry_version": framework_migrations["registryVersion"],
+                "framework_migrations_sha256": framework_migrations_sha256,
+            }
+        )
+    return summary
 
 
 def main() -> int:
-    try:
-        summary = verify()
-    except Exception as exc:
-        print(f"MANIFEST VERIFICATION FAILED: {exc}", file=sys.stderr)
+    if not acquire_service_instance_lock():
+        print(
+            "MANIFEST VERIFICATION FAILED: another AIDEFEND service owns DATA_PATH",
+            file=sys.stderr,
+        )
         return 1
+    try:
+        try:
+            summary = verify()
+        except Exception as exc:
+            print(f"MANIFEST VERIFICATION FAILED: {exc}", file=sys.stderr)
+            return 1
+    finally:
+        release_service_instance_lock()
     print("PASS: staged AIDEFEND source exactly matches the active index")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0

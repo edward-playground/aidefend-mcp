@@ -160,7 +160,10 @@ def test_sysconfig_runtime_errors_still_allow_source_bundle(tmp_path, monkeypatc
 def test_distribution_inventory_requires_parser_code_and_complete_bundle():
     assert "app/utils.py" in REQUIRED_RUNTIME_PYTHON_FILES
     assert set(WHEEL_REQUIRED_ASSET_SUFFIXES.values()) == {
+        "/data/LICENSE",
+        "/data/THIRD_PARTY_CONTENT.md",
         "/data/parse_js_module.mjs",
         "/data/vendor/acorn.mjs",
         "/data/vendor/ACORN-LICENSE",
+        "/data/vendor/README.md",
     }

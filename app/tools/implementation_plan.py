@@ -44,7 +44,7 @@ logger = get_logger(__name__)
 
 # High-risk threat patterns (for threat importance scoring)
 HIGH_RISK_PATTERNS = [
-    'LLM01', 'LLM03',  # Prompt injection, Training data poisoning
+    'LLM01', 'LLM05',  # 2026 Prompt Injection, Data and Model Poisoning
     'POISON', 'EXFIL',  # Poisoning, Exfiltration
     'T0020', 'T0043',   # ATLAS poisoning, adversarial examples
     'BACKDOOR', 'JAILBREAK'
@@ -542,7 +542,7 @@ def _calculate_recommendation_score(technique: Dict) -> tuple[float, Dict[str, f
     Calculate heuristic recommendation score (0-10) using only existing fields.
 
     Scoring dimensions (total 10 points):
-    1. Threat importance (3 points): High-risk threats in defends_against
+    1. Threat importance (3 points): Selected high-risk concepts in defends_against
     2. Ease of implementation (2 points): tools_opensource availability
     3. Phase weight (2 points): Design > Development > Deployment > Runtime
     4. Pillar weight (2 points): Prevent > Detect > Respond

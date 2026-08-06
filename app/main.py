@@ -4,7 +4,7 @@ Provides REST API endpoints with comprehensive security.
 """
 
 import asyncio
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from typing import Dict, Any
 from datetime import datetime, timezone
 
@@ -39,7 +39,7 @@ from app.schemas import (
 )
 from app.core import query_engine, QueryEngineNotInitializedError
 from app.sync import run_sync, sync_loop, is_sync_in_progress, get_last_sync_error
-from app.utils import load_version_info
+from app.utils import _await_cancellation_safe, load_version_info
 from app.security import InputValidationError, SecurityError
 from app.audit import audit_tool_call, audit_tool_completion
 
@@ -76,15 +76,17 @@ limiter = Limiter(key_func=get_remote_address)
 
 # Application lifespan
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def _service_lifespan(app: FastAPI):
     """Manage application lifecycle."""
     sync_task = None
+    sync_stop_event = asyncio.Event()
+    app.state.manual_sync_tasks = set()
     logger.info("=" * 60)
     logger.info("AIDEFEND MCP Service starting up...")
     logger.info(f"Version: {__version__}")
     logger.info("=" * 60)
 
-    # Clean up stale lock files from crashed processes
+    # Inspect stable lock metadata for diagnostics; never delete the lock inode.
     try:
         from app.sync import cleanup_stale_lock
         cleanup_stale_lock()
@@ -166,7 +168,10 @@ async def lifespan(app: FastAPI):
             logger.info(
                 f"Starting background sync loop (interval: {settings.SYNC_INTERVAL_SECONDS}s)"
             )
-            sync_task = asyncio.create_task(sync_loop(), name="aidefend-rest-sync")
+            sync_task = asyncio.create_task(
+                sync_loop(sync_stop_event),
+                name="aidefend-rest-sync",
+            )
         else:
             logger.info("Auto-sync disabled")
 
@@ -175,15 +180,51 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Startup error: {e}", exc_info=True)
 
-    yield
+    try:
+        yield
+    finally:
+        # Never cancel a sync coroutine while one of its to_thread workers can
+        # still be writing staging/cache data. Keep the lifetime lease, request
+        # a cooperative loop stop, and wait for every operation to finish.
+        logger.info("Shutting down AIDEFEND MCP Service...")
+        async def shutdown_resources() -> None:
+            try:
+                if sync_task is not None:
+                    sync_stop_event.set()
+                    await asyncio.gather(sync_task, return_exceptions=True)
+                manual_sync_tasks = tuple(app.state.manual_sync_tasks)
+                if manual_sync_tasks:
+                    await asyncio.gather(
+                        *manual_sync_tasks,
+                        return_exceptions=True,
+                    )
+            finally:
+                app.state.manual_sync_tasks.clear()
+                await query_engine.close()
 
-    # Shutdown tasks
-    logger.info("Shutting down AIDEFEND MCP Service...")
-    if sync_task is not None:
-        sync_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await sync_task
-    logger.info("Shutdown complete")
+        await _await_cancellation_safe(
+            shutdown_resources(),
+            task_name="aidefend-rest-shutdown",
+        )
+        logger.info("Shutdown complete")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Own the data directory for the full REST service lifetime."""
+    from app.sync import service_instance_guard
+
+    async with service_instance_guard("the REST API service"):
+        try:
+            async with _service_lifespan(app):
+                yield
+        finally:
+            # Also covers cancellation or an exception before the inner
+            # lifespan reaches its ordinary shutdown section.
+            await _await_cancellation_safe(
+                query_engine.close(),
+                task_name="aidefend-rest-final-close",
+            )
 
 
 # Create FastAPI app
@@ -429,8 +470,10 @@ async def health_check():
             query_engine.is_ready and stats.get("model_loaded") and not stats_error
         )
 
-        # Check data staleness
-        version_info = load_version_info()
+        # get_stats() returns version metadata from the same reader-locked
+        # generation as the table count. Re-reading VERSION_FILE here could
+        # cross a concurrent sync activation boundary.
+        version_info = stats.get("version_info")
         overall_status = "healthy"
 
         if version_info and "last_synced_at" in version_info:
@@ -486,7 +529,11 @@ async def health_check():
 
 # ==================== PROTECTED ENDPOINTS (Authentication Required) ====================
 
-@protected_router.get("/api/v1/status", response_model=StatusResponse, tags=["Status"])
+@protected_router.get(
+    "/api/v1/status",
+    response_model=StatusResponse,
+    tags=["Status"],
+)
 @limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute" if settings.ENABLE_RATE_LIMITING else "1000/minute")
 async def get_status(request: Request):
     """
@@ -506,9 +553,6 @@ async def get_status(request: Request):
                     version_info.get("source_revision") or version_info.get("commit_sha")
                 ),
                 framework_version=version_info.get("framework_version"),
-                framework_authoring_schema_version=version_info.get(
-                    "framework_authoring_schema_version"
-                ),
                 framework_public_schema_version=version_info.get(
                     "framework_public_schema_version"
                 ),
@@ -521,8 +565,14 @@ async def get_status(request: Request):
                 source_repository=version_info.get("source_repository"),
                 source_ref=version_info.get("source_ref"),
                 source_content_sha256=version_info.get("source_content_sha256"),
-                framework_schema_metadata_sha256=version_info.get(
-                    "framework_schema_metadata_sha256"
+                framework_migrations_schema_version=version_info.get(
+                    "framework_migrations_schema_version"
+                ),
+                framework_migrations_registry_version=version_info.get(
+                    "framework_migrations_registry_version"
+                ),
+                framework_migrations_sha256=version_info.get(
+                    "framework_migrations_sha256"
                 ),
                 total_documents=version_info.get("total_documents"),
                 is_syncing=is_sync_in_progress()
@@ -680,8 +730,18 @@ async def trigger_sync(request: Request):
             detail="Sync already in progress"
         )
 
-    # Trigger sync in background
-    asyncio.create_task(run_sync())
+    manual_sync_tasks = request.app.state.manual_sync_tasks
+    if any(not task.done() for task in manual_sync_tasks):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sync already in progress",
+        )
+
+    # Track the task through shutdown so DATA_PATH ownership is never released
+    # while a manual activation can still mutate the table/version pair.
+    sync_task = asyncio.create_task(run_sync(), name="aidefend-rest-manual-sync")
+    manual_sync_tasks.add(sync_task)
+    sync_task.add_done_callback(manual_sync_tasks.discard)
 
     return {
         "status": "sync_triggered",
@@ -831,8 +891,11 @@ async def api_get_defenses_for_threat(
     """
     Find AIDEFEND defense techniques for a specific threat.
 
-    Supports threat IDs from the mapped framework set or natural language
-    threat keywords.
+    Supports threat IDs from the mapped framework set or natural-language
+    threat keywords. Bare OWASP LLM ranks resolve to the active edition;
+    explicit superseded IDs resolve through the published semantic migration
+    registry and return canonical plus migration metadata. Invalid or ambiguous
+    OWASP references are reported without guessing or running an ID lookup.
     """
     start_time = datetime.now()
     audit_ctx = audit_tool_call(
@@ -1140,7 +1203,8 @@ async def api_get_implementation_plan(request: Request, plan_request: Implementa
     Get ranked recommendations for next defense techniques to implement.
 
     Uses heuristic scoring based on:
-    - Threat importance (covers high-risk threats like LLM01, LLM03, T0020)
+    - Threat importance (covers selected high-risk threats like LLM01:2026,
+      LLM05:2026, and AML.T0020)
     - Ease of implementation (open-source tools available)
     - Phase weight (Design > Development > Deployment > Runtime)
     - Pillar weight (Prevent > Detect > Respond)

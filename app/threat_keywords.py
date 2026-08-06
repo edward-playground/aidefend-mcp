@@ -16,7 +16,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] where each entry is:
 
     {
         "frameworks": {
-            "owasp": [<OWASP IDs: LLM01, ML02:2023, ...>],
+            "owasp": [<OWASP IDs: LLM01:2026, ML02:2023, ...>],
             "atlas":  [<MITRE ATLAS technique IDs: AML.T00xx...>],
             "maestro":[<Maestro layer/risk identifiers>],
         },
@@ -35,14 +35,15 @@ from app.framework_utils import canonicalize_maestro_identifier
 # Format: keyword -> {frameworks, confidence, aliases}
 THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     # =========================================================================
-    # OWASP TOP 10 FOR LLM APPLICATIONS 2025 (OWASP LLM Top 10)
+    # OWASP TOP 10 FOR LLM APPLICATIONS 2026 (v1.0)
     # =========================================================================
-    # Reference codes simplified: LLM01..LLM10 (no year suffix)
+    # Emit exact canonical identifiers. Bare ranks are query aliases, not
+    # classifier claims, because multiple concepts moved between 2025 and 2026.
 
-    # LLM01: Prompt Injection
+    # LLM01:2026 Prompt Injection
     "prompt injection": {
         "frameworks": {
-            "owasp": ["LLM01"],
+            "owasp": ["LLM01:2026"],
             "atlas": ["AML.T0051"],
             "maestro": ["L1-Adversarial-Examples", "Cross-Goal-Misalignment-Cascades"],
         },
@@ -57,19 +58,22 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
             "prompt manipulation",
             "prompt hacking",
             "cross-plugin prompt injection",
-            # reviewer suggested
-            "context manipulation",
             "instruction override",
-            # 2025 emerging
             "system message override",
-            "role confusion",
+            "retrieved-content prompt injection",
+            "persistent-memory prompt injection",
+            "tool output prompt injection",
+            "mcp prompt injection",
+            "cross-session prompt injection",
+            "invisible unicode prompt injection",
+            "payload splitting attack",
         ],
     },
 
-    # LLM02: Sensitive Information Disclosure
+    # LLM02:2026 Sensitive Information Disclosure
     "sensitive information disclosure": {
         "frameworks": {
-            "owasp": ["LLM02"],
+            "owasp": ["LLM02:2026"],
             "atlas": ["AML.T0057"],  # LLM data leakage
             "maestro": ["Cross-Data-Leakage", "L5-Data-Leakage-Through-Observability"],
         },
@@ -82,13 +86,20 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
             "prompt data leakage",
             "information disclosure",
             "data exfiltration via llm response",
+            "reasoning trace disclosure",
+            "cross-tenant llm data disclosure",
+            "llm inference side channel",
+            "retrieved chunk disclosure",
+            "tool argument disclosure",
+            "multimodal sensitive data disclosure",
+            "cross-session llm data leakage",
         ],
     },
 
-    # Extra generic data leakage keyword that still maps to LLM02
+    # Unauthorized disclosure is the defining consequence for LLM02:2026.
     "data leakage": {
         "frameworks": {
-            "owasp": ["LLM02"],
+            "owasp": ["LLM02:2026"],
             "maestro": ["Cross-Data-Leakage", "L5-Data-Leakage-Through-Observability"],
         },
         "confidence": 0.85,
@@ -99,10 +110,10 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         ],
     },
 
-    # LLM03: Supply Chain
+    # LLM04:2026 Supply Chain
     "supply chain compromise": {
         "frameworks": {
-            "owasp": ["LLM03"],
+            "owasp": ["LLM04:2026"],
             "atlas": ["AML.T0010"],
             "maestro": ["Cross-Supply-Chain-Attacks"],
         },
@@ -114,13 +125,22 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
             "malicious huggingface model",
             "ai supply chain attack",
             "third-party model compromise",
+            "compromised lora adapter",
+            "tampered model artifact",
+            "unsigned model artifact",
+            "model namespace reuse",
+            "compromised model conversion pipeline",
+            "compromised model merge pipeline",
+            "quantization pipeline compromise",
+            "compromised model registry",
+            "on-device model tampering",
         ],
     },
 
-    # LLM04: Data and Model Poisoning
+    # LLM05:2026 Data and Model Poisoning
     "training data poisoning": {
         "frameworks": {
-            "owasp": ["LLM04"],
+            "owasp": ["LLM05:2026"],
             "atlas": ["AML.T0010", "AML.T0018", "AML.T0020"],
             "maestro": [
                 "L2-Data-Poisoning",
@@ -130,6 +150,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         },
         "confidence": 0.96,
         "aliases": [
+            "data and model poisoning",
             "data poisoning",
             "dataset poisoning",
             "backdoor poisoning",
@@ -137,14 +158,25 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
             "frontrunning poisoning",
             "poisoned fine-tuning dataset",
             "poisoned embedding corpus",
+            "persistent memory poisoning",
+            "feedback loop poisoning",
+            "fine-tuning poisoning",
+            "preference data poisoning",
+            "alignment poisoning",
+            "continuous learning poisoning",
+            "model weight poisoning",
+            "adapter poisoning",
+            "chat template poisoning",
+            "quantization artifact poisoning",
         ],
     },
 
-    # LLM05: Improper Output Handling
+    # LLM10:2026 Improper Output Handling
     "insecure output handling": {
-        "frameworks": {"owasp": ["LLM05"]},
+        "frameworks": {"owasp": ["LLM10:2026"]},
         "confidence": 0.9,
         "aliases": [
+            "improper output handling",
             "insecure output",
             "unsafe output rendering",
             "xss in llm",
@@ -152,13 +184,24 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
             "template injection from llm",
             "output injection",
             "output not validated",
+            "unsafe generated code execution",
+            "terminal control character injection",
+            "model generated sql execution",
+            "automatic outbound rendering",
+            "model output shell injection",
+            "generated path traversal",
+            "generated email template injection",
+            "ansi escape injection",
+            "model-generated external resource fetch",
+            "generated markdown image exfiltration",
+            "model output passed to eval",
         ],
     },
 
-    # LLM06: Excessive Agency
+    # LLM03:2026 Excessive Agency
     "excessive agency": {
         "frameworks": {
-            "owasp": ["LLM06"],
+            "owasp": ["LLM03:2026"],
             "atlas": ["AML.T0053"],  # agent plugin/tool abuse
             "maestro": [
                 "L7-Agent-Tool-Misuse",
@@ -173,12 +216,17 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
             "over-permissioned llm agent",
             "agent overreach",
             "runaway agent",
+            "excessive functionality",
+            "excessive autonomy",
+            "unnecessary tool functions",
+            "open-ended tool",
+            "high-impact action without approval",
+            "overprivileged tool identity",
         ],
     },
 
     "agent tool misuse": {
         "frameworks": {
-            "owasp": ["LLM06"],
             "maestro": ["L7-Agent-Tool-Misuse"],
             "atlas": ["AML.T0053"],
         },
@@ -194,7 +242,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     # Explicitly separate out tool-call injection
     "tool call injection": {
         "frameworks": {
-            "owasp": ["LLM01", "LLM06"],
+            "owasp": ["LLM01:2026"],
             "atlas": ["AML.T0053", "AML.T0051"],
             "maestro": ["L7-Agent-Tool-Misuse", "L7-Agent-Goal-Manipulation"],
         },
@@ -206,10 +254,10 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         ],
     },
 
-    # LLM07: System Prompt Leakage
+    # LLM08:2026 Hidden Context Exposure (successor to System Prompt Leakage)
     "system prompt leakage": {
         "frameworks": {
-            "owasp": ["LLM07"],
+            "owasp": ["LLM08:2026"],
             "atlas": ["AML.T0056"],
         },
         "confidence": 0.9,
@@ -221,10 +269,31 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         ],
     },
 
-    # LLM08: Vector and Embedding Weaknesses
+    "hidden context exposure": {
+        "frameworks": {
+            "owasp": ["LLM08:2026"],
+            "atlas": ["AML.T0056"],
+        },
+        "confidence": 0.95,
+        "aliases": [
+            "hidden tool schema disclosure",
+            "safety logic disclosure",
+            "hidden policy extraction",
+            "model-visible hidden context leakage",
+            "developer instruction disclosure",
+            "tool function schema exposure",
+            "refusal logic extraction",
+            "hidden workflow criteria exposure",
+            "output parser assumption disclosure",
+            "authorization assumption disclosure",
+            "model-visible credential leakage",
+        ],
+    },
+
+    # LLM09:2026 Vector and Embedding Weaknesses
     "vector and embedding weaknesses": {
         "frameworks": {
-            "owasp": ["LLM08"],
+            "owasp": ["LLM09:2026"],
             "atlas": ["AML.T0070", "AML.T0071", "AML.T0085.000"],
             "maestro": ["L2-Compromised-RAG-Pipelines"],
         },
@@ -233,30 +302,45 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
             "embedding weakness",
             "vector db weakness",
             "vector store weakness",
-            "embedding poisoning",
             "vector search manipulation",
+            "embedding geometry attack",
+            "similarity search manipulation",
+            "cross-tenant similarity search leakage",
+            "embedding inversion from vector store",
+            "membership inference via similarity search",
+            "semantic cache poisoning",
+            "deduplication threshold poisoning",
+            "retrieval jamming",
         ],
     },
 
-    # LLM09: Misinformation
+    # LLM07:2026 Misinformation
     "misinformation": {
         "frameworks": {
-            "owasp": ["LLM09"],
+            "owasp": ["LLM07:2026"],
             "maestro": ["L5-Evaluation-Hallucination-Issue"],
         },
         "confidence": 0.85,
         "aliases": [
-            "false information",
-            "fake content",
-            "disinformation",
+            "false llm output",
+            "unsupported model claim",
+            "misleading model output",
             "llm misinformation",
+            "critical omission in llm output",
+            "fabricated task completion",
+            "incorrect workflow state inference",
+            "hallucinated dependency recommendation",
+            "forged model evidence",
+            "misleading llm summary",
+            "cross-agent misinformation",
+            "false alert triggers automated response",
         ],
     },
 
-    # LLM10: Unbounded Consumption
+    # LLM06:2026 Unbounded Consumption
     "unbounded consumption": {
         "frameworks": {
-            "owasp": ["LLM10"],
+            "owasp": ["LLM06:2026"],
             "atlas": ["AML.T0029", "AML.T0034", "AML.T0040"],
             "maestro": [
                 "L1-DoS-On-Foundation-Model",
@@ -265,17 +349,55 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         },
         "confidence": 0.9,
         "aliases": [
-            "resource exhaustion",
+            "llm resource exhaustion",
+            "inference resource exhaustion",
+            "reasoning token exhaustion",
+            "thinking token exhaustion",
             "cost harvesting",
             "llm cost abuse",
-            "compute exhaustion",
-            "billing abuse",
+            "denial of wallet",
+            "output token amplification",
+            "multimodal compute amplification",
+            "resource-intensive inference query",
+        ],
+    },
+
+    "agent tool consumption loop": {
+        "frameworks": {
+            "owasp": ["LLM06:2026"],
+            "maestro": [
+                "L1-DoS-On-Foundation-Model",
+                "L4-DoS-On-AI-Infrastructure",
+            ],
+        },
+        "confidence": 0.95,
+        "aliases": [
+            "recursive tool loop",
+            "tool-call fan-out",
+            "agent session context growth",
+            "multi-turn tool calling loop",
+            "growing agent context",
+        ],
+    },
+
+    "high-volume llm model extraction": {
+        "frameworks": {
+            "owasp": ["LLM06:2026"],
+            "atlas": ["AML.T0024.002"],
+            "maestro": ["L1-Model-Stealing"],
+        },
+        "confidence": 0.92,
+        "aliases": [
+            "functional model replication via api",
+            "functional model replication",
+            "unbounded query model cloning",
+            "high-volume model extraction",
         ],
     },
 
     "llm denial of service": {
         "frameworks": {
-            "owasp": ["LLM10"],
+            "owasp": ["LLM06:2026"],
             "maestro": ["L1-DoS-On-Foundation-Model"],
             "atlas": ["AML.T0029", "AML.T0034", "AML.T0040"],
         },
@@ -292,7 +414,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     # Plugins / connectors
     "insecure plugin": {
         "frameworks": {
-            "owasp": ["LLM03", "LLM06"],
             "maestro": ["L7-Agent-Tool-Misuse"],
             "atlas": ["AML.T0053"],
         },
@@ -310,7 +431,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     # Automation bias / overreliance
     "overreliance": {
         "frameworks": {
-            "owasp": ["LLM09"],
             "maestro": ["L7-Overreliance-And-Automation-Bias"],
         },
         "confidence": 0.8,
@@ -554,7 +674,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     },
 
     "integration risk": {
-        "frameworks": {"maestro": ["L7-Integration-Risks"], "owasp": ["LLM03"]},
+        "frameworks": {"maestro": ["L7-Integration-Risks"]},
         "confidence": 0.8,
         "aliases": [
             "insecure api integration",
@@ -718,7 +838,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "compromised observability tools": {
         "frameworks": {
             "maestro": ["L5-Compromised-Observability-Tools"],
-            "owasp": ["LLM03", "LLM05"],  # Supply Chain + Output Handling
         },
         "confidence": 0.88,
         "aliases": [
@@ -754,7 +873,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "data leakage through observability": {
         "frameworks": {
             "maestro": ["L5-Data-Leakage-Through-Observability"],
-            "owasp": ["LLM02"],
+            "owasp": ["LLM02:2026"],
         },
         "confidence": 0.9,
         "aliases": [
@@ -779,7 +898,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "compromised container images": {
         "frameworks": {
             "maestro": ["L4-Compromised-Container-Images"],
-            "owasp": ["ML06:2023", "LLM03"],
+            "owasp": ["ML06:2023", "LLM04:2026"],
         },
         "confidence": 0.9,
         "aliases": [
@@ -813,14 +932,14 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "dos on ai infrastructure": {
         "frameworks": {
             "maestro": ["L4-DoS-On-AI-Infrastructure"],
-            "owasp": ["LLM10"],
+            "owasp": ["LLM06:2026"],
             "atlas": ["AML.T0034", "AML.T0040"],
         },
         "confidence": 0.9,
         "aliases": [
-            "infrastructure dos",
-            "resource exhaustion on cluster",
-            "ddos on inference endpoints",
+            "inference infrastructure exhaustion",
+            "resource exhaustion on inference cluster",
+            "model-serving resource exhaustion",
         ],
     },
 
@@ -838,7 +957,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "frameworks": {
             "maestro": ["L4-Lateral-Movement"],
             "atlas": ["AML.T0049"],
-            "owasp": ["LLM03"],
         },
         "confidence": 0.86,
         "aliases": [
@@ -888,7 +1006,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "framework supply chain attacks": {
         "frameworks": {
             "maestro": ["L3-Supply-Chain-Attacks"],
-            "owasp": ["ML06:2023", "LLM03"],
+            "owasp": ["ML06:2023", "LLM04:2026"],
         },
         "confidence": 0.88,
         "aliases": [
@@ -921,7 +1039,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "data poisoning in data ops": {
         "frameworks": {
             "maestro": ["L2-Data-Poisoning"],
-            "owasp": ["ML02:2023", "LLM04"],
+            "owasp": ["ML02:2023", "LLM05:2026"],
             "atlas": ["AML.T0010", "AML.T0020"],
         },
         "confidence": 0.95,
@@ -936,7 +1054,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "frameworks": {
             "maestro": ["L2-Data-Exfiltration"],
             "atlas": ["AML.T0024"],
-            "owasp": ["LLM02"],
+            "owasp": ["LLM02:2026"],
         },
         "confidence": 0.92,
         "aliases": [
@@ -976,12 +1094,9 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         },
         "confidence": 0.9,
         "aliases": [
-            "rag poisoning",
-            "retrieval poisoning",
-            "knowledge base poisoning",
-            "context poisoning",
-            # reviewer suggested
-            "document injection",
+            "rag pipeline compromise",
+            "compromised retrieval pipeline",
+            "rag infrastructure compromise",
         ],
     },
 
@@ -1067,6 +1182,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "frameworks": {
             "maestro": ["L1-DoS-On-Foundation-Model"],
             "atlas": ["AML.T0029", "AML.T0034"],
+            "owasp": ["LLM06:2026"],
         },
         "confidence": 0.9,
         "aliases": [
@@ -1082,7 +1198,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "cross-layer supply chain attack": {
         "frameworks": {
             "maestro": ["Cross-Supply-Chain-Attacks"],
-            "owasp": ["ML06:2023", "LLM03"],
+            "owasp": ["ML06:2023", "LLM04:2026"],
             "atlas": ["AML.T0010"],
         },
         "confidence": 0.92,
@@ -1120,7 +1236,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "data leakage across layers": {
         "frameworks": {
             "maestro": ["Cross-Data-Leakage"],
-            "owasp": ["LLM02"],
+            "owasp": ["LLM02:2026"],
         },
         "confidence": 0.9,
         "aliases": [
@@ -1142,10 +1258,10 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     # EMERGING / COMMON AI & LLM THREATS (FROM REVIEWER SUGGESTIONS)
     # =========================================================================
 
-    # RAG bypass / circumvention attacks
+    # Generic RAG bypass does not identify prompt injection, protected-data
+    # disclosure, durable poisoning, or an embedding-geometry mechanism.
     "rag bypass": {
         "frameworks": {
-            "owasp": ["LLM08"],
             "atlas": ["AML.T0070"],
             "maestro": ["L2-Compromised-RAG-Pipelines"],
         },
@@ -1174,7 +1290,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     # Chain of thought / reasoning manipulation
     "chain of thought manipulation": {
         "frameworks": {
-            "owasp": ["LLM01"],
+            "owasp": ["LLM01:2026"],
             "atlas": ["AML.T0051"],
             "maestro": ["L1-Adversarial-Examples"],
         },
@@ -1186,25 +1302,49 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         ],
     },
 
-    # Context window / eviction attacks
+    # The generic phrase is mechanism-ambiguous; more specific entries below
+    # distinguish instruction manipulation from resource consumption.
     "context window attack": {
         "frameworks": {
-            "owasp": ["LLM01", "LLM10"],
             "atlas": ["AML.T0051", "AML.T0040"],
             "maestro": ["L1-Adversarial-Examples", "L1-DoS-On-Foundation-Model"],
         },
+        "confidence": 0.75,
+        "aliases": [],
+    },
+
+    "context window instruction attack": {
+        "frameworks": {
+            "owasp": ["LLM01:2026"],
+            "atlas": ["AML.T0051"],
+            "maestro": ["L1-Adversarial-Examples"],
+        },
         "confidence": 0.88,
         "aliases": [
-            "context flooding",
             "instruction burial",
             "context eviction attack",
+        ],
+    },
+
+    "context window exhaustion": {
+        "frameworks": {
+            "owasp": ["LLM06:2026"],
+            "atlas": ["AML.T0040"],
+            "maestro": ["L1-DoS-On-Foundation-Model"],
+        },
+        "confidence": 0.9,
+        "aliases": [
+            "context flooding",
+            "near-limit context abuse",
+            "growing context exhaustion",
+            "context token exhaustion",
         ],
     },
 
     # Constitutional AI / safety bypass
     "constitutional ai bypass": {
         "frameworks": {
-            "owasp": ["LLM01", "LLM06"],
+            "owasp": ["LLM01:2026"],
             "maestro": ["L7-Agent-Goal-Manipulation"],
         },
         "confidence": 0.78,
@@ -1215,40 +1355,64 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         ],
     },
 
-    # Multi-modal jailbreaks / attacks
+    # Generic multimodal attacks can be ML perturbation, consumption, or
+    # disclosure; only the explicit prompt-injection mechanism maps to
+    # LLM01:2026.
     "multi-modal attacks": {
         "frameworks": {
-            "owasp": ["ML01:2023", "LLM01"],
-            "atlas": ["AML.T0043", "AML.T0051", "AML.T0040"],
+            "owasp": ["ML01:2023"],
+            "atlas": ["AML.T0043", "AML.T0040"],
             "maestro": ["L1-Adversarial-Examples"],
         },
         "confidence": 0.85,
         "aliases": [
             "vision language model attack",
+        ],
+    },
+
+    "multimodal prompt injection": {
+        "frameworks": {
+            "owasp": ["LLM01:2026"],
+            "atlas": ["AML.T0051"],
+            "maestro": ["L1-Adversarial-Examples"],
+        },
+        "confidence": 0.92,
+        "aliases": [
             "vlm jailbreak",
             "image prompt injection",
+            "steganographic prompt injection",
         ],
     },
 
     # API rate limit / quota abuse
     "api rate limit bypass": {
         "frameworks": {
-            "owasp": ["LLM10"],
             "atlas": ["AML.T0040", "AML.T0034"],
             "maestro": ["L4-DoS-On-AI-Infrastructure", "L1-DoS-On-Foundation-Model"],
         },
         "confidence": 0.9,
         "aliases": [
             "rate limiting bypass",
-            "quota exhaustion",
-            "billing abuse via api",
+        ],
+    },
+
+    "llm api quota exhaustion": {
+        "frameworks": {
+            "owasp": ["LLM06:2026"],
+            "atlas": ["AML.T0040", "AML.T0034"],
+            "maestro": ["L4-DoS-On-AI-Infrastructure", "L1-DoS-On-Foundation-Model"],
+        },
+        "confidence": 0.94,
+        "aliases": [
+            "inference api rate limit bypass",
+            "inference api quota exhaustion",
+            "billing abuse via inference api",
         ],
     },
 
     # Session hijacking around AI agents / UIs
     "session hijacking": {
         "frameworks": {
-            "owasp": ["LLM02", "LLM10"],
             "atlas": ["AML.T0055"],
             "maestro": ["Cross-Privilege-Escalation", "L7-Agent-Identity-Attack"],
         },
@@ -1263,7 +1427,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     # Shadow AI (unsanctioned use of external LLMs / SaaS)
     "shadow ai": {
         "frameworks": {
-            "owasp": ["LLM02", "LLM03"],
+            "owasp": ["LLM04:2026"],
             "maestro": [
                 "L7-Integration-Risks",
                 "L6-Regulatory-Non-Compliance-By-AI-Security-Agents",
@@ -1282,7 +1446,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "frameworks": {
             "atlas": ["AML.T0055"],
             "maestro": ["Cross-Privilege-Escalation"],
-            "owasp": ["LLM02"],
         },
         "confidence": 0.9,
         "aliases": [
@@ -1297,7 +1460,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "ml model inference api access": {
         "frameworks": {
             "atlas": ["AML.T0040"],
-            "owasp": ["LLM10"],
             "maestro": ["L4-DoS-On-AI-Infrastructure"],
         },
         "confidence": 0.88,
@@ -1314,26 +1476,51 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
 
     "rag poisoning": {
         "frameworks": {
-            "owasp": ["LLM04", "LLM08"],
+            "owasp": ["LLM05:2026"],
             "atlas": ["AML.T0070", "AML.T0071", "AML.T0085.000"],
             "maestro": ["L2-Compromised-RAG-Pipelines"],
         },
         "confidence": 0.9,
         "aliases": [
-            "retrieval poisoning",
-            "context poisoning",
             "knowledge base poisoning",
-            "vector store poisoning",
-            "document injection",
-            # 2025 emerging
-            "semantic injection",
+            "vector store content poisoning",
+            "persistent rag corpus poisoning",
+        ],
+    },
+
+    "rag indirect prompt injection": {
+        "frameworks": {
+            "owasp": ["LLM01:2026"],
+            "atlas": ["AML.T0051", "AML.T0070"],
+            "maestro": ["L2-Compromised-RAG-Pipelines"],
+        },
+        "confidence": 0.96,
+        "aliases": [
+            "document-borne prompt injection",
+            "retrieved content prompt injection",
+            "malicious instructions in rag documents",
+        ],
+    },
+
+    "geometric retrieval poisoning": {
+        "frameworks": {
+            "owasp": ["LLM09:2026"],
+            "atlas": ["AML.T0070", "AML.T0071", "AML.T0085.000"],
+            "maestro": ["L2-Compromised-RAG-Pipelines"],
+        },
+        "confidence": 0.95,
+        "aliases": [
             "embedding space poisoning",
+            "similarity search poisoning",
+            "retrieval jamming",
+            "semantic cache poisoning",
+            "multimodal embedding poisoning",
         ],
     },
 
     "hallucination": {
         "frameworks": {
-            "owasp": ["LLM09"],
+            "owasp": ["LLM07:2026"],
             "maestro": ["L5-Evaluation-Hallucination-Issue"],
         },
         "confidence": 0.75,
@@ -1347,7 +1534,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
 
     "bias": {
         "frameworks": {
-            "owasp": ["LLM09"],
             "maestro": ["L6-Bias-In-Security-AI-Agents"],
         },
         "confidence": 0.7,
@@ -1423,7 +1609,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
 
     "model serving": {
         "frameworks": {
-            "owasp": ["LLM10"],
             "maestro": ["L4-DoS-On-AI-Infrastructure"],
             "atlas": ["AML.T0040", "AML.T0034"],
         },
@@ -1436,7 +1621,6 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
 
     "container escape": {
         "frameworks": {
-            "owasp": ["LLM05", "LLM03"],
             "maestro": ["L4-Compromised-Container-Images"],
         },
         "confidence": 0.75,
@@ -1485,7 +1669,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
 # the current AIDEFEND corpus. These sets cover the IDs authored by this
 # dictionary; other framework IDs remain queryable directly by the defense tool.
 _RESOLVABLE_OWASP_IDS = {
-    *(f"LLM{index:02d}" for index in range(1, 11)),
+    *(f"LLM{index:02d}:2026" for index in range(1, 11)),
     *(f"ML{index:02d}:2023" for index in range(1, 11)),
     *(f"ASI{index:02d}:2026" for index in range(1, 11)),
 }

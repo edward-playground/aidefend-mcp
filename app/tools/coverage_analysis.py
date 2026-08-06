@@ -4,7 +4,7 @@ Coverage Analysis Tool for AIDEFEND MCP Service
 Analyzes defense coverage based on implemented techniques and identifies gaps.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Mapping, Optional, Tuple
 from collections import defaultdict
 
 from app.logger import get_logger
@@ -18,6 +18,7 @@ from app.framework_utils import (
     parse_json_list,
     public_framework_coverage_mapping,
     resolve_control_ids,
+    framework_labels_from_version_info,
 )
 
 logger = get_logger(__name__)
@@ -42,7 +43,9 @@ def _query_techniques_from_table(table) -> List[Dict[str, Any]]:
 
 async def analyze_coverage(
     implemented_techniques: List[str],
-    system_type: Optional[str] = None
+    system_type: Optional[str] = None,
+    *,
+    _snapshot: Optional[Tuple[List[Dict[str, Any]], Optional[Mapping[str, Any]]]] = None,
 ) -> Dict[str, Any]:
     """
     Analyze defense coverage and identify gaps.
@@ -100,8 +103,14 @@ async def analyze_coverage(
     logger.info(f"Analyzing coverage for {len(implemented_techniques)} implemented techniques")
 
     try:
-        all_techniques = await query_engine.read_table(
-            _query_techniques_from_table
+        if _snapshot is None:
+            all_techniques, version_info = await query_engine.read_table_snapshot(
+                _query_techniques_from_table
+            )
+        else:
+            all_techniques, version_info = _snapshot
+        effective_framework_labels = framework_labels_from_version_info(
+            version_info
         )
         all_records = [
             decode_framework_record(technique) for technique in all_techniques
@@ -137,7 +146,8 @@ async def analyze_coverage(
         # Analyze threat framework coverage
         threat_coverage = _analyze_threat_coverage(
             implemented_techniques,
-            all_techniques
+            all_techniques,
+            framework_labels=effective_framework_labels,
         )
 
         # Identify gaps
@@ -190,7 +200,8 @@ async def analyze_coverage(
             "threat_framework_coverage": threat_coverage,
             "critical_gaps": gaps,
             "recommendations": recommendations,
-            "next_steps": _generate_next_steps(gaps, recommendations)
+            "next_steps": _generate_next_steps(gaps, recommendations),
+            "framework_labels": effective_framework_labels,
         }
 
         logger.info(
@@ -395,7 +406,9 @@ def _calculate_phase_coverage(
 
 def _analyze_threat_coverage(
     implemented: List[str],
-    all_techniques: List[Dict[str, Any]]
+    all_techniques: List[Dict[str, Any]],
+    *,
+    framework_labels: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Any]:
     """Analyze threat framework coverage."""
     covered_sets = merge_framework_coverage_sets()
@@ -404,7 +417,10 @@ def _analyze_threat_coverage(
     for tech in all_techniques:
         total_sets = merge_framework_coverage_sets(
             total_sets,
-            extract_framework_coverage(parse_json_list(tech.get('defends_against', '[]'))),
+            extract_framework_coverage(
+                parse_json_list(tech.get('defends_against', '[]')),
+                framework_labels=framework_labels,
+            ),
         )
 
     for tech in all_techniques:
@@ -413,7 +429,10 @@ def _analyze_threat_coverage(
 
         covered_sets = merge_framework_coverage_sets(
             covered_sets,
-            extract_framework_coverage(parse_json_list(tech.get('defends_against', '[]'))),
+            extract_framework_coverage(
+                parse_json_list(tech.get('defends_against', '[]')),
+                framework_labels=framework_labels,
+            ),
         )
 
     coverage_rate = {}

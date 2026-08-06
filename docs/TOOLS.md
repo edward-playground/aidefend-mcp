@@ -3,8 +3,8 @@
 This document provides detailed documentation for all **18 MCP tools** available in the AIDEFEND MCP Service.
 
 > **Live-data contract:** IDs, names, and corpus-size examples in this guide
-> are aligned to AIDEFEND 1.20260728 (authoring schema 1.7, public schema 2.3,
-> index schema 3.2: 92 techniques + 265 sub-techniques + 851 guidance records
+> are aligned to AIDEFEND 1.20260805 (public schema 2.3, MCP index schema 3.3:
+> 92 techniques + 265 sub-techniques + 851 guidance records
 > = 1,208 documents). Rankings, scores, timestamps, framework-coverage totals,
 > and tool counts are illustrative because they are recomputed from the version
 > a customer has synchronized; these snapshot counts are examples, not runtime
@@ -74,10 +74,13 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 You: "What's the status of the AIDEFEND service?"
 
 Claude: [Uses get_aidefend_status tool]
-        AIDEFEND Service Status:
-        - Total documents: 1,208
-        - Embedding model: Xenova/multilingual-e5-base
-        - Last sync: 2 hours ago
+        AIDEFEND Knowledge Base Status
+        - Framework Version: 1.20260805
+        - Framework Source Revision: e10c1678
+        - Framework Public Schema: 2.3
+        - MCP Index Schema: 3.3
+        - Framework Migration Registry Schema: 1.0
+        - Indexed Documents: 1,208
         - Service ready: Yes
 ```
 
@@ -87,16 +90,25 @@ Claude: [Uses get_aidefend_status tool]
 curl http://localhost:8000/api/v1/status
 ```
 
-**Response:**
+**Selected response fields:**
 ```json
 {
-  "service_ready": true,
-  "total_documents": 1208,
-  "embedding_model": "Xenova/multilingual-e5-base",
-  "last_sync": "2025-01-18T10:30:00Z",
-  "framework_version": "1.20260728"
+  "status": "online",
+  "sync_info": {
+    "framework_version": "1.20260805",
+    "source_revision": "e10c1678ee49f03f8fb0c97d446ba3fbc3543655",
+    "framework_public_schema_version": "2.3",
+    "index_schema_version": "3.3",
+    "framework_migrations_schema_version": "1.0",
+    "framework_migrations_registry_version": "2026-08-05",
+    "total_documents": 1208,
+    "is_syncing": false
+  }
 }
 ```
+
+Framework Public Schema metadata is discovered from `data/data.json` in the
+same Framework source revision as the indexed tactics.
 
 ---
 
@@ -118,7 +130,7 @@ Claude: [Uses sync_aidefend tool]
         Downloading latest content...
         Parsing techniques...
         Generating embeddings...
-        ✅ Sync complete! Knowledge base updated to version 1.20260728
+        ✅ Sync complete! Knowledge base updated to version 1.20260805
 ```
 
 #### REST API Example:
@@ -132,7 +144,7 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20260728",
+  "framework_version": "1.20260805",
   "documents_synced": 1208,
   "sync_duration_seconds": 42.3
 }
@@ -157,7 +169,7 @@ Claude: [Uses get_statistics tool]
         The AIDEFEND knowledge base contains:
         - 1,208 total documents (92 techniques, 265 sub-techniques, 851 strategies)
         - Coverage across 7 tactics: Model, Harden, Detect, Isolate, Deceive, Evict, Restore
-        - Threat framework coverage: 10 OWASP LLM threats, 28 MITRE ATLAS techniques
+        - Threat framework coverage: 10 OWASP LLM Top 10 2026 risks, 28 MITRE ATLAS techniques
         - 299 controls with open-source tools, 34 with source-available/open-weight tools,
           and 275 with commercial tools
         - 42 documents with code snippets
@@ -358,11 +370,11 @@ curl "http://localhost:8000/api/v1/technique/AID-H-002?include_code=true&include
 
 #### ⚡ Performance Tip
 
-If you need implementation strategies for **multiple techniques at once** (e.g., top 5-10 recommendations from an implementation plan), use **Tool 14: Get Implementation Plan** with `detail_level="standard"` or `"detailed"` instead. This eliminates the N+1 query problem and reduces latency by 85-90%.
+If you need implementation strategies for **multiple techniques at once** (e.g., top 5-10 recommendations from an implementation plan), use **Tool 13: Get Implementation Plan** with `detail_level="standard"` or `"detailed"` instead. This avoids a separate detail request for every recommendation. Actual latency depends on the host, model cache, and requested result set.
 
 **Example scenario:**
-- ❌ Slow: Get implementation plan (basic) → Call get_technique_detail 5 times (2-3 minutes)
-- ✅ Fast: Get implementation plan with `detail_level="standard"` (10-20 seconds)
+- More round trips: Get implementation plan (basic) → Call `get_technique_detail` for every recommendation
+- Fewer round trips: Get implementation plan with `detail_level="standard"`
 
 Use get_technique_detail when you need:
 - Details for a **single technique** outside the top recommendations
@@ -373,24 +385,32 @@ Use get_technique_detail when you need:
 
 ### Tool 7: Get Defenses for Threat
 
-**Purpose**: Find AIDEFEND defense techniques for a specific threat. Supports threat IDs from OWASP LLM Top 10, MITRE ATLAS, MAESTRO, or natural language keywords.
+**Purpose**: Find AIDEFEND defense techniques for a specific threat. Supports OWASP LLM Top 10 2026 identifiers and declared superseded-edition aliases, MITRE ATLAS, MAESTRO, or natural language keywords. OWASP LLM results are always returned against the active 2026 corpus after a successful current-framework sync.
 
 **When to use**: Threat-driven defense planning, responding to specific vulnerabilities, or building defense roadmaps.
 
 #### MCP Mode Example (Claude Desktop):
 
 ```
-You: "What defenses does AIDEFEND have for OWASP LLM01?"
+You: "What current defenses apply to OWASP LLM03:2025 Supply Chain?"
 
 Claude: [Uses get_defenses_for_threat tool]
-        For OWASP LLM01 (Prompt Injection), AIDEFEND recommends 8 defense techniques:
+        Query: LLM03:2025
+        Resolution: migrated
+        Canonical current risk: LLM04:2026 Supply Chain
+        Migrated from: LLM03:2025 Supply Chain
 
-        Top Defenses:
-        1. AID-H-001: Adversarial Robustness Training (100% match)
-        2. AID-H-002: AI-Contextualized Data Sanitization & Input Validation (100% match)
-        3. AID-D-001: Adversarial Input, Prompt Injection & Signal-Authenticity Detection (95% match)
-        4. AID-I-002: Network Segmentation & Isolation for AI Systems (90% match)
+        The returned techniques are the controls reviewed and mapped to the
+        current LLM04:2026 Supply Chain definition. The service does not replay
+        or automatically carry forward the old 2025 mappings.
 ```
+
+**OWASP LLM edition-resolution rules**:
+
+- A bare rank or `:latest` means the active edition. For example, `LLM03` and `LLM03:latest` resolve to `LLM03:2026 Excessive Agency`, not the 2025 Supply Chain risk.
+- An explicit superseded ID follows its declared semantic successor. `LLM03:2025 Supply Chain` therefore resolves to `LLM04:2026 Supply Chain` and uses `LLM04` as the reverse-index lookup key.
+- A malformed or unsupported reference such as `LLM03:2025x` returns `resolution.status="invalid"`. A query containing different concepts, such as `LLM03:2025 / LLM06:2025`, returns `resolution.status="ambiguous"` with current candidates.
+- Invalid and ambiguous ID-only queries return zero results with `search_method="resolution_only"`; they do not guess a rank or scan the defense index. Submit one recognized risk concept to continue.
 
 ```
 You: "How do I defend against model poisoning attacks?"
@@ -406,31 +426,40 @@ Claude: [Uses get_defenses_for_threat with keyword search]
 #### REST API Example:
 
 ```bash
-# Search by threat ID
-curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_id=LLM01&top_k=5"
+# Resolve a superseded OWASP LLM concept to the current corpus
+curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_id=LLM03%3A2025&top_k=5"
 ```
 
-**Response:**
+**Selected response metadata** (the defense list is omitted here):
 ```json
 {
   "threat_query": {
-    "threat_id": "LLM01",
-    "normalized_id": "LLM01",
-    "threat_keyword": null
-  },
-  "defense_techniques": [
-    {
-      "technique": {
-        "id": "AID-H-001",
-        "name": "Adversarial Robustness Training",
-        "tactic": "Harden"
+    "threat_id": "LLM03:2025",
+    "threat_keyword": null,
+    "normalized_threat_id": "LLM04",
+    "lookup_threat_id": "LLM04",
+    "canonical_threat_id": "LLM04:2026",
+    "resolution": {
+      "status": "migrated",
+      "input": "LLM03:2025",
+      "canonical": {
+        "frameworkKey": "owasp_llm",
+        "framework": "OWASP LLM Top 10 2026",
+        "edition": "2026",
+        "id": "LLM04:2026",
+        "name": "Supply Chain",
+        "label": "LLM04:2026 Supply Chain"
       },
-      "relevance_score": 1.0,
-      "match_type": "exact_threat_id",
-      "matched_threats": ["LLM01"]
+      "reason": "The risk moved from rank 3 to rank 4 and now explicitly treats promoted artifacts, adapters, conversion, merge, quantization, and on-device delivery as first-class supply-chain surfaces.",
+      "migratedFrom": {
+        "edition": "2025",
+        "id": "LLM03:2025",
+        "name": "Supply Chain",
+        "label": "LLM03:2025 Supply Chain"
+      }
     }
-  ],
-  "total_results": 5
+  },
+  "search_method": "exact"
 }
 ```
 
@@ -513,13 +542,13 @@ curl -X POST "http://localhost:8000/api/v1/code-snippets?topic=RAG%20security&la
 
 When working with implementation plans, use this recommended workflow:
 
-1. **Get overview**: Use **Tool 14: Get Implementation Plan** with `detail_level="standard"` to get technique recommendations with brief strategy summaries (10-20 seconds)
+1. **Get overview**: Use **Tool 13: Get Implementation Plan** with `detail_level="standard"` to get technique recommendations with brief strategy summaries
 2. **Present to user**: Show the recommendations and summaries to help user select priorities
 3. **Get code examples**: Use `get_secure_code_snippet` for specific techniques the user wants to implement
 
 **Example scenario:**
-- ❌ Old approach: Get plan (basic) → Call get_technique_detail 5 times → Call get_secure_code_snippet 5 times (2-4 minutes)
-- ✅ Recommended: Get plan (standard) → Show summaries → Call get_secure_code_snippet only for selected techniques (10-30 seconds total)
+- More round trips: Get plan (basic) → Call `get_technique_detail` for every recommendation → Call `get_secure_code_snippet` for every recommendation
+- Fewer round trips: Get plan (standard) → Show summaries → Call `get_secure_code_snippet` only for selected techniques
 
 Use get_secure_code_snippet when you need:
 - Code for **specific techniques** outside the top recommendations
@@ -628,7 +657,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
     ],
     "short_term": [
       "Achieve 50%+ coverage in all tactics",
-      "Cover top 5 OWASP LLM threats"
+      "Cover the top 5 OWASP LLM Top 10 2026 risks"
     ],
     "long_term": [
       "Achieve 80%+ overall coverage",
@@ -819,14 +848,16 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=model%20hardeni
 
 ### Tool 12: Get Threat Coverage
 
-**Purpose**: Analyze threat coverage for implemented defense techniques. Given a list of AIDEFEND technique IDs, calculates which threats are covered (OWASP LLM Top 10, MITRE ATLAS, MAESTRO) and provides coverage rates.
+**Purpose**: Analyze threat coverage for implemented defense techniques. Given a list of AIDEFEND technique IDs, calculates which threats are covered (OWASP LLM Top 10 2026, MITRE ATLAS, MAESTRO) and provides coverage rates.
+
+OWASP LLM coverage arrays use stable bare rank keys such as `LLM03`; read them together with `framework_labels.owasp_llm`, which identifies the edition atomically associated with the active index. In a current sync, that label is `OWASP LLM Top 10 2026`.
 
 **When to use**: Track which threats your implemented defenses cover, identify coverage gaps, report security posture to stakeholders, validate defense investments.
 
 #### MCP Mode Example (Claude Desktop):
 
 ```
-You: "Analyze threat coverage for techniques AID-D-001, AID-H-002, AID-I-003"
+You: "Analyze threat coverage for AID-D-001.001, AID-H-002.001, and AID-I-003.004"
 
 Claude: [Uses get_threat_coverage tool]
         Threat Coverage Analysis
@@ -837,27 +868,22 @@ Claude: [Uses get_threat_coverage tool]
 
         ## Threat Coverage by Framework
 
-        ### OWASP LLM Top 10
-        Coverage: 30.0% (3/10)
-        Threats Covered: LLM01, LLM02, LLM03
-
-        ### MITRE ATLAS
-        Coverage: 4.7% (2/43)
-        Threats Covered: AML.T0020, AML.T0043
+        ### OWASP LLM Top 10 2026
+        Coverage: 50.0% (5/10)
+        Threats Covered: LLM01, LLM02, LLM03, LLM05, LLM07
 
         ## Coverage by Technique
 
-        ### AID-D-001: Adversarial Input, Prompt Injection & Signal-Authenticity Detection
+        ### AID-D-001.001: Per-Prompt Content, Intent & Obfuscation Analysis
         - OWASP: LLM01
-        - ATLAS:
 
-        ### AID-H-002: AI-Contextualized Data Sanitization & Input Validation
-        - OWASP: LLM01, LLM02
-        - ATLAS: AML.T0043
+        ### AID-H-002.001: Training & Fine-Tuning Data Sanitization
+        - OWASP: LLM02, LLM05
 
-        ### AID-I-003: Quarantine & Throttling of AI Interactions
-        - OWASP: LLM03
-        - ATLAS: AML.T0020
+        ### AID-I-003.004: High-Risk Agent Action Containment
+        - OWASP: LLM03, LLM07
+
+        Other mapped-framework sections are omitted from this shortened example.
 ```
 
 #### REST API Example:
@@ -866,36 +892,33 @@ Claude: [Uses get_threat_coverage tool]
 curl -X POST "http://localhost:8000/api/v1/threat-coverage" \
   -H "Content-Type: application/json" \
   -d '{
-    "implemented_techniques": ["AID-D-001", "AID-H-002", "AID-I-003"]
+    "implemented_techniques": ["AID-D-001.001", "AID-H-002.001", "AID-I-003.004"]
   }'
 ```
 
-**Response:**
+**Selected OWASP-related response fields** (other framework keys are omitted):
 ```json
 {
   "input_count": 3,
   "valid_count": 3,
   "invalid_count": 0,
   "invalid_techniques": [],
+  "framework_labels": {
+    "owasp_llm": "OWASP LLM Top 10 2026"
+  },
   "covered": {
-    "owasp": ["LLM01", "LLM02", "LLM03"],
-    "atlas": ["AML.T0020", "AML.T0043"],
-    "maestro": []
+    "owasp_llm": ["LLM01", "LLM02", "LLM03", "LLM05", "LLM07"]
   },
   "coverage_rate": {
-    "owasp": 0.3,
-    "atlas": 0.047,
-    "maestro": 0.0
+    "owasp_llm": 0.5
   },
   "by_technique": [
     {
-      "technique_id": "AID-D-001",
-      "technique_name": "Input Validation",
+      "technique_id": "AID-D-001.001",
+      "technique_name": "Per-Prompt Content, Intent & Obfuscation Analysis",
       "tactic": "Detect",
       "threats_covered": {
-        "owasp": ["LLM01"],
-        "atlas": [],
-        "maestro": []
+        "owasp_llm": ["LLM01"]
       }
     }
   ],
@@ -913,7 +936,7 @@ curl -X POST "http://localhost:8000/api/v1/threat-coverage" \
 
 **Note**: This tool provides ONLY heuristic scores. LLM should use these scores to make final recommendations via RAG.
 
-**⚡ Compound Tool Pattern**: Use `detail_level="standard"` (recommended) or `detail_level="detailed"` to get actionable strategy summaries for the top 5 recommendations in a single call, eliminating the N+1 query problem (90-95% latency reduction).
+**⚡ Compound Tool Pattern**: Use `detail_level="standard"` (recommended) or `detail_level="detailed"` to get actionable strategy summaries for the top 5 recommendations in a single call, avoiding an N+1 sequence of detail requests.
 
 **Strategy Querying**:
 - Uses **union logic** to query BOTH parent-level and sub-technique-level strategies
@@ -1089,14 +1112,12 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 **Note**: Strategies with `context_source` field indicate they come from a sub-technique. This helps you understand the specific context of the strategy.
 
 **💡 Recommended Workflow**:
-1. Use `detail_level="standard"` to get quick overview with 200-char summaries (~10-20 seconds)
+1. Use `detail_level="standard"` to get a concise overview with 200-character summaries
 2. Present recommendations to user
 3. Use `get_secure_code_snippet(technique_id, strategy_name)` for specific techniques user selects
 
-**Performance Comparison**:
-- **Before** (basic mode + repeated get_technique_detail calls): 2-3 minutes for full details
-- **After** (standard/detailed mode): 10-20 seconds for actionable summaries
-- **Improvement**: 85-90% latency reduction
+This workflow reduces request round trips. Measure end-to-end latency in your
+own deployment if it is an operational requirement.
 
 ---
 
@@ -1104,9 +1125,9 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 
 **Purpose**: Classify threats in text using a fast, local 2-tier matching system:
 1. **Tier 1 (Static Keyword)**: Direct keyword matching (instant)
-2. **Tier 2 (RapidFuzz Fuzzy Matching)**: Typo-tolerant matching (10-100x faster than difflib)
+2. **Tier 2 (RapidFuzz Fuzzy Matching)**: Optimized typo-tolerant matching
 
-Maps common threat terms (prompt injection, model poisoning, etc.) to standard framework IDs (OWASP LLM, MITRE ATLAS, MAESTRO).
+Maps common threat terms (prompt injection, training data poisoning, etc.) to canonical framework IDs (OWASP LLM Top 10 2026, MITRE ATLAS, MAESTRO).
 
 **When to use**: Normalize threat keywords from incident reports, security alerts, vulnerability descriptions, or threat intelligence to standard framework IDs. Quick triage of security events.
 
@@ -1115,11 +1136,14 @@ Maps common threat terms (prompt injection, model poisoning, etc.) to standard f
 - Tier 1: Tries static keyword matching first (instant exact matches)
 - Tier 2: If no static match, uses RapidFuzz for typo-tolerant fuzzy matching
 - Always indicates which tier produced the result (static_keyword, fuzzy_match, or no_match)
+- OWASP LLM classifier claims are explicit, versioned 2026 IDs such as `LLM05:2026`; bare ranks are accepted as lookup aliases but are not emitted as classifier claims
+- `mapping_status` distinguishes the bundled classifier catalog edition from the active synchronized index edition and reports whether the two are aligned
+- A classification remains visible when its ID is absent from the active index, but it is marked unresolved and no ID-based defense follow-up is recommended for that claim
 
 **Key Features**:
 - **100% Local & Private**: Zero external API calls, all processing on your machine
 - **FREE**: No API costs, no tokens consumed
-- **Fast**: Millisecond response times with RapidFuzz (10-100x faster than difflib)
+- **Fast path**: RapidFuzz provides optimized local fuzzy matching
 - **Offline-Ready**: Works completely offline after initial setup
 
 #### MCP Mode Example (Claude Desktop):
@@ -1132,35 +1156,30 @@ Claude: [Uses classify_threat tool]
 
         Classification Source: 🔍 Static Keyword Match (Tier 1)
         Input Text: We detected a prompt injection attack that bypassed our input validation
-        Keywords Matched: 2
+        Keywords Matched: 1
 
         ## Matched Keywords
 
-        🟢 Prompt Injection (Primary, confidence: 0.9)
-        🟡 Insecure Output (Alias, confidence: 0.77)
+        🟢 Prompt Injection (Primary, confidence: 0.98)
 
         ## Normalized Threat IDs
 
-        OWASP LLM Top 10: LLM01, LLM02
-        MITRE ATLAS:
+        OWASP LLM Top 10 2026: LLM01:2026
+        MITRE ATLAS: AML.T0051
+        MAESTRO: Adversarial Examples (L1), Goal Misalignment Cascades (Cross-Layer)
 
         ## Threat Details
 
-        - OWASP-LLM01: Prompt Injection
-          - Confidence: 0.9
+        - OWASP-LLM01:2026: Prompt Injection
+          - Confidence: 0.98
           - Matched Keyword: prompt injection
           - Match Type: primary
-
-        - OWASP-LLM02: Insecure Output
-          - Confidence: 0.77
-          - Matched Keyword: insecure output
-          - Match Type: alias
 
         ## Recommended Next Steps
 
         - get_defenses_for_threat
-          - Args: {'threat_id': 'LLM01'}
-          - Reason: Find defense techniques for LLM01
+          - Args: {'threat_id': 'LLM01:2026'}
+          - Reason: Find defense techniques for LLM01:2026
 
         - get_quick_reference
           - Args: {'topic': 'prompt injection', 'max_items': 10}
@@ -1178,7 +1197,7 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
   }'
 ```
 
-**Response:**
+**Selected response fields** (additional ATLAS/MAESTRO details and follow-up actions are omitted):
 ```json
 {
   "source": "static_keyword",
@@ -1187,35 +1206,33 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
     {
       "keyword": "training data poisoning",
       "match_type": "primary",
-      "confidence": 0.9
+      "confidence": 0.96
     }
   ],
   "normalized_threats": {
-    "owasp": ["LLM03"],
-    "atlas": ["AML.T0020"],
-    "maestro": []
+    "owasp": ["LLM05:2026"],
+    "atlas": ["AML.T0010", "AML.T0018", "AML.T0020"],
+    "maestro": [
+      "Data Poisoning (L2)",
+      "Data Poisoning (Training Phase) (L1)",
+      "Supply Chain Attacks (Cross-Layer)"
+    ]
   },
   "threat_details": [
     {
-      "threat_id": "OWASP-LLM03",
+      "threat_id": "OWASP-LLM05:2026",
       "threat_name": "Training Data Poisoning",
-      "confidence": 0.9,
+      "confidence": 0.96,
       "matched_keyword": "training data poisoning",
-      "match_type": "primary"
-    },
-    {
-      "threat_id": "ATLAS-AML.T0020",
-      "threat_name": "Training Data Poisoning",
-      "confidence": 0.9,
-      "matched_keyword": "training data poisoning",
-      "match_type": "primary"
+      "match_type": "primary",
+      "resolvable": true
     }
   ],
   "recommended_actions": [
     {
       "tool": "get_defenses_for_threat",
-      "args": {"threat_id": "LLM03"},
-      "reason": "Find defense techniques for LLM03"
+      "args": {"threat_id": "LLM05:2026"},
+      "reason": "Find defense techniques for LLM05:2026"
     },
     {
       "tool": "get_quick_reference",
@@ -1223,9 +1240,23 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
       "reason": "Get actionable mitigation steps for training data poisoning"
     }
   ],
-  "timestamp": "2025-11-12T10:30:00Z"
+  "mapping_status": {
+    "all_emitted_claims_resolvable": true,
+    "corpus_mapping_available": true,
+    "unresolved_claims": [],
+    "unmapped_keywords": [],
+    "classifier_owasp_llm_edition": "2026",
+    "classifier_owasp_llm_label": "OWASP LLM Top 10 2026",
+    "active_index_owasp_llm_edition": "2026",
+    "active_index_owasp_llm_label": "OWASP LLM Top 10 2026",
+    "migration_registry_status": "active",
+    "owasp_llm_catalog_aligned": true
+  },
+  "timestamp": "2026-08-05T10:30:00Z"
 }
 ```
+
+`classifier_owasp_llm_edition` describes the IDs emitted by this MCP build. `active_index_owasp_llm_edition` describes the corpus currently loaded from AIDEFEND. Treat `owasp_llm_catalog_aligned=false`, a non-active migration registry, or non-empty `unresolved_claims` as a signal to sync before requesting defenses for the affected editioned ID; the classifier does not silently reinterpret a 2026 claim through a legacy 2025 index.
 
 ---
 
@@ -1331,7 +1362,7 @@ Claude: [Uses analyze_security_posture tool]
           • Isolate: 12.5% (1/8) ⚠️
 
         ## Threat Framework Coverage
-        - OWASP LLM Top 10: 40% (4/10 threats covered)
+        - OWASP LLM Top 10 2026: 40% (4/10 threats covered)
         - MITRE ATLAS: 7% (3/43 threats covered)
         - MAESTRO: 15% (2/13 threats covered)
 
@@ -1547,8 +1578,8 @@ You: "We detected suspicious prompt injection attempts bypassing our validation.
 Claude: [Uses generate_incident_playbook tool]
         🚨 Incident Response Playbook
 
-        Primary Threat Identified: OWASP-LLM01 (Prompt Injection)
-        Confidence: 90%
+        Primary Threat Identified: OWASP-LLM01:2026 (Prompt Injection)
+        Confidence: 98%
         Total Action Items: 23
 
         ## Immediate Actions (0-15 min)
@@ -1615,10 +1646,10 @@ curl -X POST "http://localhost:8000/api/v1/generate-incident-playbook" \
     "total_action_items": 23,
     "estimated_total_time": "1-3 days",
     "primary_threat": {
-      "threat_id": "OWASP-LLM01",
-      "framework": "OWASP LLM Top 10",
+      "threat_id": "OWASP-LLM01:2026",
+      "framework": "OWASP",
       "description": "Prompt Injection",
-      "confidence": 0.9
+      "confidence": 98.0
     }
   },
   "timeline": {

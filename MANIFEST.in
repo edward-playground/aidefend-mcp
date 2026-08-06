@@ -10,3 +10,33 @@ prune test-artifacts
 prune htmlcov
 prune data
 prune logs
+
+# The sdist intentionally ships the test suite. Include its package marker,
+# shared helpers, fixtures, and documentation so tests remain runnable after
+# extracting the archive instead of depending on files from a source checkout.
+recursive-include tests *.py *.js *.md
+recursive-include scripts *.py
+recursive-include docs *.md
+recursive-include .github/workflows *.yml *.yaml
+include .dockerignore
+include .env.example
+include .gitignore
+include CHANGELOG.md
+include CONTRIBUTING.md
+include DEPENDENCIES.md
+include Dockerfile
+include INSTALL.md
+include INSTALL-繁體中文.md
+include README-繁體中文.md
+include SECURITY.md
+include docker-compose.yml
+include requirements.txt
+include requirements-dev.txt
+
+# Never retain interpreter or test-runner caches discovered below an included
+# directory.
+global-exclude *.py[cod]
+prune tests/__pycache__
+prune .pytest_cache
+prune .mypy_cache
+prune .ruff_cache

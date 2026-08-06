@@ -39,7 +39,10 @@ REQUIRED_RUNTIME_PYTHON_FILES = {
     "app/embedding_cache.py",
     "app/exceptions.py",
     "app/framework_manifest.py",
+    "app/framework_migrations.py",
     "app/framework_utils.py",
+    "app/generation_identity.py",
+    "app/instance_lock.py",
     "app/logger.py",
     "app/main.py",
     "app/schemas.py",
@@ -67,35 +70,115 @@ REQUIRED_RUNTIME_PYTHON_FILES = {
     "mcp_server.py",
 }
 COMMON_REQUIRED_FILES = REQUIRED_RUNTIME_PYTHON_FILES
-SDIST_REQUIRED_FILES = COMMON_REQUIRED_FILES | {
-    "parse_js_module.mjs",
-    "vendor/acorn.mjs",
-    "vendor/ACORN-LICENSE",
+SDIST_REQUIRED_TEST_FILES = {
+    ".dockerignore",
+    ".gitignore",
+    ".github/workflows/ci.yml",
+    "Dockerfile",
+    "INSTALL.md",
+    "INSTALL-繁體中文.md",
+    "README-繁體中文.md",
+    "docker-compose.yml",
+    "LICENSE",
+    "requirements.txt",
+    "scripts/build_release_artifacts.py",
+    "scripts/create_lancedb_index.py",
+    "scripts/install.py",
+    "scripts/smoke_all_tools.py",
+    "scripts/verify_distribution_inventory.py",
+    "scripts/verify_index_manifest.py",
+    "tests/__init__.py",
+    "tests/README.md",
+    "tests/fixtures/test_example.js",
+    "tests/framework_migration_fixtures.py",
+    "THIRD_PARTY_CONTENT.md",
+    "vendor/README.md",
 }
+SDIST_REQUIRED_FILES = (
+    COMMON_REQUIRED_FILES
+    | SDIST_REQUIRED_TEST_FILES
+    | {
+        "parse_js_module.mjs",
+        "vendor/acorn.mjs",
+        "vendor/ACORN-LICENSE",
+    }
+)
 WHEEL_REQUIRED_ASSET_SUFFIXES = {
+    "service license": "/data/LICENSE",
+    "third-party attribution": "/data/THIRD_PARTY_CONTENT.md",
     "parser": "/data/parse_js_module.mjs",
     "vendored Acorn runtime": "/data/vendor/acorn.mjs",
     "vendored Acorn license": "/data/vendor/ACORN-LICENSE",
+    "vendored Acorn documentation": "/data/vendor/README.md",
 }
 WHEEL_FORBIDDEN_TOP_LEVEL = {"build", "data", "tests", "node_modules"}
 SDIST_FORBIDDEN_TOP_LEVEL = {
+    ".agents",
+    ".cache",
+    ".claude",
+    ".codex",
+    ".env",
     ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
     ".venv",
     "build",
     "data",
+    "devtools",
     "dist",
+    "env",
+    "ENV",
     "htmlcov",
+    "logs",
+    "models",
     "node_modules",
+    "temp",
     "test-artifacts",
+    "tmp",
     "venv",
+    "wheels",
 }
+SDIST_FORBIDDEN_PATH_COMPONENTS = {
+    ".agents",
+    ".cache",
+    ".claude",
+    ".codex",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "cache",
+    "logs",
+    "test-artifacts",
+}
+SDIST_FORBIDDEN_EXACT_FILENAMES = {
+    ".coverage",
+    ".mcp.json",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "_netrc",
+    "bandit-report.json",
+    "coverage.xml",
+    "safety-report.json",
+}
+SDIST_FORBIDDEN_SECRET_SUFFIXES = (
+    ".jks",
+    ".key",
+    ".keystore",
+    ".p12",
+    ".p8",
+    ".pem",
+    ".pfx",
+    ".ppk",
+)
 PROJECT_FILE = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
 
 def _requirement_without_marker(requirement: Requirement) -> str:
-    extras = (
-        f"[{','.join(sorted(requirement.extras))}]" if requirement.extras else ""
-    )
+    extras = f"[{','.join(sorted(requirement.extras))}]" if requirement.extras else ""
     base = f"{requirement.name}{extras}"
     if requirement.url:
         return f"{base} @ {requirement.url}"
@@ -130,9 +213,7 @@ def _expected_requires_dist_lines(project_file: Path = PROJECT_FILE) -> list[str
                 if requirement.marker
                 else Marker(extra_marker)
             )
-            expected.append(
-                f"{_requirement_without_marker(requirement)}; {marker}"
-            )
+            expected.append(f"{_requirement_without_marker(requirement)}; {marker}")
     return expected
 
 
@@ -157,9 +238,7 @@ def _read_wheel_metadata(wheel_path: Path, metadata_member: str) -> Message:
         with zipfile.ZipFile(wheel_path) as archive:
             metadata = archive.read(metadata_member).decode("utf-8")
     except (KeyError, OSError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
-        raise DistributionInventoryError(
-            f"{wheel_path.name}: unreadable METADATA: {exc}"
-        ) from exc
+        raise DistributionInventoryError(f"{wheel_path.name}: unreadable METADATA: {exc}") from exc
     return Parser().parsestr(metadata)
 
 
@@ -188,9 +267,7 @@ def _verify_wheel_identity(
             f"expected={expected_name} {expected_version}, "
             f"actual={names[0]} {versions[0]}"
         )
-    expected_prefix = (
-        f"{canonicalize_name(expected_name).replace('-', '_')}-{expected_version}"
-    )
+    expected_prefix = f"{canonicalize_name(expected_name).replace('-', '_')}-{expected_version}"
     if dist_info_prefix != expected_prefix:
         raise DistributionInventoryError(
             f"{wheel_path.name}: .dist-info identity differs from pyproject.toml; "
@@ -314,9 +391,7 @@ def verify_wheel(wheel_path: Path) -> dict[str, object]:
         )
     metadata_member = f"{dist_info_roots[0]}/METADATA"
     if metadata_member not in members:
-        raise DistributionInventoryError(
-            f"{wheel_path.name}: missing required METADATA file"
-        )
+        raise DistributionInventoryError(f"{wheel_path.name}: missing required METADATA file")
     metadata = _read_wheel_metadata(wheel_path, metadata_member)
     _verify_wheel_identity(wheel_path, metadata, dist_info_prefix)
     _verify_wheel_dependencies(wheel_path, metadata)
@@ -339,12 +414,35 @@ def verify_sdist(sdist_path: Path) -> dict[str, object]:
     missing = sorted(SDIST_REQUIRED_FILES - members)
     if missing:
         raise DistributionInventoryError(f"{sdist_path.name}: missing required files: {missing}")
-    forbidden = sorted(
-        name for name in members if PurePosixPath(name).parts[0] in SDIST_FORBIDDEN_TOP_LEVEL
-    )
+    forbidden = sorted(name for name in members if _is_forbidden_sdist_member(name))
     if forbidden:
         raise DistributionInventoryError(f"{sdist_path.name}: forbidden sdist entries: {forbidden}")
     return {"kind": "sdist", "path": str(sdist_path), "members": len(members)}
+
+
+def _is_forbidden_sdist_member(name: str) -> bool:
+    """Reject workspace-only files even when they are nested under an allowed root."""
+    parts = PurePosixPath(name).parts
+    top_level = parts[0]
+    filename = parts[-1]
+    normalized_filename = filename.lower()
+    if top_level in SDIST_FORBIDDEN_TOP_LEVEL:
+        return True
+    if any(part in SDIST_FORBIDDEN_PATH_COMPONENTS for part in parts):
+        return True
+    if top_level.startswith(".env.") and top_level != ".env.example":
+        return True
+    if any(part.endswith(".lancedb") for part in parts):
+        return True
+    if normalized_filename in SDIST_FORBIDDEN_EXACT_FILENAMES:
+        return True
+    if normalized_filename.endswith(SDIST_FORBIDDEN_SECRET_SUFFIXES):
+        return True
+    if normalized_filename.endswith((".json", ".yaml", ".yml")) and any(
+        marker in normalized_filename for marker in ("credential", "secret")
+    ):
+        return True
+    return normalized_filename.endswith((".db", ".log", ".pyc", ".pyo", ".sqlite", ".sqlite3"))
 
 
 def _discover_artifacts(inputs: Iterable[Path]) -> tuple[Path, Path]:

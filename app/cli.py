@@ -11,22 +11,35 @@ which itself runs as ``__main__`` at import time. The repo-root ``__main__.py`` 
 shim that calls ``main()`` here, so ``python __main__.py [--mcp|--resync]`` still works.
 
 Usage:
-    python __main__.py              # REST API mode (default)
-    python __main__.py --mcp        # MCP mode for Claude Desktop
-    python __main__.py --help       # Show help message
+    aidefend-mcp                    # Installed package, REST API mode
+    aidefend-mcp --mcp              # Installed package, MCP mode
+    python __main__.py --help       # Source checkout compatibility shim
 """
 
-import sys
 import asyncio
+import sys
+from pathlib import Path
+
+
+def _invocation_command() -> str:
+    """Return the documented launcher for the current execution context."""
+    if Path(sys.argv[0]).name.casefold() == "__main__.py":
+        return "python __main__.py"
+    return "aidefend-mcp"
 
 
 def print_help():
     """Print usage information."""
-    help_text = """
+    command = _invocation_command()
+    help_text = f"""
 AIDEFEND MCP Service - AI Security Defense Knowledge Base
 
 USAGE:
-    python __main__.py [OPTIONS]
+    {command} [OPTIONS]
+
+LAUNCHERS:
+    Installed package: aidefend-mcp [OPTIONS]
+    Source checkout:   python __main__.py [OPTIONS]
 
 OPTIONS:
     (no options)    Start REST API server (default mode)
@@ -48,21 +61,21 @@ OPTIONS:
                     - Then exits (you can then start any mode)
                     - Use this when upgrading embedding models or repairing the index
 
-    --force         Use with --resync to remove an inactive stale sync lock
-                    - Cannot override a lock held by a running process
-                    - Bypasses the initial running-server probe
+    --force         Deprecated compatibility flag for --resync
+                    - Lock files are never deleted or overridden
+                    - Resync already performs a validated forced rebuild
 
     --help, -h      Show this help message
 
 EXAMPLES:
     # Start REST API server (for system integration)
-    python __main__.py
+    {command}
 
     # Start MCP server (for Claude Desktop)
-    python __main__.py --mcp
+    {command} --mcp
 
     # Resync database (when upgrading embedding models)
-    python __main__.py --resync
+    {command} --resync
 
 ENVIRONMENT:
     Configuration is loaded from .env file (see .env.example)
@@ -81,24 +94,25 @@ def check_for_running_server() -> bool:
     """
     Check if MCP server or other instance is currently running.
 
-    Uses cross-process lock detection to identify if another process
-    is holding the sync lock.
+    Uses the stable cross-process DATA_PATH ownership lease.
 
     Returns:
         True if server is running, False otherwise
     """
     from app.config import settings
 
-    # Method 1: Check if lock file exists and is held by another process
+    # File existence is not ownership; the OS lock state is authoritative.
     lock_file = settings.DATA_PATH / "sync.lock"
     if lock_file.exists():
         try:
-            from app.sync import is_lock_held_by_other_process
-            if is_lock_held_by_other_process():
+            from app.instance_lock import is_lock_file_held_by_other_process
+
+            if is_lock_file_held_by_other_process(lock_file):
                 return True
         except Exception as exc:
-            # If we can't determine, assume it's safe to proceed
+            # If we cannot prove the path is free, fail closed.
             print(f"Warning: could not inspect sync lock state: {exc}", file=sys.stderr)
+            return True
 
     return False
 
@@ -114,6 +128,8 @@ def main():
 
     The mode is selected via command-line argument.
     """
+    command = _invocation_command()
+
     # Handle resync first (staged rebuild, then exit)
     if len(sys.argv) > 1 and sys.argv[1].lower() == "--resync":
         print("🔄 Database Resync Mode", file=sys.stderr)
@@ -122,14 +138,21 @@ def main():
         print("The current database and version metadata remain in place during staging.", file=sys.stderr)
         print("=" * 60, file=sys.stderr)
 
-        # Check for --force flag
+        # Retained only for command-line compatibility. It never bypasses or
+        # deletes the stable ownership lease.
         force_mode = len(sys.argv) > 2 and sys.argv[2].lower() == "--force"
+        if force_mode:
+            print(
+                "Note: --force is deprecated; --resync already performs the "
+                "safe forced rebuild.",
+                file=sys.stderr,
+            )
 
+        service_lock_acquired = False
         try:
-            from app.config import settings
-
-            # Step 1: Check if server is running (unless --force is used)
-            if not force_mode and check_for_running_server():
+            # An advisory probe gives a useful error, then the atomic lease
+            # acquisition below closes the check/acquire race.
+            if check_for_running_server():
                 print("\n" + "=" * 60, file=sys.stderr)
                 print("⚠️  ERROR: AIDEFEND MCP Server is currently running!", file=sys.stderr)
                 print("=" * 60, file=sys.stderr)
@@ -137,75 +160,23 @@ def main():
                 print("Please stop all running instances first:\n", file=sys.stderr)
                 print("  1. Close Claude Desktop (or other MCP clients)", file=sys.stderr)
                 print("  2. Wait 5-10 seconds for graceful shutdown", file=sys.stderr)
-                print("  3. Run resync again: python __main__.py --resync\n", file=sys.stderr)
-                print("Alternative: Use --force only to clear an inactive stale lock:", file=sys.stderr)
-                print("  python __main__.py --resync --force\n", file=sys.stderr)
+                print(f"  3. Run resync again: {command} --resync\n", file=sys.stderr)
                 sys.exit(1)
 
-            # Step 2: If force mode, remove an inactive stale lock file
-            if force_mode:
-                lock_file = settings.DATA_PATH / "sync.lock"
-                if lock_file.exists():
-                    # First check lock file age for diagnostics
-                    try:
-                        from datetime import datetime
-                        mtime = datetime.fromtimestamp(lock_file.stat().st_mtime)
-                        age = datetime.now() - mtime
-                        age_seconds = age.total_seconds()
-                        print(f"⚠️  Force mode: Lock file age = {age_seconds:.1f} seconds", file=sys.stderr)
-                    except Exception as exc:
-                        print(f"Warning: could not inspect sync lock age: {exc}", file=sys.stderr)
+            from app.sync import (
+                _acquire_sync_lock,
+                _release_sync_lock,
+                acquire_service_instance_lock,
+                release_service_instance_lock,
+            )
 
-                    # Check if lock is actively held by another process
-                    from app.sync import is_lock_held_by_other_process
-                    if is_lock_held_by_other_process():
-                        print("\n" + "=" * 60, file=sys.stderr)
-                        print("❌ ERROR: Lock is actively held by another process!", file=sys.stderr)
-                        print("=" * 60, file=sys.stderr)
-                        print("\n--force cannot override locks held by running processes.", file=sys.stderr)
-                        print("\nTo proceed safely:", file=sys.stderr)
-                        print("  1. Stop the running AIDEFEND service first", file=sys.stderr)
-                        print("  2. Close Claude Desktop (if using MCP mode)", file=sys.stderr)
-                        print("  3. Wait 5-10 seconds for graceful shutdown", file=sys.stderr)
-                        print("  4. Run resync again: python __main__.py --resync --force\n", file=sys.stderr)
-                        sys.exit(1)
-
-                    # Try to remove lock file
-                    print("⚠️  Force mode: Removing lock file", file=sys.stderr)
-                    try:
-                        lock_file.unlink()
-                        print("✓ Lock file removed", file=sys.stderr)
-
-                        # CRITICAL: Wait for file system to fully release the lock
-                        # This prevents "lock age = 0.0 seconds" bug on Windows
-                        print("   Waiting for lock to fully release...", file=sys.stderr)
-                        import time
-                        time.sleep(2)
-                        print("✓ Lock released", file=sys.stderr)
-
-                    except PermissionError as e:
-                        # Windows-specific: File is locked by OS
-                        print("\n" + "=" * 60, file=sys.stderr)
-                        print("❌ ERROR: Cannot remove lock file (Windows file lock)", file=sys.stderr)
-                        print("=" * 60, file=sys.stderr)
-                        print(f"\nError: {e}", file=sys.stderr)
-                        print("\nOn Windows, locked files cannot be deleted even with --force.", file=sys.stderr)
-                        print("The lock is held by another process (MCP server or sync operation).", file=sys.stderr)
-                        print("\nTo proceed:", file=sys.stderr)
-                        print("  1. Close all AIDEFEND instances (Claude Desktop, REST API, etc.)", file=sys.stderr)
-                        print("  2. Wait 10-15 seconds", file=sys.stderr)
-                        print("  3. Run resync again: python __main__.py --resync --force\n", file=sys.stderr)
-                        sys.exit(1)
-                    except Exception as e:
-                        # Other unexpected errors
-                        print("\n" + "=" * 60, file=sys.stderr)
-                        print(f"❌ ERROR: Failed to remove lock file: {e}", file=sys.stderr)
-                        print("=" * 60, file=sys.stderr)
-                        print("\nCannot proceed with resync.\n", file=sys.stderr)
-                        sys.exit(1)
-
-            # Step 3: Acquire lock before the staged rebuild
-            from app.sync import _acquire_sync_lock, _release_sync_lock
+            service_lock_acquired = acquire_service_instance_lock()
+            if not service_lock_acquired:
+                print(
+                    "Another AIDEFEND process acquired DATA_PATH; resync aborted.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
             lock_acquired = asyncio.run(_acquire_sync_lock())
             if not lock_acquired:
@@ -213,18 +184,8 @@ def main():
                 print("❌ Failed to acquire lock. Another sync may be in progress.", file=sys.stderr)
                 print("=" * 60, file=sys.stderr)
 
-                if force_mode:
-                    # Already using --force, so provide different guidance
-                    print("\nEven with --force, cannot acquire lock.", file=sys.stderr)
-                    print("This indicates an active sync operation is in progress.", file=sys.stderr)
-                    print("\nPlease wait for the sync to complete, or:", file=sys.stderr)
-                    print("  1. Stop all AIDEFEND instances", file=sys.stderr)
-                    print("  2. Wait 10-15 seconds", file=sys.stderr)
-                    print("  3. Try again\n", file=sys.stderr)
-                else:
-                    # Not using --force yet
-                    print("\nIf you're sure no sync is running, use --force flag:", file=sys.stderr)
-                    print("  python __main__.py --resync --force\n", file=sys.stderr)
+                print("\nAnother sync or recovery is already running.", file=sys.stderr)
+                print("Stop the owner or wait; --force never overrides the lease.\n", file=sys.stderr)
                 sys.exit(1)
 
             try:
@@ -243,10 +204,12 @@ def main():
                 print("📊 Running forced rebuild (this will take 5-15 minutes)...", file=sys.stderr)
                 print("=" * 60, file=sys.stderr)
 
-                # Import sync function
-                from app.sync import core_sync
-                from app.logger import setup_logger
+                # Import the cancellation-safe worker boundary. The CLI owns
+                # the outer service and operation leases until this drains.
                 import logging
+
+                from app.logger import setup_logger
+                from app.sync import _run_cli_sync_to_completion
 
                 # Setup logging with console output
                 setup_logger()
@@ -268,9 +231,9 @@ def main():
 
                 print("", file=sys.stderr)
 
-                # Run core_sync with force_rebuild=True
-                # We already hold the lock, so use core_sync() not run_sync()
-                sync_success = asyncio.run(core_sync(force_rebuild=True))
+                sync_success = asyncio.run(
+                    _run_cli_sync_to_completion(force_rebuild=True)
+                )
 
                 print("", file=sys.stderr)
 
@@ -292,13 +255,15 @@ def main():
                 print("=" * 60, file=sys.stderr)
                 print("", file=sys.stderr)
                 print("You can now start the service with:", file=sys.stderr)
-                print("  • MCP mode:      python __main__.py --mcp", file=sys.stderr)
-                print("  • REST API mode: python __main__.py --api", file=sys.stderr)
+                print(f"  • MCP mode:      {command} --mcp", file=sys.stderr)
+                print(f"  • REST API mode: {command} --api", file=sys.stderr)
                 print("", file=sys.stderr)
                 sys.exit(0)
 
             finally:
-                # Step 5: Release lock after the staged rebuild completes
+                # Release only the process-local operation boundary here; the
+                # outer finally retains DATA_PATH ownership until all handles
+                # and sync work are finished.
                 _release_sync_lock()
 
         except Exception as e:
@@ -306,6 +271,11 @@ def main():
             import traceback
             traceback.print_exc(file=sys.stderr)
             sys.exit(1)
+        finally:
+            if service_lock_acquired:
+                # The CLI sync/close pair completes inside one asyncio runner;
+                # only then may this synchronous lifetime lease be released.
+                release_service_instance_lock()
 
     # Parse command-line arguments
     if len(sys.argv) > 1:
@@ -350,8 +320,9 @@ def main():
 
     try:
         import uvicorn
-        from app.main import app
+
         from app.config import settings
+        from app.main import app
 
         # Default: REST API mode (also reached via --api). Report the effective
         # validated settings so operators do not probe the wrong socket after

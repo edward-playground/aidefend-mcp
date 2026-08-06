@@ -47,6 +47,9 @@ async def test_empty_list_produces_zero_coverage_baseline(monkeypatch):
         async def read_table(self, callback):
             return []
 
+        async def read_table_snapshot(self, _callback):
+            return [], None
+
     monkeypatch.setattr(core_module, "query_engine", EmptyQueryEngine())
 
     result = await get_threat_coverage([])

@@ -118,6 +118,51 @@ def test_route_inventory_uses_public_openapi_for_included_routers():
     assert ("GET", "/api/v1/status") in openapi_route_inventory(app)
 
 
+def test_mcp_status_requires_public_index_and_migration_schema_only():
+    fixtures = select_dynamic_fixtures(_synthetic_records())
+    case = next(
+        case
+        for case in build_smoke_cases(fixtures)
+        if case.name == "get_aidefend_status"
+    )
+    current_status = (
+        "# AIDEFEND Knowledge Base Status\n\n"
+        "**Framework Public Schema:** 2.3\n"
+        "**MCP Index Schema:** 3.3\n"
+        "**Framework Migration Registry Schema:** 1.0\n"
+        "**Indexed Documents:** 3\n"
+        "**Status:** Service is ready for queries!\n"
+    )
+
+    validate_mcp_text(case, current_status, fixtures, sync_skipped=True)
+
+
+def test_rest_status_accepts_current_schema_metadata_contract():
+    fixtures = select_dynamic_fixtures(_synthetic_records())
+    case = next(
+        case
+        for case in build_smoke_cases(fixtures)
+        if case.name == "get_aidefend_status"
+    )
+    sync_info = {
+        "framework_public_schema_version": "2.3",
+        "index_schema_version": "3.3",
+        "source_kind": "github",
+        "source_revision_kind": "git_commit_sha",
+        "source_revision": "a" * 40,
+        "source_repository": "example/aidefense-framework",
+        "source_ref": "main",
+        "source_content_sha256": "b" * 64,
+        "framework_migrations_schema_version": "1.0",
+        "framework_migrations_registry_version": "2026-08-05",
+        "framework_migrations_sha256": "c" * 64,
+        "total_documents": fixtures.row_count,
+    }
+    payload = {"status": "online", "sync_info": sync_info}
+
+    validate_rest_payload(case, payload, fixtures, sync_skipped=True)
+
+
 @pytest.mark.parametrize(
     "text",
     [

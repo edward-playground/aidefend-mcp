@@ -3,8 +3,8 @@
 本文件提供 AIDEFEND MCP Service 中所有 **18 個 MCP 工具**的詳細文件。
 
 > **即時資料說明：** 本文件中的 ID、名稱與語料筆數已對齊 AIDEFEND
-> 1.20260728（authoring schema 1.7、public schema 2.3、index schema
-> 3.2：92 個 techniques + 265 個 sub-techniques + 851 筆 guidance =
+> 1.20260805（public schema 2.3、MCP index schema 3.3：92 個 techniques +
+> 265 個 sub-techniques + 851 筆 guidance =
 > 1,208 份文件）。排名、分數、時間、framework coverage 總數與工具數量
 > 都會依客戶實際同步的版本重新計算；這些快照筆數只是範例，不是 runtime
 > 驗收門檻。服務會動態處理內容、ID、標題、筆數、順序與相容的新增欄位，
@@ -71,10 +71,13 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 你：「AIDEFEND 服務的狀態如何？」
 
 Claude：[使用 get_aidefend_status 工具]
-        AIDEFEND 服務狀態：
-        - 文件總數：1,208
-        - Embedding 模型：Xenova/multilingual-e5-base
-        - 上次同步：2 小時前
+        AIDEFEND 知識庫狀態：
+        - Framework Version：1.20260805
+        - Framework Source Revision：e10c1678
+        - Framework Public Schema：2.3
+        - MCP Index Schema：3.3
+        - Framework Migration Registry Schema：1.0
+        - 已索引文件：1,208
         - 服務就緒：是
 ```
 
@@ -84,16 +87,25 @@ Claude：[使用 get_aidefend_status 工具]
 curl http://localhost:8000/api/v1/status
 ```
 
-**回應：**
+**節錄回應欄位：**
 ```json
 {
-  "service_ready": true,
-  "total_documents": 1208,
-  "embedding_model": "Xenova/multilingual-e5-base",
-  "last_sync": "2025-01-18T10:30:00Z",
-  "framework_version": "1.20260728"
+  "status": "online",
+  "sync_info": {
+    "framework_version": "1.20260805",
+    "source_revision": "e10c1678ee49f03f8fb0c97d446ba3fbc3543655",
+    "framework_public_schema_version": "2.3",
+    "index_schema_version": "3.3",
+    "framework_migrations_schema_version": "1.0",
+    "framework_migrations_registry_version": "2026-08-05",
+    "total_documents": 1208,
+    "is_syncing": false
+  }
 }
 ```
+
+Framework Public Schema metadata 會從與已索引 tactics 相同的
+Framework source revision 中讀取 `data/data.json`。
 
 ---
 
@@ -115,7 +127,7 @@ Claude：[使用 sync_aidefend 工具]
         下載最新內容...
         解析技術...
         生成 embeddings...
-        ✅ 同步完成！知識庫已更新至版本 1.20260728
+        ✅ 同步完成！知識庫已更新至版本 1.20260805
 ```
 
 #### REST API 範例：
@@ -129,7 +141,7 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20260728",
+  "framework_version": "1.20260805",
   "documents_synced": 1208,
   "sync_duration_seconds": 42.3
 }
@@ -154,7 +166,7 @@ Claude：[使用 get_statistics 工具]
         AIDEFEND 知識庫包含：
         - 1,208 份文件總數（92 個 techniques、265 個 sub-techniques、851 個 strategies）
         - 涵蓋 7 個 tactics：Model、Harden、Detect、Isolate、Deceive、Evict、Restore
-        - 威脅 framework 涵蓋範圍：10 個 OWASP LLM 威脅、28 個 MITRE ATLAS 技術
+        - 威脅 framework 涵蓋範圍：10 個 OWASP LLM Top 10 2026 風險、28 個 MITRE ATLAS 技術
         - 299 個 controls 有開源工具、34 個有 source-available/open-weight 工具、
           275 個有商業工具
         - 42 份文件包含程式碼片段
@@ -355,11 +367,11 @@ curl "http://localhost:8000/api/v1/technique/AID-H-002?include_code=true&include
 
 #### ⚡ 效能提示
 
-若您需要**同時取得多個技術**的實作策略（例如實作計畫中的前 5-10 個建議），請改用**工具 14：取得實作計畫**並設定 `detail_level="standard"` 或 `"detailed"`。這能消除 N+1 查詢問題，並減少 85-90% 的延遲。
+若您需要**同時取得多個技術**的實作策略（例如實作計畫中的前 5-10 個建議），請改用**工具 13：取得實作計畫**並設定 `detail_level="standard"` 或 `"detailed"`。這可避免為每個建議分別發送詳細請求；實際延遲取決於主機、模型快取與請求結果數量。
 
 **範例情境：**
-- ❌ 慢：取得實作計畫（基本）→ 呼叫 get_technique_detail 5 次（2-3 分鐘）
-- ✅ 快：取得實作計畫並設定 `detail_level="standard"`（10-20 秒）
+- 較多往返：取得實作計畫（基本）→ 針對每個建議呼叫 `get_technique_detail`
+- 較少往返：取得實作計畫並設定 `detail_level="standard"`
 
 在以下情況使用 get_technique_detail：
 - 需要前幾名建議**以外**的**單一技術**詳情
@@ -370,24 +382,31 @@ curl "http://localhost:8000/api/v1/technique/AID-H-002?include_code=true&include
 
 ### 工具 7：取得威脅防禦
 
-**用途**：針對特定威脅尋找 AIDEFEND 防禦技術。支援 OWASP LLM Top 10、MITRE ATLAS、MAESTRO 的威脅 ID，或自然語言關鍵字。
+**用途**：針對特定威脅尋找 AIDEFEND 防禦技術。支援 OWASP LLM Top 10 2026 ID 與已宣告的舊 edition alias、MITRE ATLAS、MAESTRO，或自然語言關鍵字。成功同步現行框架後，OWASP LLM 查詢一律回傳目前 2026 語料的防禦結果。
 
 **何時使用**：威脅導向的防禦規劃、回應特定漏洞、或建立防禦路線圖。
 
 #### MCP 模式範例（Claude Desktop）：
 
 ```
-你：「AIDEFEND 針對 OWASP LLM01 有哪些防禦？」
+你：「2025 年 OWASP LLM03 Supply Chain 在現行版本有哪些防禦？」
 
 Claude：[使用 get_defenses_for_threat 工具]
-        針對 OWASP LLM01（Prompt Injection），AIDEFEND 建議 8 個防禦技術：
+        查詢：LLM03:2025
+        解析狀態：migrated
+        現行 canonical 風險：LLM04:2026 Supply Chain
+        原始項目：LLM03:2025 Supply Chain
 
-        頂級防禦：
-        1. AID-H-001：Adversarial Robustness Training（100% 符合）
-        2. AID-H-002：AI-Contextualized Data Sanitization & Input Validation（100% 符合）
-        3. AID-D-001：Adversarial Input, Prompt Injection & Signal-Authenticity Detection（95% 符合）
-        4. AID-I-002：Network Segmentation & Isolation for AI Systems（90% 符合）
+        回傳的是經過審查、實際對應至現行 LLM04:2026 Supply Chain
+        定義的控制；服務不會重播 2025 mapping，也不會自動沿用舊 mapping。
 ```
+
+**OWASP LLM edition 解析規則**：
+
+- 裸 rank 或 `:latest` 一律代表現行 edition。例如，`LLM03` 與 `LLM03:latest` 會解析為 `LLM03:2026 Excessive Agency`，不會被當成 2025 年的 Supply Chain。
+- 明確指定已被取代的 ID 時，會依宣告的語意後繼項目解析。因此，`LLM03:2025 Supply Chain` 會解析為 `LLM04:2026 Supply Chain`，並以 `LLM04` 作為 reverse-index lookup key。
+- `LLM03:2025x` 這類格式錯誤或不支援的參照會回傳 `resolution.status="invalid"`。若同一查詢包含不同概念，例如 `LLM03:2025 / LLM06:2025`，則回傳 `resolution.status="ambiguous"` 與現行候選項目。
+- 只有 ID、且解析結果為 invalid 或 ambiguous 的查詢，會以 `search_method="resolution_only"` 回傳零筆結果；服務不會猜測 rank，也不會掃描防禦索引。使用者須改為提交一個可辨識的風險概念。
 
 ```
 你：「如何防禦模型投毒攻擊？」
@@ -403,31 +422,40 @@ Claude：[使用 get_defenses_for_threat 工具，使用關鍵字搜尋]
 #### REST API 範例：
 
 ```bash
-# 依威脅 ID 搜尋
-curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_id=LLM01&top_k=5"
+# 將已被取代的 OWASP LLM 概念解析至現行語料
+curl -X POST "http://localhost:8000/api/v1/defenses-for-threat?threat_id=LLM03%3A2025&top_k=5"
 ```
 
-**回應：**
+**回應 metadata 節錄**（此處省略防禦清單）：
 ```json
 {
   "threat_query": {
-    "threat_id": "LLM01",
-    "normalized_id": "LLM01",
-    "threat_keyword": null
-  },
-  "defense_techniques": [
-    {
-      "technique": {
-        "id": "AID-H-001",
-        "name": "Adversarial Robustness Training",
-        "tactic": "Harden"
+    "threat_id": "LLM03:2025",
+    "threat_keyword": null,
+    "normalized_threat_id": "LLM04",
+    "lookup_threat_id": "LLM04",
+    "canonical_threat_id": "LLM04:2026",
+    "resolution": {
+      "status": "migrated",
+      "input": "LLM03:2025",
+      "canonical": {
+        "frameworkKey": "owasp_llm",
+        "framework": "OWASP LLM Top 10 2026",
+        "edition": "2026",
+        "id": "LLM04:2026",
+        "name": "Supply Chain",
+        "label": "LLM04:2026 Supply Chain"
       },
-      "relevance_score": 1.0,
-      "match_type": "exact_threat_id",
-      "matched_threats": ["LLM01"]
+      "reason": "The risk moved from rank 3 to rank 4 and now explicitly treats promoted artifacts, adapters, conversion, merge, quantization, and on-device delivery as first-class supply-chain surfaces.",
+      "migratedFrom": {
+        "edition": "2025",
+        "id": "LLM03:2025",
+        "name": "Supply Chain",
+        "label": "LLM03:2025 Supply Chain"
+      }
     }
-  ],
-  "total_results": 5
+  },
+  "search_method": "exact"
 }
 ```
 
@@ -510,13 +538,13 @@ curl -X POST "http://localhost:8000/api/v1/code-snippets?topic=RAG%20security&la
 
 處理實作計畫時，使用以下推薦工作流程：
 
-1. **取得概覽**：使用**工具 14：取得實作計畫**並設定 `detail_level="standard"` 以取得技術建議與簡短策略摘要（10-20 秒）
+1. **取得概覽**：使用**工具 13：取得實作計畫**並設定 `detail_level="standard"` 以取得技術建議與簡短策略摘要
 2. **呈現給使用者**：展示建議與摘要，協助使用者選擇優先項目
 3. **取得程式碼範例**：針對使用者想要實作的特定技術使用 `get_secure_code_snippet`
 
 **範例情境：**
-- ❌ 舊方法：取得計畫（基本）→ 呼叫 get_technique_detail 5 次 → 呼叫 get_secure_code_snippet 5 次（2-4 分鐘）
-- ✅ 推薦方法：取得計畫（標準）→ 展示摘要 → 僅針對選定技術呼叫 get_secure_code_snippet（總計 10-30 秒）
+- 較多往返：取得計畫（基本）→ 針對每個建議呼叫 `get_technique_detail` → 針對每個建議呼叫 `get_secure_code_snippet`
+- 較少往返：取得計畫（標準）→ 展示摘要 → 僅針對選定技術呼叫 `get_secure_code_snippet`
 
 在以下情況使用 get_secure_code_snippet：
 - 需要前幾名建議**以外**的**特定技術**程式碼
@@ -624,7 +652,7 @@ curl -X POST "http://localhost:8000/api/v1/analyze-coverage" \
     ],
     "short_term": [
       "Achieve 50%+ coverage in all tactics",
-      "Cover top 5 OWASP LLM threats"
+      "涵蓋 OWASP LLM Top 10 2026 中優先度最高的 5 個風險"
     ],
     "long_term": [
       "Achieve 80%+ overall coverage",
@@ -794,14 +822,16 @@ curl -X POST "http://localhost:8000/api/v1/quick-reference?topic=RAG%20security&
 
 ### 工具 12：取得威脅涵蓋範圍
 
-**用途**：分析已實作防禦技術的威脅涵蓋範圍。給定 AIDEFEND 技術 ID 清單，計算涵蓋哪些威脅（OWASP LLM Top 10、MITRE ATLAS、MAESTRO）並提供涵蓋率。
+**用途**：分析已實作防禦技術的威脅涵蓋範圍。給定 AIDEFEND 技術 ID 清單，計算涵蓋哪些威脅（OWASP LLM Top 10 2026、MITRE ATLAS、MAESTRO）並提供涵蓋率。
+
+OWASP LLM coverage array 使用 `LLM03` 這類穩定的裸 rank key；判讀時須搭配 `framework_labels.owasp_llm`，該欄位代表與 active index 原子性綁定的 edition。完成現行同步後，其值為 `OWASP LLM Top 10 2026`。
 
 **何時使用**：追蹤已實作防禦涵蓋哪些威脅、識別涵蓋缺口、向利害關係人報告安全狀態、驗證防禦投資。
 
 #### MCP 模式範例（Claude Desktop）：
 
 ```
-你：「分析技術 AID-D-001、AID-H-002、AID-I-003 的威脅涵蓋範圍」
+你：「分析 AID-D-001.001、AID-H-002.001、AID-I-003.004 的威脅涵蓋範圍」
 
 Claude：[使用 get_threat_coverage 工具]
         威脅涵蓋範圍分析
@@ -812,27 +842,22 @@ Claude：[使用 get_threat_coverage 工具]
 
         ## 依 Framework 的威脅涵蓋範圍
 
-        ### OWASP LLM Top 10
-        涵蓋率：30.0%（3/10）
-        已涵蓋威脅：LLM01、LLM02、LLM03
-
-        ### MITRE ATLAS
-        涵蓋率：4.7%（2/43）
-        已涵蓋威脅：AML.T0020、AML.T0043
+        ### OWASP LLM Top 10 2026
+        涵蓋率：50.0%（5/10）
+        已涵蓋威脅：LLM01、LLM02、LLM03、LLM05、LLM07
 
         ## 依技術的涵蓋範圍
 
-        ### AID-D-001：Adversarial Input, Prompt Injection & Signal-Authenticity Detection
+        ### AID-D-001.001：Per-Prompt Content, Intent & Obfuscation Analysis
         - OWASP：LLM01
-        - ATLAS：
 
-        ### AID-H-002：AI-Contextualized Data Sanitization & Input Validation
-        - OWASP：LLM01、LLM02
-        - ATLAS：AML.T0043
+        ### AID-H-002.001：Training & Fine-Tuning Data Sanitization
+        - OWASP：LLM02、LLM05
 
-        ### AID-I-003：Quarantine & Throttling of AI Interactions
-        - OWASP：LLM03
-        - ATLAS：AML.T0020
+        ### AID-I-003.004：High-Risk Agent Action Containment
+        - OWASP：LLM03、LLM07
+
+        此處省略其他 mapped framework 的區段。
 ```
 
 #### REST API 範例：
@@ -841,36 +866,33 @@ Claude：[使用 get_threat_coverage 工具]
 curl -X POST "http://localhost:8000/api/v1/threat-coverage" \
   -H "Content-Type: application/json" \
   -d '{
-    "implemented_techniques": ["AID-D-001", "AID-H-002", "AID-I-003"]
+    "implemented_techniques": ["AID-D-001.001", "AID-H-002.001", "AID-I-003.004"]
   }'
 ```
 
-**回應：**
+**OWASP 相關回應欄位節錄**（省略其他 framework key）：
 ```json
 {
   "input_count": 3,
   "valid_count": 3,
   "invalid_count": 0,
   "invalid_techniques": [],
+  "framework_labels": {
+    "owasp_llm": "OWASP LLM Top 10 2026"
+  },
   "covered": {
-    "owasp": ["LLM01", "LLM02", "LLM03"],
-    "atlas": ["AML.T0020", "AML.T0043"],
-    "maestro": []
+    "owasp_llm": ["LLM01", "LLM02", "LLM03", "LLM05", "LLM07"]
   },
   "coverage_rate": {
-    "owasp": 0.3,
-    "atlas": 0.047,
-    "maestro": 0.0
+    "owasp_llm": 0.5
   },
   "by_technique": [
     {
-      "technique_id": "AID-D-001",
-      "technique_name": "Input Validation",
+      "technique_id": "AID-D-001.001",
+      "technique_name": "Per-Prompt Content, Intent & Obfuscation Analysis",
       "tactic": "Detect",
       "threats_covered": {
-        "owasp": ["LLM01"],
-        "atlas": [],
-        "maestro": []
+        "owasp_llm": ["LLM01"]
       }
     }
   ]
@@ -887,7 +909,7 @@ curl -X POST "http://localhost:8000/api/v1/threat-coverage" \
 
 **注意**：此工具僅提供啟發式評分。LLM 應使用這些評分透過 RAG 做出最終建議。
 
-**⚡ 複合工具模式**：使用 `detail_level="standard"`（推薦）或 `detail_level="detailed"` 在單次呼叫中取得前 5 個建議的可執行策略摘要，消除 N+1 查詢問題（延遲減少 90-95%）。
+**⚡ 複合工具模式**：使用 `detail_level="standard"`（推薦）或 `detail_level="detailed"` 在單次呼叫中取得前 5 個建議的可執行策略摘要，避免 N+1 的詳細請求序列。
 
 **策略查詢**：
 - 使用**聯合邏輯**同時查詢母層與子層策略
@@ -1063,14 +1085,11 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 **注意**：具有 `context_source` 欄位的策略表示來自子技術。這有助於您理解策略的具體上下文。
 
 **💡 建議工作流程**：
-1. 使用 `detail_level="standard"` 取得快速概覽與 200 字元摘要（約 10-20 秒）
+1. 使用 `detail_level="standard"` 取得簡要概覽與 200 字元摘要
 2. 向使用者呈現建議
 3. 針對使用者選擇的特定技術使用 `get_secure_code_snippet(technique_id, strategy_name)`
 
-**效能比較**：
-- **之前**（基本模式 + 重複呼叫 get_technique_detail）：取得完整細節需要 2-3 分鐘
-- **之後**（標準/詳細模式）：取得可執行摘要需要 10-20 秒
-- **改善**：延遲減少 85-90%
+這個工作流程可減少請求往返次數。若延遲是營運要求，請在自己的部署環境中測量端到端時間。
 
 ---
 
@@ -1078,9 +1097,9 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 
 **用途**：使用快速本地雙層比對系統在文字中分類威脅：
 1. **第一層（靜態關鍵字）**：直接關鍵字比對（即時）
-2. **第二層（RapidFuzz 模糊比對）**：容錯比對（比 difflib 快 10-100 倍）
+2. **第二層（RapidFuzz 模糊比對）**：經過效能優化的容錯比對
 
-將常見威脅術語（prompt injection、model poisoning 等）對應至標準 framework ID（OWASP LLM、MITRE ATLAS、MAESTRO）。
+將常見威脅術語（prompt injection、training data poisoning 等）對應至 canonical framework ID（OWASP LLM Top 10 2026、MITRE ATLAS、MAESTRO）。
 
 **何時使用**：標準化事故報告、安全警報、漏洞描述或威脅情報中的威脅關鍵字為標準 framework ID。快速分類安全事件。
 
@@ -1089,11 +1108,14 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 - 第一層：先嘗試靜態關鍵字比對（即時精確比對）
 - 第二層：如果無靜態比對，使用 RapidFuzz 進行容錯模糊比對
 - 總是標示結果來自哪一層（static_keyword、fuzzy_match 或 no_match）
+- OWASP LLM classifier claim 一律使用明確、帶 edition 的 2026 ID，例如 `LLM05:2026`；裸 rank 可作為查詢別名，但 classifier 不會把它當成輸出 claim
+- `mapping_status` 會分別標示內建 classifier catalog edition 與目前已同步的 active index edition，並指出兩者是否對齊
+- 即使某個分類 ID 不存在於 active index，分類結果仍會保留，但會標示為 unresolved，也不會為該 claim 建議以 ID 查詢防禦
 
 **主要功能**：
 - **100% 本地與隱私**：零外部 API 呼叫，所有處理在您的機器上
 - **免費**：無 API 成本，不消耗 token
-- **快速**：使用 RapidFuzz 毫秒級回應（比 difflib 快 10-100 倍）
+- **快速路徑**：RapidFuzz 提供經過效能優化的本地模糊比對
 - **離線就緒**：初始設定後完全離線運作
 
 #### MCP 模式範例（Claude Desktop）：
@@ -1106,35 +1128,30 @@ Claude：[使用 classify_threat 工具]
 
         分類來源：🔍 靜態關鍵字比對（第一層）
         輸入文字：我們偵測到繞過輸入驗證的 prompt injection 攻擊
-        比對的關鍵字：2
+        比對的關鍵字：1
 
         ## 比對的關鍵字
 
-        🟢 Prompt Injection（主要，信心度：0.9）
-        🟡 Insecure Output（別名，信心度：0.77）
+        🟢 Prompt Injection（主要，信心度：0.98）
 
         ## 標準化威脅 ID
 
-        OWASP LLM Top 10：LLM01、LLM02
-        MITRE ATLAS：
+        OWASP LLM Top 10 2026：LLM01:2026
+        MITRE ATLAS：AML.T0051
+        MAESTRO：Adversarial Examples (L1)、Goal Misalignment Cascades (Cross-Layer)
 
         ## 威脅詳情
 
-        - OWASP-LLM01：Prompt Injection
-          - 信心度：0.9
+        - OWASP-LLM01:2026：Prompt Injection
+          - 信心度：0.98
           - 比對的關鍵字：prompt injection
           - 比對類型：primary
-
-        - OWASP-LLM02：Insecure Output
-          - 信心度：0.77
-          - 比對的關鍵字：insecure output
-          - 比對類型：alias
 
         ## 建議後續步驟
 
         - get_defenses_for_threat
-          - 參數：{'threat_id': 'LLM01'}
-          - 理由：尋找 LLM01 的防禦技術
+          - 參數：{'threat_id': 'LLM01:2026'}
+          - 理由：尋找 LLM01:2026 的防禦技術
 
         - get_quick_reference
           - 參數：{'topic': 'prompt injection', 'max_items': 10}
@@ -1152,7 +1169,7 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
   }'
 ```
 
-**回應：**
+**回應欄位節錄**（省略其他 ATLAS／MAESTRO 詳情與後續動作）：
 ```json
 {
   "source": "static_keyword",
@@ -1161,32 +1178,52 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
     {
       "keyword": "training data poisoning",
       "match_type": "primary",
-      "confidence": 0.9
+      "confidence": 0.96
     }
   ],
   "normalized_threats": {
-    "owasp": ["LLM03"],
-    "atlas": ["AML.T0020"],
-    "maestro": []
+    "owasp": ["LLM05:2026"],
+    "atlas": ["AML.T0010", "AML.T0018", "AML.T0020"],
+    "maestro": [
+      "Data Poisoning (L2)",
+      "Data Poisoning (Training Phase) (L1)",
+      "Supply Chain Attacks (Cross-Layer)"
+    ]
   },
   "threat_details": [
     {
-      "threat_id": "OWASP-LLM03",
+      "threat_id": "OWASP-LLM05:2026",
       "threat_name": "Training Data Poisoning",
-      "confidence": 0.9,
+      "confidence": 0.96,
       "matched_keyword": "training data poisoning",
-      "match_type": "primary"
+      "match_type": "primary",
+      "resolvable": true
     }
   ],
   "recommended_actions": [
     {
       "tool": "get_defenses_for_threat",
-      "args": {"threat_id": "LLM03"},
-      "reason": "尋找 LLM03 的防禦技術"
+      "args": {"threat_id": "LLM05:2026"},
+      "reason": "Find defense techniques for LLM05:2026"
     }
-  ]
+  ],
+  "mapping_status": {
+    "all_emitted_claims_resolvable": true,
+    "corpus_mapping_available": true,
+    "unresolved_claims": [],
+    "unmapped_keywords": [],
+    "classifier_owasp_llm_edition": "2026",
+    "classifier_owasp_llm_label": "OWASP LLM Top 10 2026",
+    "active_index_owasp_llm_edition": "2026",
+    "active_index_owasp_llm_label": "OWASP LLM Top 10 2026",
+    "migration_registry_status": "active",
+    "owasp_llm_catalog_aligned": true
+  },
+  "timestamp": "2026-08-05T10:30:00Z"
 }
 ```
+
+`classifier_owasp_llm_edition` 表示此 MCP build 會輸出的 ID edition；`active_index_owasp_llm_edition` 則表示目前從 AIDEFEND 載入的語料 edition。若 `owasp_llm_catalog_aligned=false`、migration registry 不是 active，或 `unresolved_claims` 非空，應先同步再針對受影響的帶 edition ID 查詢防禦；classifier 不會把 2026 claim 偷換成 legacy 2025 index 的同 rank 項目。
 
 ---
 
@@ -1292,7 +1329,7 @@ Claude：[使用 analyze_security_posture 工具]
           • Isolate：12.5%（1/8）⚠️
 
         ## 威脅 Framework 涵蓋範圍
-        - OWASP LLM Top 10：40%（已涵蓋 4/10 個威脅）
+        - OWASP LLM Top 10 2026：40%（已涵蓋 4/10 個威脅）
         - MITRE ATLAS：7%（已涵蓋 3/43 個威脅）
         - MAESTRO：15%（已涵蓋 2/13 個威脅）
 
@@ -1500,8 +1537,8 @@ curl -X POST "http://localhost:8000/api/v1/compare-techniques" \
 Claude：[使用 generate_incident_playbook 工具]
         🚨 事故回應手冊
 
-        識別的主要威脅：OWASP-LLM01（Prompt Injection）
-        信心度：90%
+        識別的主要威脅：OWASP-LLM01:2026（Prompt Injection）
+        信心度：98%
         總行動項目：23
 
         ## 立即行動（0-15 分鐘）
@@ -1568,10 +1605,10 @@ curl -X POST "http://localhost:8000/api/v1/generate-incident-playbook" \
     "total_action_items": 23,
     "estimated_total_time": "1-3 天",
     "primary_threat": {
-      "threat_id": "OWASP-LLM01",
-      "framework": "OWASP LLM Top 10",
+      "threat_id": "OWASP-LLM01:2026",
+      "framework": "OWASP",
       "description": "Prompt Injection",
-      "confidence": 0.9
+      "confidence": 98.0
     }
   },
   "timeline": {

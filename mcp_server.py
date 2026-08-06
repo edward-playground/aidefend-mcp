@@ -11,7 +11,6 @@ ensuring consistent results across both interfaces.
 
 import asyncio
 import sys
-from contextlib import suppress
 from typing import Any, Dict, List
 from bs4 import BeautifulSoup
 
@@ -32,8 +31,12 @@ from app.security import (
     validate_bounded_integer,
 )
 from app.audit import audit_tool_call, audit_tool_completion
-from app.framework_utils import FRAMEWORK_LABELS, framework_coverage_label
-from app.utils import load_version_info, escape_markdown
+from app.framework_utils import (
+    FRAMEWORK_LABELS,
+    framework_coverage_label,
+    framework_labels_from_version_info,
+)
+from app.utils import _await_cancellation_safe, load_version_info, escape_markdown
 from datetime import datetime
 
 # Import all tools from unified package
@@ -319,7 +322,7 @@ def _format_implementation_strategies(
     return output
 
 
-async def serve():
+async def _serve_with_instance_lock_held():
     """
     Start the MCP server using stdio transport.
 
@@ -329,10 +332,11 @@ async def serve():
     # Create MCP server instance
     server = Server("aidefend-mcp")
     sync_task = None
+    sync_stop_event = asyncio.Event()
 
     logger.info("Initializing AIDEFEND MCP Server...")
 
-    # Clean up stale lock files from crashed processes
+        # Inspect stable lock metadata for diagnostics; never delete the lock inode.
     # This should be done before any sync operations
     try:
         from app.sync import cleanup_stale_lock
@@ -494,20 +498,26 @@ async def serve():
                 description=(
                     "Find AIDEFEND defense techniques for a specific threat. "
                     "Supports threat IDs from the mapped framework set "
-                    "(e.g., 'LLM01', 'ML01:2023', 'ASI01:2026', 'T0043', 'NISTAML.031'), "
+                    "(e.g., 'LLM01', 'LLM03:2025', 'ML01:2023', 'ASI01:2026', "
+                    "'T0043', 'NISTAML.031'), "
                     "or natural language threat keywords "
-                    "(e.g., 'prompt injection'). Essential for threat-driven defense planning."
+                    "(e.g., 'prompt injection'). Bare OWASP LLM IDs resolve to the "
+                    "active edition; superseded IDs migrate by declared risk concept "
+                    "and return structured resolution metadata."
                 ),
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "threat_id": {
                             "type": "string",
-                            "description": "Threat ID from a mapped framework (e.g., 'LLM01', 'ML01:2023', 'T0043', 'NISTAML.031')"
+                            "description": "Threat ID or recognized OWASP LLM risk reference (e.g., 'LLM01', 'LLM03:2025', 'ML01:2023', 'T0043', 'NISTAML.031')",
+                            "maxLength": 500,
                         },
                         "threat_keyword": {
                             "type": "string",
-                            "description": "Natural language threat keyword (e.g., 'prompt injection', 'model poisoning')"
+                            "description": "Natural language threat keyword (e.g., 'prompt injection', 'model poisoning')",
+                            "minLength": 3,
+                            "maxLength": 200,
                         },
                         "top_k": {
                             "type": "integer",
@@ -925,6 +935,10 @@ async def serve():
 
     # Initialize services before accepting connections (prevents cold start timeout)
     try:
+        # STDIO MCP does not run FastAPI's lifespan. Recover any interrupted
+        # DB/registry generation before QueryEngine can open the active table.
+        from app.sync import recover_incomplete_generation_activation
+        await recover_incomplete_generation_activation()
         logger.info("Initializing query engine for MCP...")
         await query_engine.initialize()
 
@@ -956,7 +970,10 @@ async def serve():
             logger.info(
                 f"Starting MCP background sync loop (interval: {settings.SYNC_INTERVAL_SECONDS}s)"
             )
-            sync_task = asyncio.create_task(sync_loop(), name="aidefend-mcp-sync")
+            sync_task = asyncio.create_task(
+                sync_loop(sync_stop_event),
+                name="aidefend-mcp-sync",
+            )
         else:
             logger.info("MCP auto-sync disabled")
 
@@ -978,19 +995,40 @@ async def serve():
     finally:
         # Graceful shutdown: release resources
         logger.info("MCP server shutting down, cleaning up resources...")
-        if sync_task is not None:
-            sync_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await sync_task
+        async def shutdown_resources() -> None:
+            try:
+                if sync_task is not None:
+                    sync_stop_event.set()
+                    await asyncio.gather(sync_task, return_exceptions=True)
+            finally:
+                # Close under the QueryEngine writer guard before the outer
+                # lifetime DATA_PATH lease is released.
+                await query_engine.close()
+
         try:
-            # Reset query engine state to release DB handles
-            query_engine._initialized = False
-            query_engine._db = None
-            query_engine._table = None
-            query_engine._id_cache = None
+            await _await_cancellation_safe(
+                shutdown_resources(),
+                task_name="aidefend-mcp-shutdown",
+            )
             logger.info("Query engine resources released")
         except Exception as cleanup_err:
             logger.warning(f"Error during shutdown cleanup: {cleanup_err}")
+
+
+async def serve():
+    """Run one stdio MCP service with exclusive DATA_PATH ownership."""
+    from app.sync import service_instance_guard
+
+    async with service_instance_guard("the stdio MCP service"):
+        try:
+            await _serve_with_instance_lock_held()
+        finally:
+            # Covers cancellation during startup before the inner server
+            # reaches its ordinary stdio shutdown block.
+            await _await_cancellation_safe(
+                query_engine.close(),
+                task_name="aidefend-mcp-final-close",
+            )
 
 
 async def handle_query(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -1123,8 +1161,10 @@ async def handle_status() -> List[TextContent]:
             f"**Initialization Status:** {'✅ Ready' if stats['initialized'] else '❌ Not Ready'}\n"
         )
 
-        # Add detailed framework version information (merged from get_framework_version)
-        version_info = load_version_info()
+        # get_stats() reads the table count and version metadata under one
+        # reader lock. Never re-read VERSION_FILE here: a concurrent sync could
+        # otherwise pair one generation's count with another's metadata.
+        version_info = stats.get("version_info")
         if version_info:
             framework_version = version_info.get("framework_version")
             source_revision = (
@@ -1132,9 +1172,7 @@ async def handle_status() -> List[TextContent]:
                 or version_info.get("commit_sha", "N/A")
             )
             source_kind = version_info.get("source_kind", "github")
-            revision_label = (
-                "Git Commit" if source_kind == "github" else "Local Content SHA-1"
-            )
+            revision_label = "Framework Source Revision"
             last_synced = version_info.get("last_synced_at", "N/A")
 
             if framework_version:
@@ -1162,9 +1200,7 @@ async def handle_status() -> List[TextContent]:
                     f"**Last Synced:** {last_synced}\n"
                 )
             status_text += (
-                f"**Authoring Schema:** "
-                f"{version_info.get('framework_authoring_schema_version', 'N/A')}\n"
-                f"**Public Data Schema:** "
+                f"**Framework Public Schema:** "
                 f"{version_info.get('framework_public_schema_version', 'N/A')}\n"
                 f"**MCP Index Schema:** {version_info.get('index_schema_version', 'N/A')}\n"
                 f"**Source:** {source_kind} "
@@ -1172,8 +1208,12 @@ async def handle_status() -> List[TextContent]:
                 f"{version_info.get('source_ref', 'N/A')})\n"
                 f"**Source Content SHA-256:** "
                 f"{version_info.get('source_content_sha256', 'N/A')}\n"
-                f"**Schema Metadata SHA-256:** "
-                f"{version_info.get('framework_schema_metadata_sha256', 'N/A')}\n"
+                f"**Framework Migration Registry Schema:** "
+                f"{version_info.get('framework_migrations_schema_version', 'N/A')}\n"
+                f"**Framework Migration Registry:** "
+                f"{version_info.get('framework_migrations_registry_version', 'N/A')}\n"
+                f"**Framework Migration SHA-256:** "
+                f"{version_info.get('framework_migrations_sha256', 'N/A')}\n"
             )
         elif stats.get('framework_version'):
             # Fallback to stats if version_info not available
@@ -1641,6 +1681,35 @@ async def handle_get_defenses_for_threat(arguments: Dict[str, Any]) -> List[Text
         query = result['threat_query']
         output = "# Defense Techniques for Threat\n\n"
         output += f"**Query:** {escape_markdown(query.get('threat_id') or query.get('threat_keyword') or '')}\n"
+        resolution = query.get("resolution")
+        if isinstance(resolution, dict):
+            output += f"**Resolution:** {escape_markdown(str(resolution.get('status', 'unknown')))}\n"
+            canonical = resolution.get("canonical")
+            if isinstance(canonical, dict):
+                output += (
+                    "**Canonical current risk:** "
+                    f"{escape_markdown(str(canonical.get('label', canonical.get('id', ''))))}\n"
+                )
+            migrated_from = resolution.get("migratedFrom")
+            if isinstance(migrated_from, dict):
+                output += (
+                    "**Migrated from:** "
+                    f"{escape_markdown(str(migrated_from.get('label', migrated_from.get('id', ''))))}\n"
+                )
+            candidates = resolution.get("candidates")
+            if isinstance(candidates, list) and candidates:
+                candidate_labels = [
+                    escape_markdown(str(candidate.get("label", candidate.get("id", ""))))
+                    for candidate in candidates
+                    if isinstance(candidate, dict)
+                ]
+                if candidate_labels:
+                    output += f"**Candidates:** {', '.join(candidate_labels)}\n"
+            if resolution.get("reason"):
+                output += (
+                    "**Resolution note:** "
+                    f"{escape_markdown(str(resolution['reason']))}\n"
+                )
         output += f"**Results:** {result['total_results']}\n\n"
 
         for i, tech in enumerate(result['defense_techniques'], 1):
@@ -1902,6 +1971,11 @@ async def handle_get_threat_coverage(arguments: Dict[str, Any]) -> List[TextCont
     try:
         implemented_techniques = arguments.get("implemented_techniques", [])
         result = await get_threat_coverage(implemented_techniques)
+        effective_framework_labels = result.get("framework_labels")
+        if not isinstance(effective_framework_labels, dict):
+            effective_framework_labels = framework_labels_from_version_info(
+                load_version_info()
+            )
 
         audit_tool_completion(
             audit_ctx,
@@ -1941,7 +2015,7 @@ async def handle_get_threat_coverage(arguments: Dict[str, Any]) -> List[TextCont
             framework_totals,
             coverage_rates,
         ):
-            label = framework_coverage_label(key)
+            label = framework_coverage_label(key, effective_framework_labels)
             covered = result['covered'].get(key, [])
             total = framework_totals.get(key, 0)
             rate = result['coverage_rate'].get(key, 0.0) * 100
@@ -1964,7 +2038,9 @@ async def handle_get_threat_coverage(arguments: Dict[str, Any]) -> List[TextCont
             for key in _ordered_framework_coverage_keys(threats_by_framework):
                 threats = threats_by_framework.get(key, [])
                 if threats:
-                    label = framework_coverage_label(key)
+                    label = framework_coverage_label(
+                        key, effective_framework_labels
+                    )
                     output += f"- **{label}:** {', '.join(threats[:5])}"
                     if len(threats) > 5:
                         output += f" ... +{len(threats) - 5} more"
@@ -2148,7 +2224,14 @@ async def handle_classify_threat(arguments: Dict[str, Any]) -> List[TextContent]
             output += "\n"
 
         output += "## Normalized Threat IDs\n\n"
-        classify_labels = {"owasp": "OWASP", "atlas": "MITRE ATLAS", "maestro": "MAESTRO"}
+        mapping_status = result.get("mapping_status", {})
+        classify_labels = {
+            "owasp": mapping_status.get(
+                "classifier_owasp_llm_label", "OWASP LLM Top 10 2026"
+            ),
+            "atlas": "MITRE ATLAS",
+            "maestro": "MAESTRO",
+        }
         has_normalized = False
         for key, values in result['normalized_threats'].items():
             if not values:
@@ -2161,7 +2244,16 @@ async def handle_classify_threat(arguments: Dict[str, Any]) -> List[TextContent]
             output += "*No threat IDs identified*\n"
         output += "\n"
 
-        mapping_status = result.get("mapping_status", {})
+        if not mapping_status.get("owasp_llm_catalog_aligned", False):
+            active_label = mapping_status.get("active_index_owasp_llm_label")
+            active_text = active_label or "no verified OWASP LLM edition"
+            output += (
+                "**Edition note:** The classifier catalog is "
+                f"{escape_markdown(classify_labels['owasp'])}, while the active "
+                f"index reports {escape_markdown(active_text)}. Editioned claims "
+                "remain unresolved until a successful sync aligns them.\n\n"
+            )
+
         unresolved_claims = mapping_status.get("unresolved_claims", [])
         if unresolved_claims:
             output += (
@@ -2350,6 +2442,11 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             success=True,
             result_summary=summary_text
         )
+        effective_framework_labels = result.get("framework_labels")
+        if not isinstance(effective_framework_labels, dict):
+            effective_framework_labels = framework_labels_from_version_info(
+                load_version_info()
+            )
 
         technical_summary = result.get("technical_coverage", {}).get(
             "analysis_summary", {}
@@ -2463,7 +2560,7 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
                 covered,
                 framework_totals,
             ):
-                label = framework_coverage_label(key)
+                label = framework_coverage_label(key, effective_framework_labels)
                 rate = coverage_rate.get(key, 0) * 100
                 count = len(covered.get(key, []))
                 total = framework_totals.get(key, 0)
@@ -2471,7 +2568,10 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             output += "\n"
 
             if covered.get("owasp_llm"):
-                output += "### OWASP Threats Covered\n\n"
+                owasp_llm_label = framework_coverage_label(
+                    "owasp_llm", effective_framework_labels
+                )
+                output += f"### {owasp_llm_label} Risks Covered\n\n"
                 output += f"{', '.join(covered['owasp_llm'])}\n\n"
 
             # Compute uncovered OWASP threats
@@ -2480,7 +2580,10 @@ async def handle_analyze_security_posture(arguments: Dict[str, Any]) -> List[Tex
             covered_owasp = covered.get("owasp_llm", [])
             uncovered_owasp = [t for t in all_owasp if t not in covered_owasp]
             if uncovered_owasp:
-                output += "### OWASP Threats NOT Covered (High Priority)\n\n"
+                output += (
+                    f"### {framework_coverage_label('owasp_llm', effective_framework_labels)} "
+                    "Risks NOT Covered (High Priority)\n\n"
+                )
                 output += f"{', '.join(uncovered_owasp[:5])}\n\n"
 
             scoped_techniques = [
@@ -2529,6 +2632,11 @@ async def handle_compare_techniques(arguments: Dict[str, Any]) -> List[TextConte
             technique_ids=technique_ids,
             include_recommendations=include_recommendations
         )
+        effective_framework_labels = result.get("framework_labels")
+        if not isinstance(effective_framework_labels, dict):
+            effective_framework_labels = framework_labels_from_version_info(
+                load_version_info()
+            )
 
         # Audit success
         audit_tool_completion(
@@ -2617,7 +2725,7 @@ async def handle_compare_techniques(arguments: Dict[str, Any]) -> List[TextConte
                 by_framework = threat_cov.get("by_framework", {})
                 if by_framework:
                     coverage_parts = [
-                        f"{framework_coverage_label(key)} ({count})"
+                        f"{framework_coverage_label(key, effective_framework_labels)} ({count})"
                         for key, count in by_framework.items()
                         if count
                     ]

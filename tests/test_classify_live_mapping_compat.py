@@ -6,6 +6,7 @@ import pytest
 
 from app.threat_keywords import THREAT_KEYWORDS, canonicalize_classifier_frameworks
 from app.tools.incident_response import _classified_threat_ids
+from tests.framework_migration_fixtures import owasp_llm_2026_registry
 
 
 classify_module = importlib.import_module("app.tools.classify_threat")
@@ -28,6 +29,7 @@ async def test_classifier_verifies_every_claim_against_current_index(monkeypatch
         classify_module,
         "load_version_info",
         lambda: {
+            "framework_migrations": owasp_llm_2026_registry(),
             "statistics": {
                 "threat_mappings": _mapping_for_keyword("prompt injection")
             }
@@ -36,18 +38,58 @@ async def test_classifier_verifies_every_claim_against_current_index(monkeypatch
 
     result = await classify_module.classify_threat("prompt injection", top_k=1)
 
-    assert result["mapping_status"] == {
-        "all_emitted_claims_resolvable": True,
-        "corpus_mapping_available": True,
-        "unresolved_claims": [],
-        "unmapped_keywords": [],
-    }
+    assert result["mapping_status"] | {
+        "classifier_owasp_llm_edition": "2026",
+        "classifier_owasp_llm_label": "OWASP LLM Top 10 2026",
+        "active_index_owasp_llm_edition": "2026",
+        "active_index_owasp_llm_label": "OWASP LLM Top 10 2026",
+        "migration_registry_status": "active",
+        "owasp_llm_catalog_aligned": True,
+    } == result["mapping_status"]
+    assert result["mapping_status"]["all_emitted_claims_resolvable"] is True
+    assert result["mapping_status"]["corpus_mapping_available"] is True
+    assert result["mapping_status"]["unresolved_claims"] == []
+    assert result["mapping_status"]["unmapped_keywords"] == []
     assert result["threat_details"]
     assert all(detail["resolvable"] is True for detail in result["threat_details"])
     assert any(
         action["tool"] == "get_defenses_for_threat"
         for action in result["recommended_actions"]
     )
+
+
+@pytest.mark.asyncio
+async def test_versioned_llm_claim_co_resolves_against_bare_current_index_key(
+    monkeypatch,
+):
+    """The public claim stays versioned even when the reverse index is bare."""
+    monkeypatch.setattr(
+        classify_module,
+        "load_version_info",
+        lambda: {
+            "framework_migrations": owasp_llm_2026_registry(),
+            "statistics": {
+                "threat_mappings": {
+                    "LLM01": ["AID-H-001.001"],
+                }
+            }
+        },
+    )
+
+    result = await classify_module.classify_threat("prompt injection", top_k=1)
+
+    assert result["normalized_threats"]["owasp"] == ["LLM01:2026"]
+    owasp_detail = next(
+        detail
+        for detail in result["threat_details"]
+        if detail["threat_id"] == "OWASP-LLM01:2026"
+    )
+    assert owasp_detail["resolvable"] is True
+    assert {
+        action["args"]["threat_id"]
+        for action in result["recommended_actions"]
+        if action["tool"] == "get_defenses_for_threat"
+    } >= {"LLM01:2026"}
 
 
 @pytest.mark.asyncio

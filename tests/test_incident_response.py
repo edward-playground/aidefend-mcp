@@ -144,8 +144,13 @@ def test_timeline_generators():
         # Test 2: Immediate actions with threat classification
         print("\n[TEST 2] Generate immediate actions with threat context")
         mock_threat = {
+            "normalized_threats": {"owasp": ["LLM01:2026"]},
             "threat_details": [
-                {"matched_keyword": "prompt injection", "confidence": 0.9}
+                {
+                    "threat_id": "OWASP-LLM01:2026",
+                    "matched_keyword": "prompt injection",
+                    "confidence": 0.9,
+                }
             ]
         }
 
@@ -229,8 +234,13 @@ def test_threat_specific_actions():
         # Test 1: Prompt injection specific actions
         print("\n[TEST 1] Prompt injection threat")
         mock_threat = {
+            "normalized_threats": {"owasp": ["LLM01:2026"]},
             "threat_details": [
-                {"matched_keyword": "prompt injection", "confidence": 0.9}
+                {
+                    "threat_id": "OWASP-LLM01:2026",
+                    "matched_keyword": "prompt injection",
+                    "confidence": 0.9,
+                }
             ]
         }
 
@@ -238,37 +248,47 @@ def test_threat_specific_actions():
 
         # Check for prompt injection specific action
         action_names = [a['action'] for a in actions]
-        assert any('LLM' in name or 'injection' in name.lower() for name in action_names), \
+        assert "Isolate Affected LLM Interaction Path" in action_names, \
             "Should have prompt injection specific action"
         print("   [PASS] Prompt injection actions generated")
 
         # Test 2: Data poisoning specific actions
         print("\n[TEST 2] Data poisoning threat")
         mock_threat = {
+            "normalized_threats": {"owasp": ["LLM05:2026"]},
             "threat_details": [
-                {"matched_keyword": "data poisoning", "confidence": 0.85}
+                {
+                    "threat_id": "OWASP-LLM05:2026",
+                    "matched_keyword": "data poisoning",
+                    "confidence": 0.85,
+                }
             ]
         }
 
         actions = _generate_immediate_actions("Data poisoning attack", mock_threat)
 
         action_names = [a['action'] for a in actions]
-        assert any('training' in name.lower() or 'pipeline' in name.lower() for name in action_names), \
+        assert "Freeze Mutable Learning Sources" in action_names, \
             "Should have data poisoning specific action"
         print("   [PASS] Data poisoning actions generated")
 
         # Test 3: DoS specific actions
         print("\n[TEST 3] Denial of service threat")
         mock_threat = {
+            "normalized_threats": {"owasp": ["LLM06:2026"]},
             "threat_details": [
-                {"matched_keyword": "denial of service", "confidence": 0.8}
+                {
+                    "threat_id": "OWASP-LLM06:2026",
+                    "matched_keyword": "denial of service",
+                    "confidence": 0.8,
+                }
             ]
         }
 
         actions = _generate_immediate_actions("DoS attack", mock_threat)
 
         action_names = [a['action'] for a in actions]
-        assert any('rate' in name.lower() or 'limiting' in name.lower() for name in action_names), \
+        assert "Trip Consumption Circuit Breakers" in action_names, \
             "Should have DoS specific action"
         print("   [PASS] DoS actions generated")
 

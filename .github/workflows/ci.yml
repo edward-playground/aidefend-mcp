@@ -11,7 +11,7 @@ on:
         default: main
         type: string
       run_current_snapshot:
-        description: Also run the exact 2026-07-28 snapshot assertions
+        description: Also run the exact 2026-08-05 snapshot assertions
         required: false
         default: false
         type: boolean
@@ -35,23 +35,28 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: "pip"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
-          node-version: "22.7.0"
+          node-version: "24"
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
+
+      - name: Audit locked Python and Node dependencies
+        run: |
+          python -m pip_audit -r requirements-dev.txt
+          npm audit --omit=dev --audit-level=high
 
       - name: Build local knowledge base
         run: python __main__.py --resync
@@ -77,7 +82,7 @@ jobs:
               raise SystemExit(f"Release test suite skipped {skipped} test(s)")
           PY
 
-      - name: Run exact 2026-07-28 framework snapshot gate
+      - name: Run exact 2026-08-05 framework snapshot gate
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_current_snapshot }}
         run: python -m pytest -q -m current_snapshot
 
@@ -103,6 +108,10 @@ jobs:
           import app
           import app.tools
           import mcp_server
+          from app.sync import (
+              compute_framework_migrations_sha256,
+              load_and_validate_framework_migrations,
+          )
           from app.utils import NODE_PARSER_SCRIPT, parse_js_file_with_node
 
           assert NODE_PARSER_SCRIPT.exists(), NODE_PARSER_SCRIPT
@@ -114,7 +123,12 @@ jobs:
           version = json.loads((data_path / "local_version.json").read_text(encoding="utf-8"))
           source_files = version.get("source_files")
           assert isinstance(source_files, list) and source_files
-          tactic_files = [name for name in source_files if name != "aidefend-intro.js"]
+          migration_source = "data/framework-migrations.json"
+          assert migration_source in source_files, source_files
+          tactic_files = [
+              name for name in source_files
+              if name not in {"aidefend-intro.js", migration_source}
+          ]
           assert tactic_files
           assert all(
               isinstance(name, str)
@@ -125,6 +139,13 @@ jobs:
           parsed = parse_js_file_with_node(data_path / "raw_content" / tactic_files[0])
           assert isinstance(parsed.get("name"), str) and parsed["name"].strip()
           assert isinstance(parsed.get("techniques"), list) and parsed["techniques"]
+          migration_path = data_path / "raw_content" / "framework-migrations.json"
+          registry = load_and_validate_framework_migrations(migration_path)
+          assert registry is not None
+          assert version["framework_migrations"] == registry
+          assert version["framework_migrations_schema_version"] == registry["schemaVersion"]
+          assert version["framework_migrations_registry_version"] == registry["registryVersion"]
+          assert version["framework_migrations_sha256"] == compute_framework_migrations_sha256(migration_path)
           PY
           python scripts/verify_index_manifest.py
           python scripts/smoke_all_tools.py \
@@ -140,23 +161,23 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.10", "3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     env:
       PYTHONPATH: ""
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
-          node-version: "22.7.0"
+          node-version: "24"
 
       - name: Build wheel from a clean sdist extraction
         run: |
@@ -181,13 +202,16 @@ jobs:
   container:
     name: Container Contract
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     env:
       AIDEFEND_API_KEY: ci-container-contract-only
+      AIDEFEND_CI_DATA_VOLUME: aidefend-mcp-ci-data
+      AIDEFEND_CI_RUNTIME_CONTAINER: aidefend-mcp-ci-runtime
+      GITHUB_BRANCH: ${{ github.event.client_payload.framework_ref || inputs.framework_ref || 'main' }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Validate Dockerfile and Compose
         run: |
@@ -223,6 +247,82 @@ jobs:
             --entrypoint touch \
             aidefend-mcp:ci /app/data/container-write-check
 
+      - name: Cold-start production Framework data in the final image
+        run: |
+          docker volume create "$AIDEFEND_CI_DATA_VOLUME"
+          docker run --rm \
+            --mount type=volume,source=$AIDEFEND_CI_DATA_VOLUME,target=/app/data \
+            --env AUTH_MODE=api_key \
+            --env AIDEFEND_API_KEY="$AIDEFEND_API_KEY" \
+            --env GITHUB_BRANCH="$GITHUB_BRANCH" \
+            --entrypoint python \
+            aidefend-mcp:ci __main__.py --resync
+
+      - name: Verify manifest and every tool inside the final image
+        run: |
+          docker run --rm \
+            --mount type=volume,source=$AIDEFEND_CI_DATA_VOLUME,target=/app/data \
+            --mount type=bind,source=${{ github.workspace }}/scripts,target=/app/scripts,readonly \
+            --env AUTH_MODE=api_key \
+            --env AIDEFEND_API_KEY="$AIDEFEND_API_KEY" \
+            --env GITHUB_BRANCH="$GITHUB_BRANCH" \
+            --entrypoint python \
+            aidefend-mcp:ci scripts/verify_index_manifest.py
+          docker run --rm \
+            --mount type=volume,source=$AIDEFEND_CI_DATA_VOLUME,target=/app/data \
+            --mount type=bind,source=${{ github.workspace }}/scripts,target=/app/scripts,readonly \
+            --env AUTH_MODE=api_key \
+            --env AIDEFEND_API_KEY="$AIDEFEND_API_KEY" \
+            --env GITHUB_BRANCH="$GITHUB_BRANCH" \
+            --entrypoint python \
+            aidefend-mcp:ci scripts/smoke_all_tools.py \
+              --data-path /app/data \
+              --transport both \
+              --timeout 180
+
+      - name: Exercise the final image entrypoint and HTTP health
+        run: |
+          docker run --detach \
+            --name "$AIDEFEND_CI_RUNTIME_CONTAINER" \
+            --mount type=volume,source=$AIDEFEND_CI_DATA_VOLUME,target=/app/data \
+            --env AUTH_MODE=api_key \
+            --env AIDEFEND_API_KEY="$AIDEFEND_API_KEY" \
+            --env ENABLE_AUTO_SYNC=false \
+            --env GITHUB_BRANCH="$GITHUB_BRANCH" \
+            --publish 127.0.0.1:18000:8000 \
+            aidefend-mcp:ci
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18000/health >/tmp/aidefend-health.json; then
+              ready=1
+              break
+            fi
+            if ! docker inspect --format='{{.State.Running}}' "$AIDEFEND_CI_RUNTIME_CONTAINER" | grep -q true; then
+              break
+            fi
+            sleep 5
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs "$AIDEFEND_CI_RUNTIME_CONTAINER"
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/aidefend-health.json").read_text(encoding="utf-8"))
+          assert payload.get("status") in {"healthy", "ready"}, payload
+          checks = payload.get("checks", {})
+          assert checks.get("database") is True, payload
+          assert checks.get("embedding_model") is True, payload
+          PY
+
+      - name: Clean up container contract resources
+        if: always()
+        run: |
+          docker rm --force "$AIDEFEND_CI_RUNTIME_CONTAINER" 2>/dev/null || true
+          docker volume rm "$AIDEFEND_CI_DATA_VOLUME" 2>/dev/null || true
+
   bandit:
     name: Bandit
     runs-on: ubuntu-latest
@@ -230,10 +330,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: "pip"
