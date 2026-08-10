@@ -1,5 +1,7 @@
 """Contract tests for threat coverage and framework mapping normalization."""
 
+import time
+
 import pytest
 
 from app.framework_utils import (
@@ -114,6 +116,31 @@ def test_framework_mapping_normalization_uses_schema_23_labels():
     assert coverage["cisco"] == {"AISUBTECH-2.1"}
     assert coverage["google_saif"] == {"MODEL-01"}
     assert coverage["databricks"] == {"Model Serving Abuse"}
+
+
+def test_parenthetical_normalization_handles_annotation_pileups():
+    """Layer markers survive extra annotations, and long items stay linear."""
+    assert normalize_framework_item("MAESTRO", "Agent Tool Misuse (L7)") == (
+        "Agent Tool Misuse (L7)"
+    )
+    assert normalize_framework_item("MAESTRO", "Agent Tool Misuse (L7) (2026)") == (
+        "Agent Tool Misuse (L7)"
+    )
+    assert normalize_framework_item("MAESTRO", "Goal Drift (L2) (agentic) (draft)") == (
+        "Goal Drift (L2)"
+    )
+    assert normalize_framework_item("MAESTRO", "Lateral Movement (Cross-Layer)") == (
+        "Lateral Movement (Cross-Layer)"
+    )
+
+    # Adversarial shape for the MAESTRO layer regex this normalizer used to
+    # run (CWE-1333): the trailing "!" defeats the anchored match, and the
+    # backtracking search for another split point took ~11s on this input.
+    payload = "a(L0)" + " (L0) " * 20000 + "!"
+    start = time.perf_counter()
+    assert normalize_framework_item("MAESTRO", payload) == payload
+    assert normalize_framework_item("Databricks AI Security Framework 3.0", payload) == payload
+    assert time.perf_counter() - start < 1.0
 
 
 def test_agentic_framework_rename_preserves_stable_key_and_legacy_input():

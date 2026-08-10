@@ -580,6 +580,46 @@ def coverage_lists_from_sets(coverage: Dict[str, Set[str]]) -> Dict[str, List[st
     )
 
 
+def _trailing_parenthetical_start(text: str, end: int) -> Optional[int]:
+    """Offset where the trailing ``" (...)"`` group of ``text[:end]`` begins.
+
+    ``None`` when ``text[:end]`` does not end with whitespace followed by a
+    parenthetical that holds no nested parentheses. This is the linear-time
+    equivalent of matching ``\\s+\\([^()]*\\)$``, which backtracks
+    quadratically on labels carrying many parenthetical groups (CWE-1333).
+    """
+    if end <= 0 or text[end - 1] != ")":
+        return None
+
+    open_index = end - 2
+    while open_index >= 0 and text[open_index] not in "()":
+        open_index -= 1
+    if open_index < 0 or text[open_index] != "(":
+        return None
+
+    start = open_index
+    while start > 0 and text[start - 1].isspace():
+        start -= 1
+    return None if start == open_index else start
+
+
+def _strip_trailing_parenthetical(item: str) -> str:
+    """Drop one trailing ``" (...)"`` annotation from an already-stripped item."""
+    start = _trailing_parenthetical_start(item, len(item))
+    return item if start is None else item[:start].strip()
+
+
+def _ends_with_maestro_layer(text: str, end: int) -> bool:
+    """Whether ``text[:end]`` ends with a ``(L<digit>)`` layer marker."""
+    return (
+        end >= 4
+        and text[end - 1] == ")"
+        and text[end - 4] == "("
+        and text[end - 3] == "L"
+        and text[end - 2] in "0123456789"
+    )
+
+
 def normalize_framework_item(
     framework_name: str,
     item: str,
@@ -631,14 +671,33 @@ def normalize_framework_item(
         return item.split(":", 1)[0].strip().upper()
 
     if key == "databricks":
-        return re.sub(r"\s+\([^()]*\)$", "", item).strip()
+        return _strip_trailing_parenthetical(item)
 
     if key == "maestro":
-        layered_match = re.match(r"^(.+?\(L\d\))(?:\s+\([^()]*\))+$", item)
-        if layered_match:
-            return layered_match.group(1).strip()
+        # Peel trailing parentheticals one at a time, then keep the shortest
+        # prefix that still ends in a layer marker. This mirrors the lazy match
+        # of ``^(.+?\(L\d\))(?:\s+\([^()]*\))+$`` without its backtracking, and
+        # the newline check reproduces ``.`` never spanning a line break.
+        boundaries: List[int] = []
+        end = len(item)
+        while True:
+            start = _trailing_parenthetical_start(item, end)
+            if start is None:
+                break
+            boundaries.append(start)
+            end = start
+
+        first_newline = item.find("\n")
+        for boundary in reversed(boundaries):
+            if (
+                boundary > 4
+                and _ends_with_maestro_layer(item, boundary)
+                and (first_newline == -1 or first_newline >= boundary - 4)
+            ):
+                return item[:boundary].strip()
+
         if item.count("(") > 1:
-            return re.sub(r"\s+\([^()]*\)$", "", item).strip()
+            return _strip_trailing_parenthetical(item)
         return item
 
     if key is None:
