@@ -37,7 +37,7 @@ This repository is **not** the framework itself. It is the service layer on top 
 
 ## Rolling Framework Compatibility
 
-The current release validation snapshot is AIDEFEND **1.20260805** with public
+The current release validation snapshot is AIDEFEND **1.20260911** with public
 schema **2.3** and MCP index schema **3.3**. It includes all three framework
 tool categories: open-source,
 source-available/open-weight, and commercial. Snapshot IDs, titles, counts,

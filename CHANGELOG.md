@@ -14,7 +14,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2026 IDs with structured `canonical`, `migrated`, `normalized`, `fallback_latest`,
   `ambiguous`, or `invalid` metadata.
 
+### Changed
+- Re-pin the exact release validation snapshot to AIDEFEND 1.20260911 (public
+  schema 2.3, index schema 3.3: 93 techniques, 272 sub-techniques, 872 guidance
+  records, 1,237 documents; migration registry 2026-09-11) so a plain `pytest`
+  run passes against the current synchronized Framework, and align the README,
+  tool guides, and OpenAPI examples with that snapshot.
+- Declare `additionalProperties: false` on every MCP tool input schema so an
+  unknown argument is rejected with a schema validation message instead of
+  leaking a Python `TypeError` from the tool function.
+- Document that `classify_threat` keyword matching is English-only; other
+  languages are served by the multilingual semantic search tools.
+
 ### Fixed
+- Remove orphaned framework public dataset downloads (`.framework-public-data-*.tmp`)
+  left in `RAW_PATH` when a stdio MCP server is terminated mid-sync, both before
+  staging a new download and after a generation settles.
+- Restore the development dependency audit by upgrading the Starlette TestClient
+  backend to HTTPX2 2.12.0 and removing the unused Safety dependency, which pulled
+  in vulnerable NLTK releases. CI continues to enforce pip-audit without exclusions.
+- Isolate storage and authentication regression tests from inherited service
+  configuration, and use an explicit Cisco reference-pattern name so Bandit
+  does not mistake a public identifier regex for a hardcoded credential.
+- Decode CLI subprocess output as UTF-8 in the live-lock regression test so a
+  Windows host running with `PYTHONUTF8=1` or `PYTHONIOENCODING=utf-8` does not
+  fail on the CLI's status glyphs.
 - Preserve generic catalog rename and edition-evolution support alongside the
   Cisco hierarchy profile. Validate release labels, editions and populations
   from the synchronized registry; keep malformed metadata, retired references

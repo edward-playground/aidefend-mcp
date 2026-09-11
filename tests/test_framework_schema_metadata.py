@@ -791,6 +791,40 @@ def test_candidate_cleanup_keeps_only_active_and_current_revisions(
     assert not abandoned_path.exists()
 
 
+def test_settled_generation_sweeps_orphaned_temp_downloads(tmp_path, monkeypatch):
+    current_path = _write_github_dataset(tmp_path, revision=REVISION)
+    orphan_revision = tmp_path / f".{current_path.name}.i9pwe9rq.tmp"
+    orphan_unscoped = tmp_path / f".{sync_module.FRAMEWORK_PUBLIC_DATA_FILENAME}.abc_123.tmp"
+    orphan_revision.write_bytes(b"{partial")
+    orphan_unscoped.write_bytes(b"{partial")
+    unrelated = tmp_path / ".unrelated.tmp"
+    unrelated.write_bytes(b"keep")
+    monkeypatch.setattr(settings, "RAW_PATH", tmp_path)
+
+    sync_module._cleanup_staged_framework_public_data_revisions(
+        keep_revisions=[REVISION],
+    )
+
+    assert current_path.exists()
+    assert not orphan_revision.exists()
+    assert not orphan_unscoped.exists()
+    assert unrelated.exists()
+
+
+def test_staging_a_download_sweeps_orphaned_temp_files_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "RAW_PATH", tmp_path)
+    destination = tmp_path / sync_module.framework_public_data_staged_filename(REVISION)
+    orphan = tmp_path / f".{destination.name}.deadbeef.tmp"
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    orphan.write_bytes(b"{partial")
+
+    sync_module._atomic_stage_framework_public_data(destination, b"{}")
+
+    assert destination.read_bytes() == b"{}"
+    assert not orphan.exists()
+    assert [path.name for path in tmp_path.iterdir()] == [destination.name]
+
+
 @pytest.mark.asyncio
 async def test_github_request_failure_is_transient(tmp_path, monkeypatch):
     request = httpx.Request("GET", "https://example.invalid/data/data.json")

@@ -37,7 +37,7 @@
 
 ## 持續相容上游更新
 
-目前 release 的精確驗證快照是 AIDEFEND **1.20260805**、public schema
+目前 release 的精確驗證快照是 AIDEFEND **1.20260911**、public schema
 **2.3** 與 MCP index schema **3.3**，並涵蓋 framework 的三種工具分類：
 開源、source-available/open-weight 與商業工具。快照中的
 ID、標題、筆數與順序只是這個 release 的驗證範例，不是永久的 runtime 限制。
@@ -287,7 +287,7 @@ replica 必須有獨立的資料副本或 volume，或改用經過設計、可�
   以及每天驗證最新公開 framework 的 rolling upstream canary。
 - Source contract 會從 framework 的 `main.js` manifest 動態取得有順序的
   tactic 檔案集合，不會把 runtime 綁死在目前七個檔名或標題。
-- 目前 release contract 已對齊 AIDEFEND **1.20260805**、public schema
+- 目前 release contract 已對齊 AIDEFEND **1.20260911**、public schema
   **2.3** 與 MCP index schema **3.3**。這是精確驗證快照，
   不是對未來 framework ID、標題、內容、筆數或順序的固定限制。
 

@@ -1278,6 +1278,9 @@ async def api_classify_threat(request: Request, classify_request: ClassifyThreat
     **Note**: This tool uses ONLY static keyword matching. NO NLP, NO embedding,
     NO auto-chain. LLM handles text understanding and orchestration.
 
+    **Language**: The keyword dictionary is English-only. Non-English text returns
+    ``no_match``; use ``/api/v1/query`` or ``/api/v1/comprehensive-search`` instead.
+
     **Use Case**: Quickly normalize threat keywords from incident reports,
     security alerts, or vulnerability descriptions to standard framework IDs.
     """

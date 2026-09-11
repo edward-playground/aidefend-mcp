@@ -24,7 +24,6 @@ updates:
           - "flake8"
           - "mypy"
           - "bandit"
-          - "safety"
         update-types:
           - "minor"
           - "patch"

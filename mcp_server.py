@@ -380,6 +380,7 @@ async def _serve_with_instance_lock_held():
                     "data extraction, etc. Returns relevant defense tactics and implementation guidance."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "query": {
@@ -410,6 +411,7 @@ async def _serve_with_instance_lock_held():
                     "and sync status. Use this to check if the service is ready."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {},
                     "required": []
@@ -424,6 +426,7 @@ async def _serve_with_instance_lock_held():
                     "Note: This may take a few minutes. Auto-sync runs every hour by default."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {},
                     "required": []
@@ -438,6 +441,7 @@ async def _serve_with_instance_lock_held():
                     "and tools availability. Essential for understanding the scope of the knowledge base."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {},
                     "required": []
@@ -452,6 +456,7 @@ async def _serve_with_instance_lock_held():
                     "Use this before querying specific techniques to avoid errors."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "technique_id": {
@@ -472,6 +477,7 @@ async def _serve_with_instance_lock_held():
                     "for deep-diving into a specific defense technique."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "technique_id": {
@@ -506,6 +512,7 @@ async def _serve_with_instance_lock_held():
                     "and return structured resolution metadata."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "threat_id": {
@@ -543,6 +550,7 @@ async def _serve_with_instance_lock_held():
                     "Perfect for developers implementing specific security controls."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "technique_id": {
@@ -581,6 +589,7 @@ async def _serve_with_instance_lock_held():
                     "and prioritized recommendations. Essential for security program management."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "implemented_techniques": {
@@ -606,6 +615,7 @@ async def _serve_with_instance_lock_held():
                     "Uses heuristic-based analysis for mapping (100% local, no external API calls). Critical for governance and audit."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "technique_ids": {
@@ -632,6 +642,7 @@ async def _serve_with_instance_lock_held():
                     "Perfect for fast decision-making and presentations."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "topic": {
@@ -665,6 +676,7 @@ async def _serve_with_instance_lock_held():
                     "coverage rates. Essential for tracking security posture and identifying gaps."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "implemented_techniques": {
@@ -691,6 +703,7 @@ async def _serve_with_instance_lock_held():
                     "for top 5 recommendations, eliminating the need for subsequent get_technique_detail calls."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "implemented_techniques": {
@@ -731,9 +744,12 @@ async def _serve_with_instance_lock_held():
                     "2) Fuzzy matching for typo tolerance (free). "
                     "Maps common threat terms (prompt injection, model poisoning, etc.) to "
                     "standard framework IDs used by the service. "
+                    "Keyword matching is English-only; for other languages use "
+                    "query_aidefend or comprehensive_search. "
                     "No external API or paid LLM inference is used."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "text": {
@@ -775,6 +791,7 @@ async def _serve_with_instance_lock_held():
                     "showing tactics/pillars distribution."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "topic": {
@@ -822,6 +839,7 @@ async def _serve_with_instance_lock_held():
                     "Perfect for security program management, audits, and strategic planning."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "implemented_techniques": {
@@ -867,6 +885,7 @@ async def _serve_with_instance_lock_held():
                     "All scoring is 100% local using metadata analysis - no ML inference or external APIs."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "technique_ids": {
@@ -907,6 +926,7 @@ async def _serve_with_instance_lock_held():
                     "100% local implementation - all analysis happens on your machine."
                 ),
                 inputSchema={
+                    "additionalProperties": False,
                     "type": "object",
                     "properties": {
                         "incident_description": {

@@ -110,27 +110,27 @@ def test_current_framework_is_fully_parseable_and_contract_valid(tmp_path, monke
         all_documents.extend(extract_documents_from_tactic(tactic))
 
     document_types = Counter(document["type"] for document in all_documents)
-    assert len(seen_ids) == 357
-    assert len(seen_guidance_ids) == 851
-    assert guidance_total == 851
-    assert len(all_documents) == 1208
+    assert len(seen_ids) == 365
+    assert len(seen_guidance_ids) == 872
+    assert guidance_total == 872
+    assert len(all_documents) == 1237
     assert document_types == {
-        "technique": 92,
-        "subtechnique": 265,
-        "strategy": 851,
+        "technique": 93,
+        "subtechnique": 272,
+        "strategy": 872,
     }
-    assert actionable_total == 300
-    assert parent_total == 57
+    assert actionable_total == 307
+    assert parent_total == 58
     assert {
         field: (stats["controls"], stats["entries"], len(stats["unique"]))
         for field, stats in tool_category_stats.items()
     } == {
-        "toolsOpenSource": (300, 1952, 769),
-        "toolsSourceAvailable": (45, 84, 37),
-        "toolsCommercial": (275, 1371, 694),
+        "toolsOpenSource": (307, 1984, 786),
+        "toolsSourceAvailable": (46, 86, 37),
+        "toolsCommercial": (277, 1379, 699),
     }
-    assert scope_boundary_controls == 355
-    assert len(scope_references) == 751
+    assert scope_boundary_controls == 364
+    assert len(scope_references) == 854
     assert not {
         target_id
         for _owner_id, target_id in scope_references
@@ -146,7 +146,7 @@ def test_current_framework_is_fully_parseable_and_contract_valid(tmp_path, monke
     scope_boundary_documents = [
         document for document in all_documents if document["scope_boundary"]
     ]
-    assert len(scope_boundary_documents) == 1204
+    assert len(scope_boundary_documents) == 1236
     for document in scope_boundary_documents:
         text = document["text"]
         scope_marker = "\nScope Boundary:"
@@ -215,7 +215,7 @@ def test_current_framework_version_export_is_resolved():
         pytest.fail("aidefend-intro.js is not available for the release gate")
 
     version = extract_framework_version(intro)
-    assert version == "1.20260805"
+    assert version == "1.20260911"
     assert "Identifier" not in version
 
     migration_path = root / "data" / "framework-migrations.json"
@@ -233,7 +233,7 @@ def test_current_framework_version_export_is_resolved():
         staged_files,
         algorithm="sha256",
         source_files=source_files,
-    ) == "65a0f785b368f28e8a1afb7e19dd53113adeeb8a4bde8ab40387b546b067eb5d"
+    ) == "4c1e492dad8359bc6ef7a9fe93d51e4fe73b2c69de0e1a79d9fe65bfc571d9bc"
 
 
 @pytest.mark.current_snapshot

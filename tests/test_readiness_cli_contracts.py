@@ -530,7 +530,7 @@ def test_installed_wheel_defaults_to_platform_user_data_not_site_packages(
 
 
 def test_installed_wheel_relative_storage_override_stays_under_user_data(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, isolated_storage_environment
 ):
     user_data = tmp_path / "user-data"
     monkeypatch.setattr(config_module, "RELATIVE_STORAGE_BASE", user_data)

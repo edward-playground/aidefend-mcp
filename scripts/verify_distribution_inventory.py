@@ -88,6 +88,7 @@ SDIST_REQUIRED_TEST_FILES = {
     "scripts/verify_distribution_inventory.py",
     "scripts/verify_index_manifest.py",
     "tests/__init__.py",
+    "tests/conftest.py",
     "tests/README.md",
     "tests/fixtures/test_example.js",
     "tests/framework_migration_fixtures.py",

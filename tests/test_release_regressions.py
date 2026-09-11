@@ -51,8 +51,10 @@ def test_implementation_priority_tracks_2026_poisoning_concept_not_legacy_rank()
     assert score_for("LLM03:2026") == 0.0
 
 
-def test_data_path_override_derives_all_default_storage_paths(tmp_path):
-    configured = Settings(DATA_PATH=tmp_path)
+def test_data_path_override_derives_all_default_storage_paths(
+    tmp_path, isolated_storage_environment
+):
+    configured = Settings(DATA_PATH=tmp_path, _env_file=None)
 
     assert configured.DB_PATH == tmp_path / "aidefend_kb.lancedb"
     assert configured.RAW_PATH == tmp_path / "raw_content"
@@ -61,7 +63,9 @@ def test_data_path_override_derives_all_default_storage_paths(tmp_path):
 
 
 @pytest.mark.parametrize("field_name", ["DB_PATH", "RAW_PATH", "VERSION_FILE"])
-def test_authoritative_storage_cannot_escape_data_path_lease(tmp_path, field_name):
+def test_authoritative_storage_cannot_escape_data_path_lease(
+    tmp_path, field_name, isolated_storage_environment
+):
     data_path = tmp_path / "owned" / "data"
     outside_path = data_path / ".." / "shared" / field_name.lower()
 

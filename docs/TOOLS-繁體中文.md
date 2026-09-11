@@ -3,9 +3,9 @@
 本文件提供 AIDEFEND MCP Service 中所有 **18 個 MCP 工具**的詳細文件。
 
 > **即時資料說明：** 本文件中的 ID、名稱與語料筆數已對齊 AIDEFEND
-> 1.20260805（public schema 2.3、MCP index schema 3.3：92 個 techniques +
-> 265 個 sub-techniques + 851 筆 guidance =
-> 1,208 份文件）。排名、分數、時間、framework coverage 總數與工具數量
+> 1.20260911（public schema 2.3、MCP index schema 3.3：93 個 techniques +
+> 272 個 sub-techniques + 872 筆 guidance =
+> 1,237 份文件）。排名、分數、時間、framework coverage 總數與工具數量
 > 都會依客戶實際同步的版本重新計算；這些快照筆數只是範例，不是 runtime
 > 驗收門檻。服務會動態處理內容、ID、標題、筆數、順序與相容的新增欄位，
 > 包含開源、source-available/open-weight 與商業工具。daily upstream canary
@@ -72,12 +72,12 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 Claude：[使用 get_aidefend_status 工具]
         AIDEFEND 知識庫狀態：
-        - Framework Version：1.20260805
+        - Framework Version：1.20260911
         - Framework Source Revision：e10c1678
         - Framework Public Schema：2.3
         - MCP Index Schema：3.3
         - Framework Migration Registry Schema：1.0
-        - 已索引文件：1,208
+        - 已索引文件：1,237
         - 服務就緒：是
 ```
 
@@ -92,13 +92,13 @@ curl http://localhost:8000/api/v1/status
 {
   "status": "online",
   "sync_info": {
-    "framework_version": "1.20260805",
+    "framework_version": "1.20260911",
     "source_revision": "e10c1678ee49f03f8fb0c97d446ba3fbc3543655",
     "framework_public_schema_version": "2.3",
     "index_schema_version": "3.3",
     "framework_migrations_schema_version": "1.0",
-    "framework_migrations_registry_version": "2026-08-05",
-    "total_documents": 1208,
+    "framework_migrations_registry_version": "2026-09-11",
+    "total_documents": 1237,
     "is_syncing": false
   }
 }
@@ -127,7 +127,7 @@ Claude：[使用 sync_aidefend 工具]
         下載最新內容...
         解析技術...
         生成 embeddings...
-        ✅ 同步完成！知識庫已更新至版本 1.20260805
+        ✅ 同步完成！知識庫已更新至版本 1.20260911
 ```
 
 #### REST API 範例：
@@ -141,8 +141,8 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20260805",
-  "documents_synced": 1208,
+  "framework_version": "1.20260911",
+  "documents_synced": 1237,
   "sync_duration_seconds": 42.3
 }
 ```
@@ -164,7 +164,7 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 
 Claude：[使用 get_statistics 工具]
         AIDEFEND 知識庫包含：
-        - 1,208 份文件總數（92 個 techniques、265 個 sub-techniques、851 個 strategies）
+        - 1,237 份文件總數（93 個 techniques、272 個 sub-techniques、872 個 strategies）
         - 涵蓋 7 個 tactics：Model、Harden、Detect、Isolate、Deceive、Evict、Restore
         - 威脅 framework 涵蓋範圍：10 個 OWASP LLM Top 10 2026 風險、28 個 MITRE ATLAS 技術
         - 299 個 controls 有開源工具、34 個有 source-available/open-weight 工具、
@@ -182,10 +182,10 @@ curl http://localhost:8000/api/v1/statistics
 ```json
 {
   "overview": {
-    "total_documents": 1208,
-    "total_techniques": 92,
-    "total_subtechniques": 265,
-    "total_strategies": 851,
+    "total_documents": 1237,
+    "total_techniques": 93,
+    "total_subtechniques": 272,
+    "total_strategies": 872,
     "total_actionable_items": 300
   },
   "by_tactic": {
@@ -1101,6 +1101,8 @@ curl -X POST "http://localhost:8000/api/v1/implementation-plan" \
 
 將常見威脅術語（prompt injection、training data poisoning 等）對應至 canonical framework ID（OWASP LLM Top 10 2026、MITRE ATLAS、MAESTRO）。
 
+> **語言說明**：兩層比對都使用英文關鍵字字典。其他語言的文字會回傳 `no_match`；中文等非英文輸入請改用支援多語言語意搜尋的 `query_aidefend` 或 `comprehensive_search`。
+
 **何時使用**：標準化事故報告、安全警報、漏洞描述或威脅情報中的威脅關鍵字為標準 framework ID。快速分類安全事件。
 
 **運作方式**：
@@ -1219,7 +1221,7 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
     "migration_registry_status": "active",
     "owasp_llm_catalog_aligned": true
   },
-  "timestamp": "2026-08-05T10:30:00Z"
+  "timestamp": "2026-09-11T10:30:00Z"
 }
 ```
 

@@ -11,7 +11,7 @@ on:
         default: main
         type: string
       run_current_snapshot:
-        description: Also run the exact 2026-08-05 snapshot assertions
+        description: Also run the exact 2026-09-11 snapshot assertions
         required: false
         default: false
         type: boolean
@@ -82,7 +82,7 @@ jobs:
               raise SystemExit(f"Release test suite skipped {skipped} test(s)")
           PY
 
-      - name: Run exact 2026-08-05 framework snapshot gate
+      - name: Run exact 2026-09-11 framework snapshot gate
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_current_snapshot }}
         run: python -m pytest -q -m current_snapshot
 

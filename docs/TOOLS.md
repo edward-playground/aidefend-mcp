@@ -3,9 +3,9 @@
 This document provides detailed documentation for all **18 MCP tools** available in the AIDEFEND MCP Service.
 
 > **Live-data contract:** IDs, names, and corpus-size examples in this guide
-> are aligned to AIDEFEND 1.20260805 (public schema 2.3, MCP index schema 3.3:
-> 92 techniques + 265 sub-techniques + 851 guidance records
-> = 1,208 documents). Rankings, scores, timestamps, framework-coverage totals,
+> are aligned to AIDEFEND 1.20260911 (public schema 2.3, MCP index schema 3.3:
+> 93 techniques + 272 sub-techniques + 872 guidance records
+> = 1,237 documents). Rankings, scores, timestamps, framework-coverage totals,
 > and tool counts are illustrative because they are recomputed from the version
 > a customer has synchronized; these snapshot counts are examples, not runtime
 > acceptance thresholds. The service dynamically handles content, ID, title,
@@ -75,12 +75,12 @@ You: "What's the status of the AIDEFEND service?"
 
 Claude: [Uses get_aidefend_status tool]
         AIDEFEND Knowledge Base Status
-        - Framework Version: 1.20260805
+        - Framework Version: 1.20260911
         - Framework Source Revision: e10c1678
         - Framework Public Schema: 2.3
         - MCP Index Schema: 3.3
         - Framework Migration Registry Schema: 1.0
-        - Indexed Documents: 1,208
+        - Indexed Documents: 1,237
         - Service ready: Yes
 ```
 
@@ -95,13 +95,13 @@ curl http://localhost:8000/api/v1/status
 {
   "status": "online",
   "sync_info": {
-    "framework_version": "1.20260805",
+    "framework_version": "1.20260911",
     "source_revision": "e10c1678ee49f03f8fb0c97d446ba3fbc3543655",
     "framework_public_schema_version": "2.3",
     "index_schema_version": "3.3",
     "framework_migrations_schema_version": "1.0",
-    "framework_migrations_registry_version": "2026-08-05",
-    "total_documents": 1208,
+    "framework_migrations_registry_version": "2026-09-11",
+    "total_documents": 1237,
     "is_syncing": false
   }
 }
@@ -130,7 +130,7 @@ Claude: [Uses sync_aidefend tool]
         Downloading latest content...
         Parsing techniques...
         Generating embeddings...
-        ✅ Sync complete! Knowledge base updated to version 1.20260805
+        ✅ Sync complete! Knowledge base updated to version 1.20260911
 ```
 
 #### REST API Example:
@@ -144,8 +144,8 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20260805",
-  "documents_synced": 1208,
+  "framework_version": "1.20260911",
+  "documents_synced": 1237,
   "sync_duration_seconds": 42.3
 }
 ```
@@ -167,7 +167,7 @@ You: "Can you show me statistics about the AIDEFEND knowledge base?"
 
 Claude: [Uses get_statistics tool]
         The AIDEFEND knowledge base contains:
-        - 1,208 total documents (92 techniques, 265 sub-techniques, 851 strategies)
+        - 1,237 total documents (93 techniques, 272 sub-techniques, 872 strategies)
         - Coverage across 7 tactics: Model, Harden, Detect, Isolate, Deceive, Evict, Restore
         - Threat framework coverage: 10 OWASP LLM Top 10 2026 risks, 28 MITRE ATLAS techniques
         - 299 controls with open-source tools, 34 with source-available/open-weight tools,
@@ -185,10 +185,10 @@ curl http://localhost:8000/api/v1/statistics
 ```json
 {
   "overview": {
-    "total_documents": 1208,
-    "total_techniques": 92,
-    "total_subtechniques": 265,
-    "total_strategies": 851,
+    "total_documents": 1237,
+    "total_techniques": 93,
+    "total_subtechniques": 272,
+    "total_strategies": 872,
     "total_actionable_items": 300
   },
   "by_tactic": {
@@ -1129,6 +1129,8 @@ own deployment if it is an operational requirement.
 
 Maps common threat terms (prompt injection, training data poisoning, etc.) to canonical framework IDs (OWASP LLM Top 10 2026, MITRE ATLAS, MAESTRO).
 
+> **Language note**: Both tiers match an English keyword dictionary. Text in other languages returns `no_match`; use `query_aidefend` or `comprehensive_search`, which run multilingual semantic search, for non-English input.
+
 **When to use**: Normalize threat keywords from incident reports, security alerts, vulnerability descriptions, or threat intelligence to standard framework IDs. Quick triage of security events.
 
 **How it works**:
@@ -1252,7 +1254,7 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
     "migration_registry_status": "active",
     "owasp_llm_catalog_aligned": true
   },
-  "timestamp": "2026-08-05T10:30:00Z"
+  "timestamp": "2026-09-11T10:30:00Z"
 }
 ```
 

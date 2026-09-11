@@ -84,8 +84,12 @@ class TestInformationLeakagePrevention:
     """Test that internal error details are hidden from API responses."""
 
     @patch("app.main.query_engine")
-    def test_generic_exception_hides_details(self, mock_engine):
+    def test_generic_exception_hides_details(self, mock_engine, monkeypatch):
         """Test that endpoint-specific exceptions hide internal details."""
+        from app.config import settings
+
+        # Authentication is covered separately; this test must reach the failing query.
+        monkeypatch.setattr(settings, "AUTH_MODE", "no_auth")
         client = TestClient(app)
 
         # Mock query engine to raise an unexpected exception

@@ -331,7 +331,9 @@ async def test_real_child_lease_blocks_service_and_standalone_sync(isolated_leas
     sync_module.release_service_instance_lock()
 
 
-def test_cli_force_never_replaces_or_deletes_live_lock_inode(tmp_path):
+def test_cli_force_never_replaces_or_deletes_live_lock_inode(
+    tmp_path, isolated_storage_environment
+):
     lock_path = tmp_path / "cli-data" / "sync.lock"
     process, expected_holder_pid = _start_child_lock_holder(lock_path)
     try:
@@ -339,12 +341,20 @@ def test_cli_force_never_replaces_or_deletes_live_lock_inode(tmp_path):
         before = (before_stat.st_ino, before_stat.st_mtime_ns, before_stat.st_size)
         environment = os.environ.copy()
         environment["DATA_PATH"] = str(lock_path.parent)
+        environment["DB_PATH"] = str(lock_path.parent / "aidefend_kb.lancedb")
+        environment["RAW_PATH"] = str(lock_path.parent / "raw_content")
+        environment["VERSION_FILE"] = str(lock_path.parent / "local_version.json")
+        environment["LOG_PATH"] = str(lock_path.parent / "logs" / "aidefend_mcp.log")
         result = subprocess.run(  # nosec B603
             [sys.executable, "__main__.py", "--resync", "--force"],
             cwd=Path(__file__).resolve().parents[1],
             env=environment,
             capture_output=True,
             text=True,
+            # The CLI prints UTF-8 status glyphs; never let the parent's locale
+            # codec (cp1252 on Windows) turn that into a decode failure.
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )

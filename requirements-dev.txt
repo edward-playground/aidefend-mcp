@@ -9,7 +9,7 @@ pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 httpx==0.28.1  # For testing async endpoints
-httpx2==2.9.1  # Starlette 1.x TestClient backend
+httpx2==2.12.0  # Starlette 1.x TestClient backend; includes HTTPX2 security fixes
 tokenizers>=0.15,<1.0  # Imported directly by tokenizer contract tests
 
 # Code quality
@@ -19,10 +19,10 @@ mypy==1.14.1
 isort==5.13.2
 
 # Security scanning
-safety==3.8.1
+# CI uses pip-audit; do not pull in the unused Safety/NLTK dependency tree.
 pip-audit==2.10.1
 bandit==1.9.4
-# Safety/Authlib pulls cryptography into CI; 49.0.0 is affected by
+# Keep cryptography pinned for development tools; 49.0.0 is affected by
 # PYSEC-2026-3552. Keep the audited development environment on the fixed line.
 cryptography==50.0.0
 

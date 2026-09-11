@@ -48,14 +48,14 @@ Thank you for your interest in contributing to the AIDEFEND MCP Service! This gu
 ### Running Tests
 
 ```bash
-# Run all tests
-pytest
+# Run the rolling compatibility suite against the synchronized Framework
+pytest -m "not current_snapshot"
 
 # Run specific test file
 pytest tests/test_parser.py
 
 # Run with coverage
-pytest --cov=app --cov-report=html
+pytest -m "not current_snapshot" --cov=app --cov-report=html
 
 # Run only unit tests
 pytest -m unit
@@ -64,8 +64,14 @@ pytest -m unit
 pytest -m integration
 
 # Skip slow tests
-pytest -m "not slow"
+pytest -m "not slow and not current_snapshot"
 ```
+
+Run `python __main__.py --resync` before the rolling suite so live-corpus tests
+can inspect the current source and index. The `current_snapshot` tests retain
+exact counts and digests for the historical 2026-09-11 snapshot; run
+`pytest -m current_snapshot` only with that snapshot. They are intentionally
+excluded from the rolling release gate in CI.
 
 ### Code Quality
 
@@ -241,7 +247,7 @@ This repository includes automated security scanning via GitHub Actions:
 
 **Security tools:**
 - **Bandit**: Static security analysis for Python code
-- **Safety**: Dependency vulnerability scanning
+- **pip-audit**: Dependency vulnerability scanning
 - **CodeQL**: Advanced semantic code analysis
 
 ### Reporting Security Issues

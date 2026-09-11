@@ -1119,8 +1119,8 @@ def _resolve_cisco_reference(
 
     if re.search(r"\b(?:LLM\d|AML\.T|ASI\d|NISTAML\.)", value, re.I):
         return invalid("mixed_frameworks", "Submit one framework reference per query.")
-    token_pattern = r"\bAI(?:Subtech|Tech)-[^\s,;()[\]{}&/?]+"
-    tokens = list(re.finditer(token_pattern, value, re.I))
+    reference_pattern = r"\bAI(?:Subtech|Tech)-[^\s,;()[\]{}&/?]+"
+    tokens = list(re.finditer(reference_pattern, value, re.I))
     if len(tokens) != len(re.findall(r"\bAI(?:Subtech|Tech)", value, re.I)):
         return invalid(
             "malformed_identifier", "Use a complete AITech-N.N or AISubtech-N.N.N identifier."
@@ -1141,7 +1141,7 @@ def _resolve_cisco_reference(
         )
         if match[3] is not None:
             editions.append(match[3].lower())
-    remainder = re.sub(token_pattern, " ", value, flags=re.I)
+    remainder = re.sub(reference_pattern, " ", value, flags=re.I)
 
     def take_edition(match):
         editions.append(match[1].lower())

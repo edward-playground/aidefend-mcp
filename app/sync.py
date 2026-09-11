@@ -110,6 +110,14 @@ _DURABLE_TOMBSTONE_PATTERN = re.compile(
 _FRAMEWORK_PUBLIC_DATA_REVISION_FILENAME_PATTERN = re.compile(
     rf"^{re.escape(FRAMEWORK_PUBLIC_DATA_REVISION_PREFIX)}[0-9a-f]{{40}}\.json$"
 )
+# NamedTemporaryFile names produced by _atomic_stage_framework_public_data():
+# ".<staged filename>.<random>.tmp". A killed process (for example a stdio MCP
+# server terminated by its client mid-download) can leave these behind.
+_FRAMEWORK_PUBLIC_DATA_TEMP_FILENAME_PATTERN = re.compile(
+    rf"^\.(?:{re.escape(FRAMEWORK_PUBLIC_DATA_FILENAME)}"
+    rf"|{re.escape(FRAMEWORK_PUBLIC_DATA_REVISION_PREFIX)}[0-9a-f]{{40}}\.json)"
+    r"\.[A-Za-z0-9_]+\.tmp$"
+)
 UNKNOWN_FRAMEWORK_SCHEMA_VERSION = "unknown"
 LEGACY_FRAMEWORK_VERSION = "1.20260704"
 LEGACY_FRAMEWORK_REPOSITORY = "edward-playground/aidefense-framework"
@@ -1721,14 +1729,49 @@ def _cleanup_staged_framework_public_data_revisions(
         # mode. It cannot prove which immutable revision supplied its bytes.
         if keep_revisions:
             _discard_staged_framework_public_data_file()
+        _discard_orphaned_framework_public_data_temp_files()
     except Exception as exc:
         logger.warning("Could not clean framework public dataset revisions: %s", exc)
+
+
+def _discard_orphaned_framework_public_data_temp_files() -> int:
+    """Remove incomplete staging downloads left behind by an interrupted process.
+
+    Returns the number of orphaned temporary files removed. Never raises.
+    """
+    removed = 0
+    try:
+        raw_root = settings.RAW_PATH.resolve()
+        if not raw_root.is_dir():
+            return 0
+        for candidate in raw_root.iterdir():
+            if _FRAMEWORK_PUBLIC_DATA_TEMP_FILENAME_PATTERN.fullmatch(candidate.name) is None:
+                continue
+            try:
+                validated = validate_file_path(candidate, raw_root)
+                if validated.is_file():
+                    validated.unlink()
+                    removed += 1
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Could not remove orphaned framework public dataset download %s: %s",
+                    candidate,
+                    cleanup_error,
+                )
+        if removed:
+            logger.info(
+                "Removed %d orphaned framework public dataset download(s)", removed
+            )
+    except Exception as exc:
+        logger.warning("Could not scan for orphaned framework public dataset downloads: %s", exc)
+    return removed
 
 
 def _atomic_stage_framework_public_data(destination: Path, content: bytes) -> None:
     """Atomically replace the bounded public-schema discovery artifact."""
     destination = validate_file_path(destination, settings.RAW_PATH)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    _discard_orphaned_framework_public_data_temp_files()
     temporary_path: Optional[Path] = None
     try:
         with tempfile.NamedTemporaryFile(

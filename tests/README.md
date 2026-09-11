@@ -8,22 +8,27 @@ Unit and integration tests for AIDEFEND MCP Service.
 # Initialize the current Framework/index once for release and live-corpus gates
 python __main__.py --resync
 
-# Run all tests
-pytest
+# Run the rolling suite against the current synchronized Framework
+pytest -m "not current_snapshot"
 
-# Run with coverage
-pytest --cov=app --cov-report=html
+# Run the rolling suite with coverage
+pytest -m "not current_snapshot" --cov=app --cov-report=html
 
 # Run specific test file
 pytest tests/test_auth.py
 
-# Run with verbose output
-pytest -v
+# Run the rolling suite with verbose output
+pytest -m "not current_snapshot" -v
 ```
 
 The full suite includes release gates that inspect the active Framework corpus
 and index. Use a fresh `DATA_PATH` and run `aidefend-mcp --resync` instead when
 testing an installed wheel or an extracted-and-installed sdist.
+
+The `current_snapshot` marker preserves exact counts and digests for the
+historical 2026-09-11 Framework snapshot. Use `pytest -m current_snapshot` only
+with that snapshot. CI excludes these historical assertions from its rolling
+release gate and requires zero skipped tests in the selected suite.
 
 ## Test Structure
 

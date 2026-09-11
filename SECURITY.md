@@ -168,7 +168,7 @@ To report security vulnerabilities, please contact [Edward Lee on LinkedIn](http
 - [ ] Operational procedures never delete `sync.lock` to bypass ownership
 
 ### Dependencies & Updates
-- [ ] Dependencies scanned for vulnerabilities (`pip list --outdated`, `safety check`)
+- [ ] Dependencies scanned for vulnerabilities (`python -m pip_audit -r requirements-dev.txt`)
 - [ ] Regular update schedule established
 - [ ] Security patch procedure documented
 

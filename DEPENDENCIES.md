@@ -188,7 +188,7 @@ verification only. They are not application runtime dependencies.
 | Package | Version | Purpose | License |
 |---------|---------|---------|---------|
 | **packaging** | 26.3 | Parse and compare artifact names and versions during wheel/sdist inventory verification | Apache-2.0 OR BSD-2-Clause |
-| **httpx2** | 2.9.1 | Supported Starlette TestClient backend used by the integration suite | BSD-3-Clause |
+| **httpx2** | 2.12.0 | Supported Starlette TestClient backend used by the integration suite | BSD-3-Clause |
 | **tomli** | 2.4.1 (Python <3.11) | Read `pyproject.toml` in the Python 3.10 release verifier | MIT |
 | **tokenizers** | >=0.15,<1.0 | Construct exact tokenizer fixtures in compatibility contract tests | Apache-2.0 |
 
