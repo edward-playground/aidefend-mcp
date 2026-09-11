@@ -4,17 +4,17 @@ Defenses for Threat Tool for AIDEFEND MCP Service
 Maps threats (OWASP, MITRE ATLAS, MAESTRO) to AIDEFEND defense techniques.
 """
 
+import asyncio
 import json
 import re
-import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 from fastembed import TextEmbedding
 
-from app.logger import get_logger
-from app.security import (
-    InputValidationError,
-    sanitize_technique_id,
-    validate_bounded_integer,
+from app.framework_migrations import (
+    canonical_lookup_id,
+    is_cisco_reference,
+    resolve_framework_reference,
 )
 from app.framework_utils import (
     canonicalize_maestro_identifier,
@@ -23,17 +23,14 @@ from app.framework_utils import (
     is_actionable_record,
     normalize_framework_item,
 )
-from app.framework_migrations import (
-    canonical_lookup_id,
-    resolve_framework_reference,
-)
+from app.logger import get_logger
+from app.security import InputValidationError, sanitize_technique_id, validate_bounded_integer
 
 logger = get_logger(__name__)
 
 
 _NON_OWASP_ID_PATTERN = re.compile(
-    r"(?:\bAML\.T\d|\bT\d{4}|\bNISTAML\.|\bASI\d|\bML\d{2}:2023|"
-    r"\bAITECH-|\bAISUBTECH-)",
+    r"(?:\bAML\.T\d|\bT\d{4}|\bNISTAML\.|\bASI\d|\bML\d{2}:2023|" r"\bAITECH-|\bAISUBTECH-)",
     re.IGNORECASE,
 )
 _OWASP_LLM_REFERENCE_PATTERN = re.compile(
@@ -159,16 +156,19 @@ def _resolve_requested_threat_id(
 ) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     """Resolve one ID against the registry from the same data generation."""
     legacy_normalized_id = normalize_threat_id(threat_id)
-    registry = (
-        version_info.get("framework_migrations")
-        if isinstance(version_info, dict)
-        else None
-    )
+    registry = version_info.get("framework_migrations") if isinstance(version_info, dict) else None
 
-    if re.search(r"\b(?:Cisco|AI(?:Subtech|Tech))", threat_id, re.I):
+    catalogs = registry.get("frameworks", {}) if isinstance(registry, dict) else {}
+    cisco_catalog = catalogs.get("cisco") if isinstance(catalogs, dict) else None
+    if is_cisco_reference(threat_id, cisco_catalog):
         if registry is None:
-            resolution = {"status": "invalid", "input": threat_id.strip(), "frameworkKey": "cisco",
-                          "reasonCode": "registry_unavailable", "reason": "This index has no Cisco edition metadata; complete a successful framework sync."}
+            resolution = {
+                "status": "invalid",
+                "input": threat_id.strip(),
+                "frameworkKey": "cisco",
+                "reasonCode": "registry_unavailable",
+                "reason": "This index has no Cisco edition metadata; complete a successful framework sync.",
+            }
         else:
             resolution = resolve_framework_reference(threat_id, registry, framework_key="cisco")
     elif _contains_mixed_framework_reference(threat_id):

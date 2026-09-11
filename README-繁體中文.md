@@ -59,6 +59,16 @@ Framework 版本遷移資料會從相同不可變來源快照中的
 輸入會安全失敗，不執行威脅查詢。通過驗證的遷移 registry 會與 index provenance 一起寫入原子替換的
 版本 metadata，因此失敗的更新不會讓新版解析 catalog 搭配舊資料庫。
 
+Cisco 查詢依同一索引同步啟用的 catalog 解析；目前 Framework 提供 **v2.0.0**。
+相容格式的名稱、版本及項目數變動會依 metadata 驗證，不把目前的 156 筆寫成固定限制。
+未附版本的 ID 解析到啟用版本；舊版本、退役 ID 與 ID／名稱衝突會回傳說明，不沿用舊對映。
+其他 catalog 格式仍可供同步與覆蓋分析使用；解析器不支援的 ID 格式則明確回報。
+
+啟用此次更新時，請更新 MCP client 實際使用的程式或套件，並同步新版 Framework。
+既有程序需要重新啟動才會載入新程式。若明確執行 `python __main__.py --resync`，
+請先停止占用該 `DATA_PATH` 的服務，等同步完成後再啟動。只推送任一 repo，
+不會自動替換已安裝的 MCP 套件，也不代表現用索引已同步成功。
+
 Framework Public Schema 會從 `data/data.json` 根物件的
 `version.schemaVersion` 動態取得。Local source 會從與 tactics 相同的
 framework root 讀取該檔案；GitHub source 則從與 tactics 完全相同的不可變

@@ -71,6 +71,21 @@ and index provenance are committed together in the atomically replaced version
 metadata, so a failed update cannot pair a new resolver catalog with an older
 database.
 
+Cisco references use the active catalog synchronized with that same index;
+the current Framework supplies **v2.0.0**. Compatible catalog label, edition
+and population changes are validated from metadata rather than pinned to this
+release's 156 items. Bare IDs resolve to the active edition. Superseded editions,
+retired IDs and ID/name conflicts return diagnostics without carrying old mappings
+forward. Other catalog profiles can remain available for ingestion and coverage;
+an unsupported reference format returns an explicit resolver error.
+
+To activate this update, update the MCP code/package used by your client and
+synchronize the newly published Framework. Existing processes must restart to load
+new code. For an explicit `python __main__.py --resync`, first stop the service
+owning that `DATA_PATH`, wait for synchronization to finish, then restart it.
+Pushing either repository alone does not update an already installed MCP package
+or prove that its index has synchronized.
+
 The Framework Public Schema is discovered dynamically from the root
 `version.schemaVersion` value in `data/data.json`. Local-source mode reads that
 file from the same configured framework root as the tactics; GitHub mode reads

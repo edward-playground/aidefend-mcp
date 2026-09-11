@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ambiguous`, or `invalid` metadata.
 
 ### Fixed
+- Preserve generic catalog rename and edition-evolution support alongside the
+  Cisco hierarchy profile. Validate release labels, editions and populations
+  from the synchronized registry; keep malformed metadata, retired references
+  and ID/name conflicts fail closed without restoring v1 mappings.
 - Bind every physical index build to a unique generation identity, durably pair
   LanceDB table renames with version metadata, and preserve verified rollback
   generations across crashes, transient I/O failures, initialization failures,

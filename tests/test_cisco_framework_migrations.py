@@ -1,9 +1,17 @@
 """Current Cisco edition resolution, atomic consumer lookup, and ingestion contracts."""
-from copy import deepcopy
+
 import json
+from copy import deepcopy
 from pathlib import Path
+
 import pytest
-from app.framework_migrations import FrameworkMigrationRegistryError, canonical_lookup_id, resolve_framework_reference, validate_framework_migration_registry
+
+from app.framework_migrations import (
+    FrameworkMigrationRegistryError,
+    canonical_lookup_id,
+    resolve_framework_reference,
+    validate_framework_migration_registry,
+)
 from tests.framework_migration_fixtures import owasp_llm_2026_registry
 
 
@@ -19,18 +27,28 @@ def resolve(query, value=None):
 
 
 def test_current_catalog_and_all_ids_names():
-    value=registry()
-    assert validate_framework_migration_registry(value)==value
-    items=value['frameworks']['cisco']['activeItems']
+    value = registry()
+    assert validate_framework_migration_registry(value) == value
+    items = value["frameworks"]["cisco"]["activeItems"]
+    assert len(items) == 156  # Pinned source fixture, not a runtime population limit.
     for item in items:
-        for query in [item['id'], 'Cisco v2 '+item['id'], item['id']+':2.0.0',item['id']+' '+item['name'],'Cisco '+item['name']]:
-            result=resolve(query,value)
-            if query=='Cisco '+item['name'] and sum(x['name']==item['name'] for x in items)>1:
-                assert result['status']=='ambiguous'
+        for query in [
+            item["id"],
+            "Cisco v2 " + item["id"],
+            item["id"] + ":2.0.0",
+            item["id"] + " " + item["name"],
+            "Cisco " + item["name"],
+        ]:
+            result = resolve(query, value)
+            if (
+                query == "Cisco " + item["name"]
+                and sum(x["name"] == item["name"] for x in items) > 1
+            ):
+                assert result["status"] == "ambiguous"
                 continue
-            assert result['canonical']['id']==item['id'],query
-            assert result['canonical']['edition']=='2.0.0'
-            assert canonical_lookup_id(result)==item['id'].upper()
+            assert result["canonical"]["id"] == item["id"], query
+            assert result["canonical"]["edition"] == "2.0.0"
+            assert canonical_lookup_id(result) == item["id"].upper()
 
 
 @pytest.mark.parametrize('query,code',[
@@ -59,18 +77,45 @@ def test_retired_ids_and_multiple_candidates():
     assert resolve('AML.T0051') is None
 
 
-@pytest.mark.parametrize('mutation', ['duplicate','retired_current','current_missing','auto_migration','edition','digest','parent','policy'])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "duplicate",
+        "retired_current",
+        "orphaned_parent",
+        "auto_migration",
+        "edition",
+        "digest",
+        "parent",
+        "policy",
+    ],
+)
 def test_registry_drift_rejected(mutation):
-    value=registry();catalog=value['frameworks']['cisco']
-    if mutation=='duplicate':catalog['activeItems'][1]['id']=catalog['activeItems'][0]['id']
-    if mutation=='retired_current':catalog['historicalItems'][0]['id']='AITech-2.1'
-    if mutation=='current_missing':catalog['activeItems'].pop()
-    if mutation=='auto_migration':catalog['migrations']=[{}]
-    if mutation=='edition':catalog['activeEdition']='1'
-    if mutation=='digest':catalog['sourceArtifact']['sha256']='invalid'
-    if mutation=='parent':next(x for x in catalog['activeItems'] if 'parentTechnique' in x)['parentTechnique']='AITech-999.1'
-    if mutation=='policy':catalog['resolutionPolicy']['mappingCarryForward']='automatic'
-    with pytest.raises(FrameworkMigrationRegistryError):validate_framework_migration_registry(value)
+    value = registry()
+    catalog = value["frameworks"]["cisco"]
+    if mutation == "duplicate":
+        catalog["activeItems"][1]["id"] = catalog["activeItems"][0]["id"]
+    if mutation == "retired_current":
+        catalog["historicalItems"][0]["id"] = "AITech-2.1"
+    if mutation == "orphaned_parent":
+        parent = next(
+            x["parentTechnique"] for x in catalog["activeItems"] if "parentTechnique" in x
+        )
+        catalog["activeItems"] = [x for x in catalog["activeItems"] if x["id"] != parent]
+    if mutation == "auto_migration":
+        catalog["migrations"] = [{}]
+    if mutation == "edition":
+        catalog["activeEdition"] = "1"
+    if mutation == "digest":
+        catalog["sourceArtifact"]["sha256"] = "invalid"
+    if mutation == "parent":
+        next(x for x in catalog["activeItems"] if "parentTechnique" in x)[
+            "parentTechnique"
+        ] = "AITech-999.1"
+    if mutation == "policy":
+        catalog["resolutionPolicy"]["mappingCarryForward"] = "automatic"
+    with pytest.raises(FrameworkMigrationRegistryError):
+        validate_framework_migration_registry(value)
 
 
 def test_query_routing_never_falls_back_to_legacy_regex():
