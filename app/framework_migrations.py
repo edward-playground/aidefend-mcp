@@ -79,6 +79,9 @@ def _https_url(value: Any, path: str, *, required_host: Optional[str] = None) ->
 
 
 def _validate_catalog(key: str, raw_catalog: Any) -> None:
+    if key == "cisco":
+        _validate_cisco_catalog(raw_catalog)
+        return
     catalog = _mapping(raw_catalog, f"frameworks.{key}")
     if catalog.get("stableKey") != key:
         raise FrameworkMigrationRegistryError(
@@ -531,6 +534,11 @@ def resolve_framework_reference(
     intentionally omit a canonical target.
     """
     validated = validate_framework_migration_registry(registry)
+    if framework_key == "cisco":
+        if "cisco" not in validated["frameworks"]:
+            return {"status": "invalid", "input": str(raw_reference or "").strip(), "frameworkKey": "cisco",
+                    "reasonCode": "registry_unavailable", "reason": "This index has no Cisco edition metadata; complete a successful framework sync."}
+        return _resolve_cisco_reference(raw_reference, validated["frameworks"]["cisco"])
     if framework_key != "owasp_llm":
         raise FrameworkMigrationRegistryError(
             f"reference resolution is not implemented for {framework_key!r}"
@@ -992,4 +1000,159 @@ def canonical_lookup_id(resolution: Optional[Mapping[str, Any]]) -> Optional[str
     if not isinstance(identifier, str):
         return None
     match = re.fullmatch(r"(LLM\d{2}):[0-9]{4}", identifier, flags=re.I)
+    if canonical.get("frameworkKey") == "cisco":
+        return identifier.upper()
     return match.group(1).upper() if match else identifier
+
+
+def _validate_cisco_catalog(raw_catalog: Any) -> None:
+    """Validate current taxonomy plus conflict-only legacy metadata, without fake ranks."""
+    path = "frameworks.cisco"
+    catalog = _mapping(raw_catalog, path)
+    if catalog.get("stableKey") != "cisco" or catalog.get("activeEdition") != "2.0.0":
+        raise FrameworkMigrationRegistryError("Cisco current edition must be 2.0.0")
+    label = "Cisco Integrated AI Security and Safety Framework"
+    if catalog.get("activeLabel") != label or catalog.get("officialTitle") != label:
+        raise FrameworkMigrationRegistryError("Cisco canonical framework label differs")
+    _text(catalog.get("displayLabel"), path + ".displayLabel", maximum=256)
+    _https_url(catalog.get("sourceUrl"), path + ".sourceUrl", required_host="learn-cloudsecurity.cisco.com")
+    editions = _mapping(catalog.get("editions"), path + ".editions")
+    if set(editions) != {"1", "2.0.0"}:
+        raise FrameworkMigrationRegistryError("Cisco edition declarations differ")
+    for edition, status, expected_label in [("1", "superseded", label + " v1"), ("2.0.0", "current", label)]:
+        record = _mapping(editions[edition], path + ".editions." + edition)
+        if record.get("status") != status or record.get("label") != expected_label:
+            raise FrameworkMigrationRegistryError("Cisco edition status or label differs")
+    response = _mapping(catalog.get("responseContract"), path + ".responseContract")
+    if (response.get("canonicalEdition") != "2.0.0"
+            or response.get("canonicalIdFormat") != "AITech-N.N or AISubtech-N.N.N"
+            or response.get("metadataField") != "resolution"
+            or not isinstance(response.get("metadataValues"), list)
+            or any(not isinstance(v, str) for v in response["metadataValues"])
+            or len(response["metadataValues"]) != len(RESOLUTION_STATUSES)
+            or set(response["metadataValues"]) != RESOLUTION_STATUSES):
+        raise FrameworkMigrationRegistryError("Cisco resolution response contract differs")
+    items = _list(catalog.get("activeItems"), path + ".activeItems")
+    if len(items) != 156:
+        raise FrameworkMigrationRegistryError("Cisco v2 catalog must contain 156 technique/subtechnique items")
+    active = {}
+    pattern = r"(?:AITech-[1-9]\d*\.[1-9]\d*|AISubtech-[1-9]\d*\.[1-9]\d*\.[1-9]\d*)"
+    for item in items:
+        item = _mapping(item, path + ".activeItems entry")
+        identifier = _text(item.get("id"), path + ".activeItems.id", maximum=128)
+        if re.fullmatch(pattern, identifier) is None or identifier in active:
+            raise FrameworkMigrationRegistryError("Cisco active identifier is malformed or duplicated")
+        _text(item.get("name"), path + ".activeItems.name", maximum=256)
+        if identifier.startswith("AITech-"):
+            if not re.fullmatch(r"OB-\d{3}", str(item.get("parentObjective", ""))):
+                raise FrameworkMigrationRegistryError("Cisco technique objective is malformed")
+        else:
+            _text(item.get("parentTechnique"), path + ".activeItems.parentTechnique", maximum=128)
+        active[identifier] = item
+    for item in items:
+        if item["id"].startswith("AISubtech-") and item["parentTechnique"] not in active:
+            raise FrameworkMigrationRegistryError("Cisco subtechnique parent is absent")
+    historical = _list(catalog.get("historicalItems"), path + ".historicalItems")
+    if not historical or len(historical) > 1000:
+        raise FrameworkMigrationRegistryError("Cisco historical conflict metadata is absent or excessive")
+    seen = set()
+    for item in historical:
+        item = _mapping(item, path + ".historicalItems entry")
+        identifier = _text(item.get("id"), path + ".historicalItems.id", maximum=128)
+        name = _text(item.get("name"), path + ".historicalItems.name", maximum=256)
+        if (set(item) != {"edition", "id", "name", "status"} or item["edition"] != "1"
+                or re.fullmatch(pattern, identifier) is None or identifier in seen
+                or item["status"] not in {"retired", "name-changed"}
+                or (item["status"] == "retired" and identifier in active)
+                or (item["status"] == "name-changed" and
+                    (identifier not in active or active[identifier]["name"] == name))):
+            raise FrameworkMigrationRegistryError("Cisco historical metadata conflicts with current catalog")
+        seen.add(identifier)
+    if catalog.get("migrations") != []:
+        raise FrameworkMigrationRegistryError("Cisco must not declare automatic legacy successors")
+    artifact = _mapping(catalog.get("sourceArtifact"), path + ".sourceArtifact")
+    if artifact.get("release") != "v2.0.0" or re.fullmatch(r"[0-9a-fA-F]{64}", str(artifact.get("sha256", ""))) is None:
+        raise FrameworkMigrationRegistryError("Cisco source release/digest differs")
+    for field in ("publicationDate", "retrievedDate"):
+        try:
+            date.fromisoformat(_text(artifact.get(field), path + ".sourceArtifact." + field))
+        except ValueError as error:
+            raise FrameworkMigrationRegistryError("Cisco source date is invalid") from error
+    _https_url(artifact.get("announcementUrl"), path + ".sourceArtifact.announcementUrl", required_host="blogs.cisco.com")
+    license_record = _mapping(catalog.get("sourceLicense"), path + ".sourceLicense")
+    for field in ("attribution", "scope", "changesMade"):
+        _text(license_record.get(field), path + ".sourceLicense." + field)
+    policy = _mapping(catalog.get("resolutionPolicy"), path + ".resolutionPolicy")
+    for field in ("bareId", "explicitLegacyEdition", "retiredId", "idNameConflict", "multipleReferences"):
+        _text(policy.get(field), path + ".resolutionPolicy." + field)
+    if policy.get("mappingCarryForward") != "never automatic; requires target-edition semantic review":
+        raise FrameworkMigrationRegistryError("Cisco mapping carry-forward policy differs")
+
+
+def _resolve_cisco_reference(raw_reference: Any, catalog: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    value = str(raw_reference or "").strip()
+    if not value or not re.search(r"\b(?:Cisco|AI(?:Subtech|Tech))", value, re.I):
+        return None
+    base = {"input": value, "frameworkKey": "cisco", "activeEdition": catalog["activeEdition"]}
+    def invalid(code, reason, **extra):
+        return {"status": "invalid", **base, "reasonCode": code, "reason": reason, **extra}
+    if re.search(r"\b(?:LLM\d|AML\.T|ASI\d|NISTAML\.)", value, re.I):
+        return invalid("mixed_frameworks", "Submit one framework reference per query.")
+    token_pattern = r"\bAI(?:Subtech|Tech)-[^\s,;()[\]{}&/?]+"
+    tokens = list(re.finditer(token_pattern, value, re.I))
+    if len(tokens) != len(re.findall(r"\bAI(?:Subtech|Tech)", value, re.I)):
+        return invalid("malformed_identifier", "Use a complete AITech-N.N or AISubtech-N.N.N identifier.")
+    editions, identifiers = [], []
+    for token in tokens:
+        match = re.fullmatch(r"(AITech|AISubtech)-([1-9]\d*\.[1-9]\d*(?:\.[1-9]\d*)?)(?::([^:]+))?", token.group(), re.I)
+        if not match or len(match[2].split('.')) != (3 if match[1].lower() == 'aisubtech' else 2):
+            return invalid("malformed_identifier", "Cisco identifier or edition suffix is malformed.")
+        identifiers.append(('AISubtech-' if match[1].lower() == 'aisubtech' else 'AITech-') + match[2])
+        if match[3] is not None:
+            editions.append(match[3].lower())
+    remainder = re.sub(token_pattern, ' ', value, flags=re.I)
+    def take_edition(match):
+        editions.append(match[1].lower())
+        return ' '
+    remainder = re.sub(r"\b(?:version\s+|edition\s+|v(?=\d|latest|current|next))([^\s,;()[\]{}&/?]+)", take_edition, remainder, flags=re.I)
+    normalized_editions = [re.sub(r'^v', '', item) for item in editions]
+    if any(item not in {'2', '2.0', '2.0.0', 'latest', 'current'} for item in normalized_editions):
+        legacy = any(item in {'1', '1.0', '1.0.0'} for item in normalized_editions)
+        return invalid('unsupported_edition' if legacy else 'malformed_or_unsupported_edition',
+                       'Only Cisco v2.0.0 is served. Legacy identifiers require a new semantic mapping review.',
+                       requestedEditions=normalized_editions, supportedEditions=[catalog['activeEdition']])
+    remainder = re.sub(r"\bCisco(?:\s+(?:Integrated\s+)?AI\s+Security(?:\s*(?:and|&)\s*Safety)?(?:\s+Framework)?)?", ' ', remainder, flags=re.I)
+    remainder = re.sub(r'^\s*[-:,;()[\]{}]+|[-:,;()[\]{}]+\s*$', ' ', remainder).strip()
+    name = _normalize_concept_name(remainder)
+    by_id = {item['id']: item for item in catalog['activeItems']}
+    identifiers = list(dict.fromkeys(identifiers))
+    def canonical(item):
+        return {'frameworkKey': 'cisco', 'framework': catalog['activeLabel'], 'displayFramework': catalog['displayLabel'],
+                'edition': catalog['activeEdition'], 'id': item['id'], 'name': item['name'], 'label': item['id']+' '+item['name']}
+    if len(identifiers) > 1:
+        return {'status': 'ambiguous', **base, 'reasonCode': 'multiple_identifiers',
+                'reason': 'Submit one Cisco technique or subtechnique per query.',
+                'candidates': [canonical(by_id[item]) for item in identifiers if item in by_id], 'requestedIds': identifiers}
+    named = [item for item in catalog['activeItems'] if _normalize_concept_name(item['name']) == name] if name else []
+    historical = [item for item in catalog['historicalItems'] if _normalize_concept_name(item['name']) == name] if name else []
+    if not identifiers:
+        if len(named) > 1:
+            return {'status': 'ambiguous', **base, 'reasonCode': 'multiple_name_matches', 'reason': 'This Cisco name is not unique; use an exact current identifier.', 'candidates': [canonical(item) for item in named]}
+        if len(named) == 1:
+            return {'status': 'normalized', **base, 'canonical': canonical(named[0]), 'reason': 'The exact current Cisco name resolves within v2.0.0.'}
+        return invalid('legacy_name_unsupported' if historical else 'unrecognized_reference',
+                       'Use an exact current Cisco identifier or canonical name; historical names are not migrated automatically.',
+                       **({'historicalReferences': historical} if historical else {}))
+    identifier = identifiers[0]
+    if identifier not in by_id:
+        retired = [item for item in catalog['historicalItems'] if item['id'] == identifier and item['status'] == 'retired']
+        return invalid('retired_identifier' if retired else 'unknown_identifier', 'This identifier is not active in Cisco v2.0.0. No successor is inferred.',
+                       requestedId=identifier, **({'historicalReferences': retired} if retired else {}))
+    current = by_id[identifier]
+    if name and _normalize_concept_name(current['name']) != name:
+        return invalid('id_name_conflict', 'The supplied name does not match the current identifier; neither silently overrides the other.',
+                       requestedId=identifier, identifierCandidate=canonical(current), namedCandidates=[canonical(item) for item in named],
+                       **({'historicalReferences': historical} if historical else {}))
+    return {'status': 'canonical', **base, 'canonical': canonical(current),
+            'reason': 'The identifier resolves against Cisco v2.0.0 only; v1 meanings and mappings are not carried forward.',
+            **({'reusedIdentifier': True} if any(item['id'] == identifier for item in catalog['historicalItems']) else {})}

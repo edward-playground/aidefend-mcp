@@ -165,7 +165,13 @@ def _resolve_requested_threat_id(
         else None
     )
 
-    if _contains_mixed_framework_reference(threat_id):
+    if re.search(r"\b(?:Cisco|AI(?:Subtech|Tech))", threat_id, re.I):
+        if registry is None:
+            resolution = {"status": "invalid", "input": threat_id.strip(), "frameworkKey": "cisco",
+                          "reasonCode": "registry_unavailable", "reason": "This index has no Cisco edition metadata; complete a successful framework sync."}
+        else:
+            resolution = resolve_framework_reference(threat_id, registry, framework_key="cisco")
+    elif _contains_mixed_framework_reference(threat_id):
         resolution = {
             "status": "invalid",
             "input": threat_id.strip(),
