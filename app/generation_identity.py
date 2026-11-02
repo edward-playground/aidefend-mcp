@@ -39,6 +39,7 @@ GENERATION_FINGERPRINT_FIELDS = (
     "total_actionable_items",
     "embedding_model",
     "embedding_dimension",
+    "embedding_runtime",
     "index_schema_version",
     "source_kind",
     "source_revision_kind",

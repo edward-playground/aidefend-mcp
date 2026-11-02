@@ -3,7 +3,7 @@
 import pytest
 import json
 from pathlib import Path
-from app.embedding_cache import EmbeddingCache
+from app.embedding_cache import EmbeddingCache, embedding_runtime_identity
 from app.config import settings
 import numpy as np
 
@@ -62,6 +62,7 @@ def test_schema_version_match_preserves_cache(tmp_path):
         "schema_version": settings.EMBEDDING_CACHE_SCHEMA_VERSION,  # Current version
         "model_name": "Xenova/multilingual-e5-base",
         "model_dimension": 768,
+        "embedding_runtime": embedding_runtime_identity(),
         "embeddings": {
             "abc123": {
                 "source_id": "AID-TEST-001",

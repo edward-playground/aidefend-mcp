@@ -208,6 +208,21 @@ class SyncStatus(BaseModel):
         description="Total number of indexed documents",
         ge=0
     )
+    embedding_runtime: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="FastEmbed and ONNX Runtime releases that produced the indexed vectors"
+    )
+    current_embedding_runtime: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="FastEmbed and ONNX Runtime releases that embed queries in this process"
+    )
+    embedding_runtime_matches_index: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether queries and indexed vectors come from the same runtime; null when the "
+            "index predates runtime recording. A mismatch is corrected by the next sync."
+        )
+    )
     is_syncing: bool = Field(
         default=False,
         description="Whether a sync operation is currently in progress"
@@ -255,7 +270,10 @@ class StatusResponse(BaseModel):
                         "framework_migrations_schema_version": "1.0",
                         "framework_migrations_registry_version": "2026-10-30",
                         "framework_migrations_sha256": "abcdef0123456789...",
-                        "total_documents": 1250,
+                        "total_documents": 1267,
+                        "embedding_runtime": {"fastembed": "0.9.1", "onnxruntime": "1.31.1"},
+                        "current_embedding_runtime": {"fastembed": "0.9.1", "onnxruntime": "1.31.1"},
+                        "embedding_runtime_matches_index": True,
                         "is_syncing": False
                     },
                     "message": "Service is online and synchronized",

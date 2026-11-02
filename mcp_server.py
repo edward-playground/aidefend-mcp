@@ -21,6 +21,7 @@ from mcp.types import Tool, TextContent
 
 # AIDEFEND imports
 from app.core import query_engine, QueryEngineNotInitializedError
+from app.embedding_cache import embedding_runtime_status
 from app.schemas import QueryRequest, ContextChunk
 from app.config import settings
 from app.sync import run_sync, sync_loop, get_last_sync_error
@@ -1251,6 +1252,26 @@ async def handle_status() -> List[TextContent]:
             f"**Embedding Model:** {stats.get('embedding_model', 'N/A')}\n"
             f"**Model Loaded:** {'✅ Yes' if stats['model_loaded'] else '❌ No'}\n"
         )
+        runtime = embedding_runtime_status(version_info)
+
+        def runtime_label(identity):
+            return escape_markdown(
+                ", ".join(f"{name} {version}" for name, version in sorted(identity.items()))
+            )
+
+        status_text += (
+            f"**Embedding Runtime:** {runtime_label(runtime['current_embedding_runtime'])}\n"
+        )
+        if runtime["embedding_runtime_matches_index"] is None:
+            status_text += (
+                "**Index Embedding Runtime:** ⚠️ Not recorded; the next sync re-embeds "
+                "the corpus with the current runtime.\n"
+            )
+        elif not runtime["embedding_runtime_matches_index"]:
+            status_text += (
+                f"**Index Embedding Runtime:** ⚠️ {runtime_label(runtime['embedding_runtime'])}; "
+                "queries use a different runtime. Run sync_aidefend to re-embed the corpus.\n"
+            )
 
         # Add error info if present
         if 'error' in stats:

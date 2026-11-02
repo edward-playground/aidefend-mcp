@@ -8,6 +8,7 @@ document participates in this contract.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import httpx
@@ -15,6 +16,7 @@ import pytest
 
 import app.sync as sync_module
 from app.config import settings
+from app.embedding_cache import embedding_runtime_identity
 
 REVISION = "e10c1678ee49f03f8fb0c97d446ba3fbc3543655"
 _DEFAULT_PAYLOAD = object()
@@ -1060,9 +1062,12 @@ async def test_core_sync_commits_public_metadata_without_indexing_the_dataset(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("recorded_runtime", ["current", "other", "unrecorded"])
 async def test_core_sync_noop_retains_verified_public_schema_for_same_github_revision(
     tmp_path,
     monkeypatch,
+    caplog,
+    recorded_runtime,
 ):
     data_root = tmp_path / "data"
     raw_root = data_root / "raw_content"
@@ -1082,6 +1087,10 @@ async def test_core_sync_noop_retains_verified_public_schema_for_same_github_rev
         "embedding_model": settings.EMBEDDING_MODEL,
         "embedding_dimension": settings.EMBEDDING_DIMENSION,
     }
+    if recorded_runtime == "current":
+        version_info["embedding_runtime"] = embedding_runtime_identity()
+    elif recorded_runtime == "other":
+        version_info["embedding_runtime"] = {"fastembed": "0.9.1", "onnxruntime": "1.28.0"}
     events = []
 
     async def fake_public_data(_revision, *, previous_source_revision=None):
@@ -1142,6 +1151,20 @@ async def test_core_sync_noop_retains_verified_public_schema_for_same_github_rev
     monkeypatch.setattr(sync_module, "embed_and_index", unexpected_embed)
     monkeypatch.setattr(sync_module, "_cleanup_successful_sync_artifacts", successful_cleanup)
     monkeypatch.setattr(sync_module, "save_sync_timestamp", save_timestamp)
+
+    if recorded_runtime != "current":
+        # Vectors from another or an unrecorded runtime must be rebuilt even
+        # though the framework revision is unchanged. Stop at the first download.
+        async def stop_download(*_args, **_kwargs):
+            raise RuntimeError("stop after the rebuild decision")
+
+        monkeypatch.setattr(sync_module, "download_intro_file", stop_download)
+        monkeypatch.setattr(sync_module, "download_file", stop_download)
+        caplog.set_level(logging.INFO, logger="app.sync")
+        assert await sync_module.core_sync() is False
+        assert "embedding runtime changed or missing" in caplog.text
+        assert "timestamp" not in events
+        return
 
     assert await sync_module.core_sync() is True
     assert events == ["cleanup", "timestamp"]

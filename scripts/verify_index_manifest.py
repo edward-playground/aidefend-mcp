@@ -24,6 +24,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from app.config import settings
 from app.core import decode_framework_record
+from app.embedding_cache import embedding_runtime_identity
 from app.framework_utils import framework_labels_from_registry
 from app.sync import (
     FRAMEWORK_MANIFEST_FILENAME,
@@ -379,6 +380,7 @@ def verify() -> Dict[str, Any]:
         "total_documents": len(expected_documents),
         "embedding_model": settings.EMBEDDING_MODEL,
         "embedding_dimension": settings.EMBEDDING_DIMENSION,
+        "embedding_runtime": embedding_runtime_identity(),
         "source_kind": expected_source_kind,
         "source_revision_kind": expected_revision_kind,
         "source_repository": expected_source_repository,

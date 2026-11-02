@@ -117,7 +117,7 @@ The installed runtime dependency set is approximately 500MB-1GB.
 - LanceDB: Lightweight, serverless vector DB (no external database needed)
 - pyarrow: Declared directly because synchronization code imports it
 - FastEmbed: Provides the release-tested CPU embedding path
-- onnxruntime: Declared directly as the supported CPU inference backend instead of relying on FastEmbed's transitive dependency
+- onnxruntime: Declared directly as the supported CPU inference backend instead of relying on FastEmbed's transitive dependency. Different releases produce measurably different vectors from the same model, so the index and embedding cache record the FastEmbed and ONNX Runtime versions; a change re-embeds the corpus at the next sync, and status reports a mismatch until then
 - pandas: Implicit dependency of LanceDB for data conversion
 - numpy: Declared directly because runtime code imports it
 

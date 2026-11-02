@@ -38,6 +38,7 @@ from app.schemas import (
     IncidentPlaybookRequest,
 )
 from app.core import query_engine, QueryEngineNotInitializedError
+from app.embedding_cache import embedding_runtime_status
 from app.sync import run_sync, sync_loop, is_sync_in_progress, get_last_sync_error
 from app.utils import _await_cancellation_safe, load_version_info
 from app.security import InputValidationError, SecurityError
@@ -575,6 +576,7 @@ async def get_status(request: Request):
                     "framework_migrations_sha256"
                 ),
                 total_documents=version_info.get("total_documents"),
+                **embedding_runtime_status(version_info),
                 is_syncing=is_sync_in_progress()
             )
 

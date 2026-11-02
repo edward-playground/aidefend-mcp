@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recovery also map to `AML.T0144` Recover AI Model Internals.
 - Ship the JSON test fixtures in the sdist so its bundled Cisco and ATLAS catalog
   tests can run from an extracted archive.
+- Stop mixing vectors from different embedding runtimes. ONNX Runtime 1.28 and
+  1.31 produce measurably different vectors from the same model, yet the
+  embedding cache reused vectors across runtime upgrades. The cache, the index
+  metadata, and its generation identity now record the FastEmbed and ONNX Runtime
+  versions; a change discards the cache and re-embeds the corpus at the next sync,
+  and both status surfaces report whether queries and the index share a runtime.
+  The first sync after upgrading re-embeds once because older indexes did not
+  record it.
 - Remove orphaned framework public dataset downloads (`.framework-public-data-*.tmp`)
   left in `RAW_PATH` when a stdio MCP server is terminated mid-sync, both before
   staging a new download and after a generation settles.

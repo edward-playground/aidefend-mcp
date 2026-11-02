@@ -78,6 +78,7 @@ Claude：[使用 get_aidefend_status 工具]
         - MCP Index Schema：3.3
         - Framework Migration Registry Schema：1.0
         - 已索引文件：1,267
+        - Embedding Runtime：fastembed 0.9.1, onnxruntime 1.31.1
         - 服務就緒：是
 ```
 
@@ -99,6 +100,9 @@ curl http://localhost:8000/api/v1/status
     "framework_migrations_schema_version": "1.0",
     "framework_migrations_registry_version": "2026-10-30",
     "total_documents": 1267,
+    "embedding_runtime": {"fastembed": "0.9.1", "onnxruntime": "1.31.1"},
+    "current_embedding_runtime": {"fastembed": "0.9.1", "onnxruntime": "1.31.1"},
+    "embedding_runtime_matches_index": true,
     "is_syncing": false
   }
 }

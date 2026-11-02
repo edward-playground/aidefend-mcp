@@ -19,6 +19,35 @@ from app.config import settings
 logger = get_logger(__name__)
 
 
+def embedding_runtime_identity() -> Dict[str, str]:
+    """Return the inference stack that produces vectors for the configured model.
+
+    The same model file yields measurably different vectors under different
+    ONNX Runtime releases, so cached and indexed vectors are valid only for the
+    exact runtime that produced them.
+    """
+    import fastembed
+    import onnxruntime
+
+    return {"fastembed": fastembed.__version__, "onnxruntime": onnxruntime.__version__}
+
+
+def embedding_runtime_status(version_info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compare the runtime that built the index with the one embedding queries.
+
+    ``embedding_runtime_matches_index`` is ``None`` for an index built before the
+    runtime was recorded; the next sync rebuilds such an index.
+    """
+    recorded = version_info.get("embedding_runtime") if isinstance(version_info, dict) else None
+    indexed = dict(recorded) if isinstance(recorded, dict) else None
+    current = embedding_runtime_identity()
+    return {
+        "embedding_runtime": indexed,
+        "current_embedding_runtime": current,
+        "embedding_runtime_matches_index": None if indexed is None else indexed == current,
+    }
+
+
 def compute_content_hash(text: str, model_name: str) -> str:
     """
     Compute a unique hash for document content and model combination.
@@ -48,7 +77,13 @@ class EmbeddingCache:
     - Auto-cleanup of deleted documents before each sync
     """
 
-    def __init__(self, cache_file: Path, model_name: str, dimension: int):
+    def __init__(
+        self,
+        cache_file: Path,
+        model_name: str,
+        dimension: int,
+        runtime: Optional[Dict[str, str]] = None,
+    ):
         """
         Initialize embedding cache.
 
@@ -56,10 +91,13 @@ class EmbeddingCache:
             cache_file: Path to cache JSON file
             model_name: Current embedding model name
             dimension: Embedding dimension (e.g., 768)
+            runtime: Inference stack producing new vectors (defaults to the
+                installed FastEmbed and ONNX Runtime releases)
         """
         self.cache_file = cache_file
         self.model_name = model_name
         self.dimension = dimension
+        self.runtime = dict(runtime) if runtime is not None else embedding_runtime_identity()
         self.cache = self._load_cache()
         self._hits = 0
         self._misses = 0
@@ -90,6 +128,17 @@ class EmbeddingCache:
                 )
                 return self._create_empty_cache()
 
+            # Vectors from another runtime (or an unrecorded one) would mix two
+            # embedding spaces in one index, so none of them may be reused.
+            cached_runtime = cache.get("embedding_runtime")
+            if cached_runtime != self.runtime:
+                logger.warning(
+                    f"🔄 Embedding runtime changed from {cached_runtime or 'unrecorded'} to "
+                    f"{self.runtime}. Invalidating {len(cache.get('embeddings', {}))} cached "
+                    "entries so every vector is recomputed by the current runtime."
+                )
+                return self._create_empty_cache()
+
             # Check if model changed
             cached_model = cache.get("model_name", "unknown")
             if cached_model != self.model_name:
@@ -115,6 +164,7 @@ class EmbeddingCache:
             "schema_version": settings.EMBEDDING_CACHE_SCHEMA_VERSION,
             "model_name": self.model_name,
             "model_dimension": self.dimension,
+            "embedding_runtime": dict(self.runtime),
             "embeddings": {},
             "metadata": {
                 "created_at": datetime.now().isoformat(),
@@ -217,6 +267,7 @@ class EmbeddingCache:
             self.cache["metadata"]["last_updated"] = datetime.now().isoformat()
             self.cache["model_name"] = self.model_name
             self.cache["model_dimension"] = self.dimension
+            self.cache["embedding_runtime"] = dict(self.runtime)
             self.cache["schema_version"] = settings.EMBEDDING_CACHE_SCHEMA_VERSION
 
             # Ensure directory exists

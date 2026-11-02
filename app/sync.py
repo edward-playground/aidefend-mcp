@@ -48,7 +48,11 @@ from app.utils import (
     load_version_info,
     format_bytes,
 )
-from app.embedding_cache import EmbeddingCache, compute_content_hash
+from app.embedding_cache import (
+    EmbeddingCache,
+    compute_content_hash,
+    embedding_runtime_identity,
+)
 from app.framework_utils import (
     build_framework_metrics,
     extract_framework_coverage,
@@ -5296,6 +5300,8 @@ async def core_sync(force_rebuild: bool = False) -> bool:
             rebuild_reasons.append("embedding model changed")
         if version_info.get("embedding_dimension") != settings.EMBEDDING_DIMENSION:
             rebuild_reasons.append("embedding dimension changed")
+        if version_info.get("embedding_runtime") != embedding_runtime_identity():
+            rebuild_reasons.append("embedding runtime changed or missing")
         expected_revision_kind = (
             "local_content_sha1" if _using_local_framework_source() else "git_commit_sha"
         )
@@ -5707,6 +5713,7 @@ async def core_sync(force_rebuild: bool = False) -> bool:
                 ),
                 "embedding_model": settings.EMBEDDING_MODEL,
                 "embedding_dimension": settings.EMBEDDING_DIMENSION,
+                "embedding_runtime": embedding_runtime_identity(),
                 "index_schema_version": settings.CACHE_SCHEMA_VERSION,
                 "source_kind": expected_source_kind,
                 "source_revision_kind": expected_revision_kind,

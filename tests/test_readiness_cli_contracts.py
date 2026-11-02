@@ -16,6 +16,7 @@ import app.logger as logger_module
 import app.main as main_module
 import app.sync as sync_module
 from app.config import Settings, settings
+from app.embedding_cache import embedding_runtime_identity
 from app.schemas import ClassifyThreatResponse, SecurityPostureRequest
 
 
@@ -223,6 +224,7 @@ async def test_status_exposes_complete_current_public_metadata_contract(monkeypa
         "framework_migrations_registry_version": "2026-08-05",
         "framework_migrations_sha256": "c" * 64,
         "total_documents": 1234,
+        "embedding_runtime": {"fastembed": "0.9.1", "onnxruntime": "1.28.0"},
     }
 
     monkeypatch.setattr(main_module, "load_version_info", lambda: version_info)
@@ -246,6 +248,11 @@ async def test_status_exposes_complete_current_public_metadata_contract(monkeypa
     assert sync_info.framework_migrations_schema_version == "1.0"
     assert sync_info.framework_migrations_registry_version == "2026-08-05"
     assert sync_info.framework_migrations_sha256 == "c" * 64
+    assert sync_info.embedding_runtime == {"fastembed": "0.9.1", "onnxruntime": "1.28.0"}
+    assert sync_info.current_embedding_runtime == embedding_runtime_identity()
+    assert sync_info.embedding_runtime_matches_index is (
+        sync_info.embedding_runtime == embedding_runtime_identity()
+    )
 
     status_route = next(
         route
@@ -286,6 +293,9 @@ async def test_status_exposes_complete_current_public_metadata_contract(monkeypa
         "framework_migrations_registry_version",
         "framework_migrations_sha256",
         "total_documents",
+        "embedding_runtime",
+        "current_embedding_runtime",
+        "embedding_runtime_matches_index",
         "is_syncing",
     }
 
