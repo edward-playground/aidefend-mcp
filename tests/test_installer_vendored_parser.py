@@ -308,3 +308,34 @@ def test_public_release_ignore_contracts_cover_machine_local_state_and_secrets()
         "compose.override.yaml",
     }
     assert required_docker_rules <= set(dockerignore.splitlines())
+
+
+def test_vendored_artifacts_are_never_line_ending_converted():
+    # Git for Windows defaults to core.autocrlf=true; a converted acorn.mjs fails
+    # the installer's byte-exact integrity check on every fresh Windows clone.
+    root = Path(__file__).resolve().parents[1]
+    attributes = (root / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    assert "vendor/acorn.mjs -text" in attributes
+    assert "vendor/ACORN-LICENSE -text" in attributes
+
+
+def test_dependency_imports_are_checked_in_a_fresh_interpreter():
+    failures = installer._failed_imports_in_fresh_interpreter(
+        ["json", "aidefend_missing_module_for_test"]
+    )
+    assert set(failures) == {"aidefend_missing_module_for_test"}
+    assert failures["aidefend_missing_module_for_test"].startswith("ModuleNotFoundError")
+
+
+def test_critical_dependency_report_uses_fresh_interpreter_results(monkeypatch):
+    monkeypatch.setattr(
+        installer,
+        "_failed_imports_in_fresh_interpreter",
+        lambda _names: {"mcp": "ModuleNotFoundError: No module named 'pywintypes'"},
+    )
+    valid, errors = installer.verify_critical_dependencies()
+    assert valid is False
+    assert len(errors) == 1 and "mcp: Model Context Protocol SDK" in errors[0]
+
+    monkeypatch.setattr(installer, "_failed_imports_in_fresh_interpreter", lambda _names: {})
+    assert installer.verify_critical_dependencies() == (True, [])

@@ -1041,6 +1041,36 @@ def verify_onnx_runtime() -> Tuple[bool, str]:
         return False, f"Unexpected error: {e}"
 
 
+def _failed_imports_in_fresh_interpreter(import_names: List[str]) -> Dict[str, str]:
+    """Import modules in a new interpreter and return each failure's message.
+
+    Packages installed by this process, such as pywin32, register import paths
+    through .pth files that only a newly started interpreter processes. Importing
+    them in-process right after installation fails even though the service,
+    which always starts fresh, imports them normally.
+    """
+    probe = (
+        "import importlib, json, sys\n"
+        "failures = {}\n"
+        "for name in sys.argv[1:]:\n"
+        "    try:\n"
+        "        importlib.import_module(name)\n"
+        "    except Exception as exc:\n"
+        "        failures[name] = f'{type(exc).__name__}: {exc}'\n"
+        "print(json.dumps(failures))\n"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", probe, *import_names],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        return json.loads(result.stdout.strip().splitlines()[-1])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
+        return {name: f"dependency check could not run: {exc}" for name in import_names}
+
+
 def verify_critical_dependencies(show_progress: bool = False) -> Tuple[bool, List[str]]:
     """
     Verify all critical dependencies can be imported.
@@ -1069,20 +1099,20 @@ def verify_critical_dependencies(show_progress: bool = False) -> Tuple[bool, Lis
     if sys.platform == 'win32':
         critical_imports['pywin32'] = 'Windows platform APIs (required by MCP SDK on Windows)'
 
-    errors = []
-    total = len(critical_imports)
-    for idx, (package, description) in enumerate(critical_imports.items(), 1):
-        if show_progress:
-            # Show inline progress on same line
-            sys.stdout.write(f"\r   Verifying dependencies... ({idx}/{total}) {package}")
-            sys.stdout.flush()
+    if show_progress:
+        sys.stdout.write(f"\r   Verifying {len(critical_imports)} dependencies...")
+        sys.stdout.flush()
 
-        try:
-            # pywin32 has a different import name
-            import_name = 'win32api' if package == 'pywin32' else package
-            __import__(import_name)
-        except ImportError as e:
-            errors.append(f"   ❌ {package}: {description}\n      Error: {e}")
+    # pywin32 has a different import name
+    import_names = {
+        package: 'win32api' if package == 'pywin32' else package for package in critical_imports
+    }
+    failures = _failed_imports_in_fresh_interpreter(list(import_names.values()))
+    errors = [
+        f"   ❌ {package}: {description}\n      Error: {failures[import_names[package]]}"
+        for package, description in critical_imports.items()
+        if import_names[package] in failures
+    ]
 
     if show_progress:
         # Clear the progress line and print completion

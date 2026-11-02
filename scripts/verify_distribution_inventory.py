@@ -68,6 +68,7 @@ REQUIRED_RUNTIME_PYTHON_FILES = {
 COMMON_REQUIRED_FILES = REQUIRED_RUNTIME_PYTHON_FILES
 SDIST_REQUIRED_TEST_FILES = {
     ".dockerignore",
+    ".gitattributes",
     ".gitignore",
     ".github/workflows/ci.yml",
     "Dockerfile",

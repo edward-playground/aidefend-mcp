@@ -19,6 +19,7 @@ recursive-include scripts *.py
 recursive-include docs *.md
 recursive-include .github/workflows *.yml *.yaml
 include .dockerignore
+include .gitattributes
 include .env.example
 include .gitignore
 include CHANGELOG.md

@@ -59,6 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recovery also map to `AML.T0144` Recover AI Model Internals.
 - Ship the JSON test fixtures in the sdist so its bundled Cisco and ATLAS catalog
   tests can run from an extracted archive.
+- Let the one-click installer succeed on a fresh Windows clone. Git for Windows'
+  default `core.autocrlf=true` converted the vendored `vendor/acorn.mjs` to CRLF,
+  which failed the installer's byte-exact integrity check; `.gitattributes` now
+  exempts the vendored artifacts from line-ending conversion. The installer also
+  verifies imports in a fresh interpreter: pywin32 installed by the same run is
+  importable only by a new process, so the first run reported `mcp` as missing.
 - Stop mixing vectors from different embedding runtimes. ONNX Runtime 1.28 and
   1.31 produce measurably different vectors from the same model, yet the
   embedding cache reused vectors across runtime upgrades. The cache, the index

@@ -1,0 +1,5 @@
+# Vendored upstream artifacts are byte-for-byte copies whose exact bytes the
+# installer verifies. Never convert their line endings on checkout, including
+# Git for Windows' default core.autocrlf=true.
+vendor/acorn.mjs -text
+vendor/ACORN-LICENSE -text

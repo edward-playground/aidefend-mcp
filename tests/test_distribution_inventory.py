@@ -272,6 +272,7 @@ def test_release_contract_requires_wheel_license_and_attribution_assets():
 def test_release_contract_requires_sdist_test_imports_and_static_inputs():
     assert {
         ".dockerignore",
+        ".gitattributes",
         ".gitignore",
         ".github/workflows/ci.yml",
         "Dockerfile",
