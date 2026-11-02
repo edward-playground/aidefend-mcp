@@ -1,12 +1,12 @@
 # AIDEFEND MCP Service Dependencies
 # Requires Python >= 3.11 (pillow==13.0.0 requires >=3.11; Python 3.10 reached
 # end of life on 2026-10-01). The release matrix covers Python 3.11 through 3.14.
-# Last updated: 2026-10-31
+# Last updated: 2026-11-02
 
 # FastAPI and server
 fastapi==0.141.1
 starlette==1.4.1
-uvicorn[standard]==0.52.1
+uvicorn[standard]==0.52.4
 python-multipart==0.0.32
 
 # Pydantic and settings

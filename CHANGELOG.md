@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leaking a Python `TypeError` from the tool function.
 - Document that `classify_threat` keyword matching is English-only; other
   languages are served by the multilingual semantic search tools.
+- Upgrade Uvicorn to 0.52.4 and group Dependabot minor and patch updates into
+  one pull request per ecosystem so stale single-package PRs cannot exhaust the
+  open-PR limit; major updates still arrive individually.
 
 ### Fixed
 - Restore the runtime and development dependency audits by upgrading Pillow to

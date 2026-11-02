@@ -15,7 +15,9 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-    # Group minor and patch updates together
+    # Group minor and patch updates so stale single-package PRs cannot exhaust
+    # the open-PR limit. A dependency joins the first matching group; major
+    # updates still arrive as individual PRs for separate review.
     groups:
       dev-dependencies:
         patterns:
@@ -24,6 +26,12 @@ updates:
           - "flake8"
           - "mypy"
           - "bandit"
+        update-types:
+          - "minor"
+          - "patch"
+      python-minor-and-patch:
+        patterns:
+          - "*"
         update-types:
           - "minor"
           - "patch"
@@ -43,3 +51,7 @@ updates:
     commit-message:
       prefix: "chore(ci)"
       include: "scope"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

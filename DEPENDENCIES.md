@@ -83,7 +83,7 @@ The installed runtime dependency set is approximately 500MB-1GB.
 |---------|---------|---------|---------|
 | **fastapi** | 0.141.1 | Modern async web framework for REST API | MIT |
 | **starlette** | 1.4.1 | ASGI framework used by FastAPI | BSD-3-Clause |
-| **uvicorn[standard]** | 0.52.1 | ASGI server for FastAPI | BSD-3-Clause |
+| **uvicorn[standard]** | 0.52.4 | ASGI server for FastAPI | BSD-3-Clause |
 | **python-multipart** | 0.0.32 | Form data parsing for FastAPI | Apache-2.0 |
 
 **Why these versions**: The FastAPI/Starlette and multipart versions are pinned to the release-audited compatible set; uvicorn[standard] includes performance optimizations.
