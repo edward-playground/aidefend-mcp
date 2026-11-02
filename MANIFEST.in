@@ -14,7 +14,7 @@ prune logs
 # The sdist intentionally ships the test suite. Include its package marker,
 # shared helpers, fixtures, and documentation so tests remain runnable after
 # extracting the archive instead of depending on files from a source checkout.
-recursive-include tests *.py *.js *.md
+recursive-include tests *.py *.js *.json *.md
 recursive-include scripts *.py
 recursive-include docs *.md
 recursive-include .github/workflows *.yml *.yaml

@@ -3,9 +3,9 @@
 本文件提供 AIDEFEND MCP Service 中所有 **18 個 MCP 工具**的詳細文件。
 
 > **即時資料說明：** 本文件中的 ID、名稱與語料筆數已對齊 AIDEFEND
-> 1.20260911（public schema 2.3、MCP index schema 3.3：93 個 techniques +
-> 272 個 sub-techniques + 872 筆 guidance =
-> 1,237 份文件）。排名、分數、時間、framework coverage 總數與工具數量
+> 1.20261101（public schema 2.3、MCP index schema 3.3：93 個 techniques +
+> 276 個 sub-techniques + 898 筆 guidance =
+> 1,267 份文件）。排名、分數、時間、framework coverage 總數與工具數量
 > 都會依客戶實際同步的版本重新計算；這些快照筆數只是範例，不是 runtime
 > 驗收門檻。服務會動態處理內容、ID、標題、筆數、順序與相容的新增欄位，
 > 包含開源、source-available/open-weight 與商業工具。daily upstream canary
@@ -72,12 +72,12 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 Claude：[使用 get_aidefend_status 工具]
         AIDEFEND 知識庫狀態：
-        - Framework Version：1.20260911
+        - Framework Version：1.20261101
         - Framework Source Revision：e10c1678
         - Framework Public Schema：2.3
         - MCP Index Schema：3.3
         - Framework Migration Registry Schema：1.0
-        - 已索引文件：1,237
+        - 已索引文件：1,267
         - 服務就緒：是
 ```
 
@@ -92,13 +92,13 @@ curl http://localhost:8000/api/v1/status
 {
   "status": "online",
   "sync_info": {
-    "framework_version": "1.20260911",
+    "framework_version": "1.20261101",
     "source_revision": "e10c1678ee49f03f8fb0c97d446ba3fbc3543655",
     "framework_public_schema_version": "2.3",
     "index_schema_version": "3.3",
     "framework_migrations_schema_version": "1.0",
-    "framework_migrations_registry_version": "2026-09-11",
-    "total_documents": 1237,
+    "framework_migrations_registry_version": "2026-10-30",
+    "total_documents": 1267,
     "is_syncing": false
   }
 }
@@ -127,7 +127,7 @@ Claude：[使用 sync_aidefend 工具]
         下載最新內容...
         解析技術...
         生成 embeddings...
-        ✅ 同步完成！知識庫已更新至版本 1.20260911
+        ✅ 同步完成！知識庫已更新至版本 1.20261101
 ```
 
 #### REST API 範例：
@@ -141,8 +141,8 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20260911",
-  "documents_synced": 1237,
+  "framework_version": "1.20261101",
+  "documents_synced": 1267,
   "sync_duration_seconds": 42.3
 }
 ```
@@ -164,7 +164,7 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 
 Claude：[使用 get_statistics 工具]
         AIDEFEND 知識庫包含：
-        - 1,237 份文件總數（93 個 techniques、272 個 sub-techniques、872 個 strategies）
+        - 1,267 份文件總數（93 個 techniques、276 個 sub-techniques、898 個 strategies）
         - 涵蓋 7 個 tactics：Model、Harden、Detect、Isolate、Deceive、Evict、Restore
         - 威脅 framework 涵蓋範圍：10 個 OWASP LLM Top 10 2026 風險、28 個 MITRE ATLAS 技術
         - 299 個 controls 有開源工具、34 個有 source-available/open-weight 工具、
@@ -182,11 +182,11 @@ curl http://localhost:8000/api/v1/statistics
 ```json
 {
   "overview": {
-    "total_documents": 1237,
+    "total_documents": 1267,
     "total_techniques": 93,
-    "total_subtechniques": 272,
-    "total_strategies": 872,
-    "total_actionable_items": 300
+    "total_subtechniques": 276,
+    "total_strategies": 898,
+    "total_actionable_items": 311
   },
   "by_tactic": {
     "Harden": 18,
@@ -407,6 +407,13 @@ Claude：[使用 get_defenses_for_threat 工具]
 - 明確指定已被取代的 ID 時，會依宣告的語意後繼項目解析。因此，`LLM03:2025 Supply Chain` 會解析為 `LLM04:2026 Supply Chain`，並以 `LLM04` 作為 reverse-index lookup key。
 - `LLM03:2025x` 這類格式錯誤或不支援的參照會回傳 `resolution.status="invalid"`。若同一查詢包含不同概念，例如 `LLM03:2025 / LLM06:2025`，則回傳 `resolution.status="ambiguous"` 與現行候選項目。
 - 只有 ID、且解析結果為 invalid 或 ambiguous 的查詢，會以 `search_method="resolution_only"` 回傳零筆結果；服務不會猜測 rank，也不會掃描防禦索引。使用者須改為提交一個可辨識的風險概念。
+
+**MITRE ATLAS 解析規則**：
+
+- 現行 technique 與 sub-technique ID（`AML.T0051`、簡寫 `T0051`，或 `ATLAS 2026.10 AML.T0051`）依同步的 catalog 解析，回傳 `resolution.status="canonical"`。
+- 只有一個審查後繼項目的退役 ID 回傳 `resolution.status="migrated"`，並以後繼項目查詢：`AML.T0056` 使用 `AML.T0085.003`。`mappingCarryForward` 仍為 `requires-semantic-review`。
+- `AML.T0057` 這類被拆分的概念回傳 `resolution.status="ambiguous"`、`reasonCode="split_concept"` 與現行候選項目；請選定一個候選項目再查詢。
+- 未知、格式錯誤、其他版本、ID／名稱衝突或混用框架的參照回傳 `resolution.status="invalid"`，不執行查詢。`AML.TA0001` 這類 tactic ID 不經過此解析器。
 
 ```
 你：「如何防禦模型投毒攻擊？」
@@ -1221,7 +1228,7 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
     "migration_registry_status": "active",
     "owasp_llm_catalog_aligned": true
   },
-  "timestamp": "2026-09-11T10:30:00Z"
+  "timestamp": "2026-11-01T10:30:00Z"
 }
 ```
 

@@ -13,11 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resolve current, bare, `latest`, named, and superseded OWASP LLM references to canonical
   2026 IDs with structured `canonical`, `migrated`, `normalized`, `fallback_latest`,
   `ambiguous`, or `invalid` metadata.
+- Validate the Framework's MITRE ATLAS 2026.10 catalog and resolve ATLAS references
+  as the Framework does: a retired ID migrates to its single reviewed successor, a
+  split concept returns its current candidates without a lookup, and unknown,
+  other-edition, conflicting, or mixed references are invalid. Indexes synchronized
+  before the catalog existed keep their exact legacy lookup.
 
 ### Changed
-- Re-pin the exact release validation snapshot to AIDEFEND 1.20260911 (public
-  schema 2.3, index schema 3.3: 93 techniques, 272 sub-techniques, 872 guidance
-  records, 1,237 documents; migration registry 2026-09-11) so a plain `pytest`
+- Raise the minimum supported Python to 3.11. Python 3.10 reached end of life
+  on 2026-10-01 and Pillow 13.0.0 no longer supports it; package metadata, the
+  installer check, and the hosted clean-wheel matrix now cover Python 3.11-3.14.
+- Re-pin the exact release validation snapshot to AIDEFEND 1.20261101 (public
+  schema 2.3, index schema 3.3: 93 techniques, 276 sub-techniques, 898 guidance
+  records, 1,267 documents; migration registry 2026-10-30) so a plain `pytest`
   run passes against the current synchronized Framework, and align the README,
   tool guides, and OpenAPI examples with that snapshot.
 - Declare `additionalProperties: false` on every MCP tool input schema so an
@@ -27,6 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   languages are served by the multilingual semantic search tools.
 
 ### Fixed
+- Restore the runtime and development dependency audits by upgrading Pillow to
+  13.0.0, FastEmbed to 0.9.1 (whose Pillow range admits 13.x), the MCP SDK to
+  1.30.0, and Black to 26.10.1. FastEmbed 0.9.1 reproduces 0.8.0 embeddings on
+  the same ONNX Runtime. CI continues to enforce pip-audit without exclusions.
+- Restore synchronization with AIDEFEND 1.20261101, which the registry validator
+  rejected because of its new ATLAS catalog. Ingestion now also accepts an annotated
+  `N/A (...)` mapping item, as the Framework and MCP coverage already did, while
+  still rejecting every other non-canonical item.
+- Replace the classifier's retired ATLAS claims with their reviewed successors:
+  `AML.T0056` with `AML.T0085.003`, `AML.T0024.002` with `AML.T0005.001`, and
+  `AML.T0057` with `AML.T0137.003`, `AML.T0085.000`, `AML.T0085.001`, and
+  `AML.T0085.002`. The model theft keywords that name weight or parameter
+  recovery also map to `AML.T0144` Recover AI Model Internals.
+- Ship the JSON test fixtures in the sdist so its bundled Cisco and ATLAS catalog
+  tests can run from an extracted archive.
 - Remove orphaned framework public dataset downloads (`.framework-public-data-*.tmp`)
   left in `RAW_PATH` when a stdio MCP server is terminated mid-sync, both before
   staging a new download and after a generation settles.
@@ -88,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refresh the compatible FastAPI, Starlette, Uvicorn, Pydantic, settings,
   Windows runtime, rate-limit, parser, lock, and release-tool dependencies to
   their current Python 3.10-3.14-compatible stable lines.
-- Define the 1.3.0 embedding contract as `fastembed==0.8.0` with the declared
+- Define the 1.3.0 embedding contract as `fastembed==0.9.1` with the declared
   CPU `onnxruntime` dependency. Retire the previous unvalidated GPU setup and
   performance claims; accelerator support now requires a separate,
   conflict-free dependency path and complete release testing.

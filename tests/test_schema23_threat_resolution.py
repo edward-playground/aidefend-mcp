@@ -1,5 +1,7 @@
 """Regression tests for schema-2.3 IDs and threat-to-defense routing."""
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -43,9 +45,22 @@ def test_static_dictionary_contains_only_resolvable_claims():
         atlas_ids.update(threat_data["frameworks"].get("atlas", []))
         maestro_ids.update(threat_data["frameworks"].get("maestro", []))
 
+    atlas_catalog = json.loads(
+        (Path(__file__).parent / "fixtures/atlas-2026.10-catalog.json").read_text(encoding="utf-8")
+    )
+    active_atlas_ids = {item["id"] for item in atlas_catalog["activeItems"]}
+    retired_atlas_ids = {item["from"]["id"] for item in atlas_catalog["migrations"]}
+    assert atlas_ids <= active_atlas_ids
+    assert not atlas_ids & retired_atlas_ids
     assert "AML.T0002" not in atlas_ids
     assert "AML.T0028" not in atlas_ids
-    assert "AML.T0024.002" in atlas_ids
+    assert "AML.T0005.001" in atlas_ids
+    # Only keywords that name weight or parameter recovery claim model internals.
+    for keyword in ("model theft", "ml model theft"):
+        assert THREAT_KEYWORDS[keyword]["frameworks"]["atlas"] == ["AML.T0005.001", "AML.T0144"]
+    assert THREAT_KEYWORDS["high-volume llm model extraction"]["frameworks"]["atlas"] == [
+        "AML.T0005.001"
+    ]
     assert maestro_ids
     assert maestro_ids <= MAESTRO_CANONICAL_THREATS
     assert not any(

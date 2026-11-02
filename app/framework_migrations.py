@@ -83,6 +83,11 @@ def _validate_catalog(key: str, raw_catalog: Any) -> None:
         raise FrameworkMigrationRegistryError(
             f"frameworks.{key}.stableKey must equal its registry key"
         )
+    # ATLAS publishes one current catalog plus reviewed retirements instead of
+    # the editioned envelope shared by the other catalogs.
+    if key == "atlas":
+        _validate_atlas_catalog(catalog)
+        return
 
     active_edition = _text(
         catalog.get("activeEdition"), f"frameworks.{key}.activeEdition", maximum=32
@@ -475,8 +480,12 @@ def validate_framework_migration_registry(
         _validate_catalog(key, catalog)
     edition_labels: Dict[str, str] = {}
     for key, catalog in frameworks.items():
-        for edition_record in catalog["editions"].values():
-            label = edition_record["label"]
+        labels = (
+            [catalog["activeLabel"]]
+            if key == "atlas"
+            else [edition_record["label"] for edition_record in catalog["editions"].values()]
+        )
+        for label in labels:
             folded = label.casefold()
             prior_key = edition_labels.get(folded)
             if prior_key is not None and prior_key != key:
@@ -524,6 +533,16 @@ def resolve_framework_reference(
                 "reason": "This catalog supports ingestion and coverage, but its identifier profile is not supported by the Cisco reference resolver.",
             }
         return _resolve_cisco_reference(raw_reference, catalog)
+    if framework_key == "atlas":
+        if "atlas" not in validated["frameworks"]:
+            return {
+                "status": "invalid",
+                "input": str(raw_reference or "").strip(),
+                "frameworkKey": "atlas",
+                "reasonCode": "registry_unavailable",
+                "reason": "This index has no ATLAS catalog metadata; complete a successful framework sync.",
+            }
+        return _resolve_atlas_reference(raw_reference, validated["frameworks"]["atlas"])
     if framework_key != "owasp_llm":
         raise FrameworkMigrationRegistryError(
             f"reference resolution is not implemented for {framework_key!r}"
@@ -1276,4 +1295,231 @@ def _resolve_cisco_reference(
             if any(item["id"] == identifier for item in catalog["historicalItems"])
             else {}
         ),
+    }
+
+
+_ATLAS_ID_PATTERN = r"AML\.T\d{4}(?:\.\d{3})?"
+_ATLAS_EDITION_PATTERN = r"20\d{2}\.(?:0[1-9]|1[0-2])"
+_ATLAS_ID_CANDIDATE_PATTERN = r"\b(?:AML\.)?T\d[^\s,;()\[\]{}&/?]*"
+_ATLAS_EDITION_REFERENCE = r"\b(?:v|version\s+|edition\s+)?(20\d{2}\.\d{2})\b"
+
+
+def _validate_atlas_catalog(raw_catalog: Any) -> None:
+    """Validate the current ATLAS catalog and its reviewed retirements."""
+    path = "frameworks.atlas"
+    catalog = _mapping(raw_catalog, path)
+    active_edition = _text(catalog.get("activeEdition"), path + ".activeEdition", maximum=32)
+    if re.fullmatch(_ATLAS_EDITION_PATTERN, active_edition) is None:
+        raise FrameworkMigrationRegistryError("ATLAS edition must be a YYYY.MM release")
+    _text(catalog.get("activeLabel"), path + ".activeLabel", maximum=256)
+    _https_url(catalog.get("sourceUrl"), path + ".sourceUrl", required_host="atlas.mitre.org")
+    artifact = _mapping(catalog.get("sourceArtifact"), path + ".sourceArtifact")
+    artifact_path = urlsplit(
+        _https_url(
+            artifact.get("url"),
+            path + ".sourceArtifact.url",
+            required_host="raw.githubusercontent.com",
+        )
+    ).path
+    revision = str(artifact.get("git_revision", ""))
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", revision) is None
+        or re.fullmatch(r"[0-9a-fA-F]{64}", str(artifact.get("sha256", ""))) is None
+        or not artifact_path.startswith(f"/mitre-atlas/atlas-data/{revision}/")
+        or not artifact_path.endswith(f"/ATLAS-{active_edition}.yaml")
+    ):
+        raise FrameworkMigrationRegistryError("ATLAS source revision, digest, or edition differs")
+    _text(
+        artifact.get("data_format_version"),
+        path + ".sourceArtifact.data_format_version",
+        maximum=32,
+    )
+    license_record = _mapping(catalog.get("sourceLicense"), path + ".sourceLicense")
+    _text(license_record.get("attribution"), path + ".sourceLicense.attribution")
+    policy = _mapping(catalog.get("resolutionPolicy"), path + ".resolutionPolicy")
+    if set(policy) != {"bareId", "retiredId", "mappingCarryForward"}:
+        raise FrameworkMigrationRegistryError("ATLAS resolution policy fields differ")
+    for field in ("bareId", "retiredId"):
+        _text(policy[field], path + ".resolutionPolicy." + field)
+    if policy["mappingCarryForward"] != "never automatic; requires target-edition semantic review":
+        raise FrameworkMigrationRegistryError("ATLAS mapping carry-forward policy differs")
+
+    items = _list(catalog.get("activeItems"), path + ".activeItems")
+    if not items or len(items) > 1000:
+        raise FrameworkMigrationRegistryError(
+            path + ".activeItems must contain 1 through 1000 items"
+        )
+    active = {}
+    for item in items:
+        item = _mapping(item, path + ".activeItems entry")
+        identifier = _text(item.get("id"), path + ".activeItems.id", maximum=128)
+        if re.fullmatch(_ATLAS_ID_PATTERN, identifier) is None or identifier in active:
+            raise FrameworkMigrationRegistryError(
+                "ATLAS active identifier is malformed or duplicated"
+            )
+        _text(item.get("name"), path + ".activeItems.name", maximum=256)
+        active[identifier] = item
+    for identifier in active:
+        if "." in identifier[4:] and identifier.rsplit(".", 1)[0] not in active:
+            raise FrameworkMigrationRegistryError("ATLAS sub-technique parent is absent")
+
+    migrations = _list(catalog.get("migrations"), path + ".migrations")
+    if len(migrations) > 1000:
+        raise FrameworkMigrationRegistryError(path + ".migrations exceeds 1000 entries")
+    retired = set()
+    for migration in migrations:
+        migration = _mapping(migration, path + ".migrations entry")
+        source = _mapping(migration.get("from"), path + ".migrations.from")
+        edition = _text(source.get("edition"), path + ".migrations.from.edition", maximum=32)
+        identifier = _text(source.get("id"), path + ".migrations.from.id", maximum=128)
+        _text(source.get("name"), path + ".migrations.from.name", maximum=256)
+        _text(migration.get("reason"), path + ".migrations.reason")
+        successors = _list(migration.get("successors"), path + ".migrations.successors")
+        # A retirement names reviewed current successors; it never re-points an
+        # identifier that is still active or carries an old mapping forward.
+        if (
+            re.fullmatch(_ATLAS_EDITION_PATTERN, edition) is None
+            or edition >= active_edition
+            or re.fullmatch(_ATLAS_ID_PATTERN, identifier) is None
+            or identifier in active
+            or identifier in retired
+            or not successors
+            or any(
+                not isinstance(successor, str) or successor not in active
+                for successor in successors
+            )
+            or len(successors) != len(set(successors))
+            or migration.get("mappingCarryForward") != "requires-semantic-review"
+        ):
+            raise FrameworkMigrationRegistryError(
+                "ATLAS retirement conflicts with the current catalog"
+            )
+        retired.add(identifier)
+
+
+def is_atlas_technique_reference(raw_reference: Any) -> bool:
+    """Recognize ATLAS technique intent; tactic IDs and prose are not technique references."""
+    value = str(raw_reference or "").strip()
+    return bool(
+        re.search(r"\bAML\.T(?!A)", value, re.I)
+        or re.search(
+            r"\bATLAS\s+(?:(?:v|version\s+|edition\s+)?20\d{2}\.\d{2}\s+)?T\d", value, re.I
+        )
+        # MCP has always accepted the bare TNNNN short form as an ATLAS ID.
+        or re.match(r"T\d{4}(?!\d)", value, re.I)
+    )
+
+
+def _resolve_atlas_reference(
+    raw_reference: Any, catalog: Mapping[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Resolve current IDs and reviewed retired concepts, never old mappings.
+
+    Mirrors the Framework's ``resolveAtlasReference``: a retired ID with one
+    reviewed successor migrates, a split concept requires explicit selection,
+    and conflicting, unknown, or other-edition input never falls back.
+    """
+    value = str(raw_reference or "").strip()
+    if not re.search(r"\b(?:ATLAS|AML\.T)", value, re.I) and not re.match(r"T\d", value, re.I):
+        return None
+    active_edition = catalog["activeEdition"]
+    base = {"input": value, "frameworkKey": "atlas", "activeEdition": active_edition}
+
+    def invalid(code, reason):
+        return {"status": "invalid", **base, "reasonCode": code, "reason": reason}
+
+    if re.search(r"\b(?:LLM\d|ASI\d|AI(?:Subtech|Tech)-|NISTAML\.)", value, re.I):
+        return invalid("mixed_frameworks", "Submit one framework reference per query.")
+    tokens = re.findall(_ATLAS_ID_CANDIDATE_PATTERN, value, re.I)
+    if not tokens:
+        return invalid(
+            "unrecognized_reference", "Use one exact ATLAS technique or sub-technique identifier."
+        )
+    identifiers = []
+    for token in tokens:
+        if re.fullmatch(r"(?:AML\.)?T\d{4}(?:\.\d{3})?", token, re.I) is None:
+            return invalid("malformed_identifier", "Use AML.TNNNN or AML.TNNNN.NNN.")
+        identifiers.append("AML." + re.sub(r"^AML\.", "", token.upper()))
+    identifiers = list(dict.fromkeys(identifiers))
+    by_id = {item["id"]: item for item in catalog["activeItems"]}
+
+    def canonical(item):
+        return {
+            "frameworkKey": "atlas",
+            "framework": catalog["activeLabel"],
+            "edition": active_edition,
+            "id": item["id"],
+            "name": item["name"],
+            "label": item["id"] + " " + item["name"],
+        }
+
+    if len(identifiers) != 1:
+        return {
+            "status": "ambiguous",
+            **base,
+            "reasonCode": "multiple_identifiers",
+            "candidates": [canonical(by_id[item]) for item in identifiers if item in by_id],
+            "reason": "Select one ATLAS concept per lookup.",
+        }
+    remainder = re.sub(_ATLAS_ID_CANDIDATE_PATTERN, " ", value, flags=re.I)
+    editions = re.findall(_ATLAS_EDITION_REFERENCE, remainder, re.I)
+    remainder = re.sub(_ATLAS_EDITION_REFERENCE, " ", remainder, flags=re.I)
+    remainder = re.sub(r"\b(?:MITRE\s+)?ATLAS\b", " ", remainder, flags=re.I)
+    remainder = re.sub(r"^[\s:;,()\[\]{}-]+|[\s:;,()\[\]{}-]+$", "", remainder).strip()
+    identifier = identifiers[0]
+    migration = next(
+        (item for item in catalog["migrations"] if item["from"]["id"] == identifier), None
+    )
+    if any(
+        edition != active_edition and not (migration and edition == migration["from"]["edition"])
+        for edition in editions
+    ):
+        return invalid(
+            "unsupported_edition",
+            "Current definitions are served; a different edition is not inferred for an active identifier.",
+        )
+    current = by_id.get(identifier)
+    # Any leftover text is a claimed name and must match the identifier's concept.
+    supplied_name = _normalize_concept_name(remainder) if remainder else None
+    if current is not None:
+        if supplied_name is not None and supplied_name != _normalize_concept_name(current["name"]):
+            return invalid(
+                "id_name_conflict", "The supplied name does not match this current identifier."
+            )
+        return {
+            "status": "canonical",
+            **base,
+            "canonical": canonical(current),
+            "reason": "Resolved against the current ATLAS catalog.",
+        }
+    if migration is None:
+        return invalid(
+            "unknown_identifier", "This identifier is not active and has no reviewed successor."
+        )
+    if supplied_name is not None and supplied_name != _normalize_concept_name(
+        migration["from"]["name"]
+    ):
+        return invalid(
+            "id_name_conflict", "The supplied name does not match the retired reference."
+        )
+    retirement = {
+        "migratedFrom": dict(migration["from"]),
+        "mappingCarryForward": migration["mappingCarryForward"],
+    }
+    candidates = [canonical(by_id[successor]) for successor in migration["successors"]]
+    if len(candidates) != 1:
+        return {
+            "status": "ambiguous",
+            **base,
+            "reasonCode": "split_concept",
+            **retirement,
+            "candidates": candidates,
+            "reason": migration["reason"],
+        }
+    return {
+        "status": "migrated",
+        **base,
+        **retirement,
+        "canonical": candidates[0],
+        "reason": migration["reason"],
     }

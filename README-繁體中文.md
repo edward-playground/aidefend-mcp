@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10-3.14](https://img.shields.io/badge/python-3.10%20|%203.14-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11-3.14](https://img.shields.io/badge/python-3.11%20|%203.14-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-009688.svg)](https://fastapi.tiangolo.com)
 
 這個 repo 是 [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework) 的本地檢索服務層。
@@ -37,7 +37,7 @@
 
 ## 持續相容上游更新
 
-目前 release 的精確驗證快照是 AIDEFEND **1.20260911**、public schema
+目前 release 的精確驗證快照是 AIDEFEND **1.20261101**、public schema
 **2.3** 與 MCP index schema **3.3**，並涵蓋 framework 的三種工具分類：
 開源、source-available/open-weight 與商業工具。快照中的
 ID、標題、筆數與順序只是這個 release 的驗證範例，不是永久的 runtime 限制。
@@ -63,6 +63,11 @@ Cisco 查詢依同一索引同步啟用的 catalog 解析；目前 Framework 提
 相容格式的名稱、版本及項目數變動會依 metadata 驗證，不把目前的 156 筆寫成固定限制。
 未附版本的 ID 解析到啟用版本；舊版本、退役 ID 與 ID／名稱衝突會回傳說明，不沿用舊對映。
 其他 catalog 格式仍可供同步與覆蓋分析使用；解析器不支援的 ID 格式則明確回報。
+
+MITRE ATLAS 查詢依同步的現行 catalog 解析；目前 Framework 提供 **2026.10**。
+只有一個審查後繼項目的退役 ID 會解析到該後繼（`AML.T0056` 解析為 `AML.T0085.003`）；
+`AML.T0057` 這類被拆分的概念會回傳現行候選項目、不執行查詢，也不沿用舊對映。
+Framework 發布 ATLAS catalog 之前同步的索引，在下一次同步成功前維持原本的精確查詢。
 
 啟用此次更新時，請更新 MCP client 實際使用的程式或套件，並同步新版 Framework。
 既有程序需要重新啟動才會載入新程式。若明確執行 `python __main__.py --resync`，
@@ -92,7 +97,7 @@ rolling daily upstream canary 會每天驗證最新公開 framework，並保留�
 
 ## 需求
 
-- Python 3.10 到 3.14
+- Python 3.11 到 3.14
 - Node.js 18+
 - Git
 - 約 2 到 3 GB 可用磁碟空間，包含依賴、embedding model 與本地資料庫
@@ -281,13 +286,13 @@ replica 必須有獨立的資料副本或 volume，或改用經過設計、可�
   需要同時運行多種模式或多個 replica 時，必須使用彼此獨立的儲存空間。
 - CI 會建立並逐筆驗證最新 upstream index；在 Linux 上，會分別從 source
   checkout 與 repo 外安裝的 wheel 跑完 18 個 MCP 及 18 個 REST tool path。
-  Windows、macOS、Linux 與 Python 3.10-3.14 matrix 則驗證乾淨 wheel 安裝、
+  Windows、macOS、Linux 與 Python 3.11-3.14 matrix 則驗證乾淨 wheel 安裝、
   parser 與 console 契約；正式 release 前，這個 hosted matrix 必須全數通過。另有 Bandit、
   實際 container build/runtime 契約，
   以及每天驗證最新公開 framework 的 rolling upstream canary。
 - Source contract 會從 framework 的 `main.js` manifest 動態取得有順序的
   tactic 檔案集合，不會把 runtime 綁死在目前七個檔名或標題。
-- 目前 release contract 已對齊 AIDEFEND **1.20260911**、public schema
+- 目前 release contract 已對齊 AIDEFEND **1.20261101**、public schema
   **2.3** 與 MCP index schema **3.3**。這是精確驗證快照，
   不是對未來 framework ID、標題、內容、筆數或順序的固定限制。
 

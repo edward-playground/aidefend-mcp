@@ -1,6 +1,7 @@
 import io
 import sys
 import tarfile
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -9,11 +10,6 @@ from packaging.markers import default_environment
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 release matrix
-    import tomli as tomllib
 
 from scripts.build_release_artifacts import _run_build, _safe_extract_sdist
 from scripts.verify_distribution_inventory import (
@@ -72,7 +68,7 @@ def test_direct_import_dependencies_are_explicit_in_both_install_surfaces():
     }
 
     direct_runtime = {"anyio", "numpy", "onnxruntime", "pyarrow"}
-    direct_release_and_test = {"httpx2", "packaging", "tokenizers", "tomli"}
+    direct_release_and_test = {"httpx2", "packaging", "tokenizers"}
     assert direct_runtime <= runtime_requirements
     assert direct_runtime <= runtime_metadata
     assert direct_release_and_test <= dev_requirements
@@ -103,8 +99,10 @@ def test_python_314_onnxruntime_contract_matches_fastembed_backend_ranges():
     metadata_requirements = [Requirement(value) for value in project["dependencies"]]
 
     requires_python = SpecifierSet(project["requires-python"])
-    assert Version("3.9") not in requires_python
+    assert Version("3.10") not in requires_python
+    assert Version("3.11") in requires_python
     assert Version("3.14") in requires_python
+    assert "Programming Language :: Python :: 3.10" not in project["classifiers"]
     assert "Programming Language :: Python :: 3.14" in project["classifiers"]
 
     requirement_onnx = [value for value in requirements if value.name.lower() == "onnxruntime"]
@@ -116,7 +114,7 @@ def test_python_314_onnxruntime_contract_matches_fastembed_backend_ranges():
         _requirement_signature(value) for value in metadata_onnx
     }
 
-    for python_version in ("3.10", "3.11", "3.12", "3.13", "3.14", "3.15"):
+    for python_version in ("3.11", "3.12", "3.13", "3.14", "3.15"):
         environment = default_environment()
         environment["python_version"] = python_version
         environment["python_full_version"] = f"{python_version}.0"
@@ -254,6 +252,8 @@ def test_release_contract_requires_sdist_test_support_files():
         "THIRD_PARTY_CONTENT.md",
         "tests/__init__.py",
         "tests/README.md",
+        "tests/fixtures/atlas-2026.10-catalog.json",
+        "tests/fixtures/cisco-v2-catalog.json",
         "tests/fixtures/test_example.js",
         "tests/framework_migration_fixtures.py",
         "vendor/README.md",

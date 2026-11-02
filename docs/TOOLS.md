@@ -3,9 +3,9 @@
 This document provides detailed documentation for all **18 MCP tools** available in the AIDEFEND MCP Service.
 
 > **Live-data contract:** IDs, names, and corpus-size examples in this guide
-> are aligned to AIDEFEND 1.20260911 (public schema 2.3, MCP index schema 3.3:
-> 93 techniques + 272 sub-techniques + 872 guidance records
-> = 1,237 documents). Rankings, scores, timestamps, framework-coverage totals,
+> are aligned to AIDEFEND 1.20261101 (public schema 2.3, MCP index schema 3.3:
+> 93 techniques + 276 sub-techniques + 898 guidance records
+> = 1,267 documents). Rankings, scores, timestamps, framework-coverage totals,
 > and tool counts are illustrative because they are recomputed from the version
 > a customer has synchronized; these snapshot counts are examples, not runtime
 > acceptance thresholds. The service dynamically handles content, ID, title,
@@ -75,12 +75,12 @@ You: "What's the status of the AIDEFEND service?"
 
 Claude: [Uses get_aidefend_status tool]
         AIDEFEND Knowledge Base Status
-        - Framework Version: 1.20260911
+        - Framework Version: 1.20261101
         - Framework Source Revision: e10c1678
         - Framework Public Schema: 2.3
         - MCP Index Schema: 3.3
         - Framework Migration Registry Schema: 1.0
-        - Indexed Documents: 1,237
+        - Indexed Documents: 1,267
         - Service ready: Yes
 ```
 
@@ -95,13 +95,13 @@ curl http://localhost:8000/api/v1/status
 {
   "status": "online",
   "sync_info": {
-    "framework_version": "1.20260911",
+    "framework_version": "1.20261101",
     "source_revision": "e10c1678ee49f03f8fb0c97d446ba3fbc3543655",
     "framework_public_schema_version": "2.3",
     "index_schema_version": "3.3",
     "framework_migrations_schema_version": "1.0",
-    "framework_migrations_registry_version": "2026-09-11",
-    "total_documents": 1237,
+    "framework_migrations_registry_version": "2026-10-30",
+    "total_documents": 1267,
     "is_syncing": false
   }
 }
@@ -130,7 +130,7 @@ Claude: [Uses sync_aidefend tool]
         Downloading latest content...
         Parsing techniques...
         Generating embeddings...
-        ✅ Sync complete! Knowledge base updated to version 1.20260911
+        ✅ Sync complete! Knowledge base updated to version 1.20261101
 ```
 
 #### REST API Example:
@@ -144,8 +144,8 @@ curl -X POST "http://localhost:8000/api/v1/sync"
 {
   "status": "success",
   "message": "Sync completed successfully",
-  "framework_version": "1.20260911",
-  "documents_synced": 1237,
+  "framework_version": "1.20261101",
+  "documents_synced": 1267,
   "sync_duration_seconds": 42.3
 }
 ```
@@ -167,7 +167,7 @@ You: "Can you show me statistics about the AIDEFEND knowledge base?"
 
 Claude: [Uses get_statistics tool]
         The AIDEFEND knowledge base contains:
-        - 1,237 total documents (93 techniques, 272 sub-techniques, 872 strategies)
+        - 1,267 total documents (93 techniques, 276 sub-techniques, 898 strategies)
         - Coverage across 7 tactics: Model, Harden, Detect, Isolate, Deceive, Evict, Restore
         - Threat framework coverage: 10 OWASP LLM Top 10 2026 risks, 28 MITRE ATLAS techniques
         - 299 controls with open-source tools, 34 with source-available/open-weight tools,
@@ -185,11 +185,11 @@ curl http://localhost:8000/api/v1/statistics
 ```json
 {
   "overview": {
-    "total_documents": 1237,
+    "total_documents": 1267,
     "total_techniques": 93,
-    "total_subtechniques": 272,
-    "total_strategies": 872,
-    "total_actionable_items": 300
+    "total_subtechniques": 276,
+    "total_strategies": 898,
+    "total_actionable_items": 311
   },
   "by_tactic": {
     "Harden": 18,
@@ -411,6 +411,13 @@ Claude: [Uses get_defenses_for_threat tool]
 - An explicit superseded ID follows its declared semantic successor. `LLM03:2025 Supply Chain` therefore resolves to `LLM04:2026 Supply Chain` and uses `LLM04` as the reverse-index lookup key.
 - A malformed or unsupported reference such as `LLM03:2025x` returns `resolution.status="invalid"`. A query containing different concepts, such as `LLM03:2025 / LLM06:2025`, returns `resolution.status="ambiguous"` with current candidates.
 - Invalid and ambiguous ID-only queries return zero results with `search_method="resolution_only"`; they do not guess a rank or scan the defense index. Submit one recognized risk concept to continue.
+
+**MITRE ATLAS resolution rules**:
+
+- Current technique and sub-technique IDs (`AML.T0051`, the bare short form `T0051`, or `ATLAS 2026.10 AML.T0051`) resolve against the synchronized catalog with `resolution.status="canonical"`.
+- A retired ID with one reviewed successor returns `resolution.status="migrated"` and looks up the successor: `AML.T0056` uses `AML.T0085.003`. `mappingCarryForward` stays `requires-semantic-review`.
+- A split concept such as `AML.T0057` returns `resolution.status="ambiguous"` with `reasonCode="split_concept"` and the current candidates; choose one candidate and query it.
+- Unknown, malformed, other-edition, ID/name-conflicting, and mixed-framework references return `resolution.status="invalid"` without a lookup. Tactic IDs such as `AML.TA0001` are not routed through this resolver.
 
 ```
 You: "How do I defend against model poisoning attacks?"
@@ -1254,7 +1261,7 @@ curl -X POST "http://localhost:8000/api/v1/classify-threat" \
     "migration_registry_status": "active",
     "owasp_llm_catalog_aligned": true
   },
-  "timestamp": "2026-09-11T10:30:00Z"
+  "timestamp": "2026-11-01T10:30:00Z"
 }
 ```
 

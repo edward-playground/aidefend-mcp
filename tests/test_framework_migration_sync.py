@@ -81,10 +81,11 @@ def test_corpus_contract_accepts_only_matching_legacy_or_active_editions():
             "LLM01:2026 Prompt Injection",
         ),
     )
-    sync_module.validate_framework_migrations_corpus_contract(
-        owasp_llm_2026_registry(),
-        _parsed_tactics("OWASP LLM Top 10 2026", "N/A"),
-    )
+    for item in ("N/A", "N/A (outside this taxonomy)"):
+        sync_module.validate_framework_migrations_corpus_contract(
+            owasp_llm_2026_registry(),
+            _parsed_tactics("OWASP LLM Top 10 2026", item),
+        )
 
 
 @pytest.mark.parametrize(
@@ -122,10 +123,15 @@ def test_corpus_contract_accepts_only_matching_legacy_or_active_editions():
             "OWASP LLM Top 10 2026",
             "LLM01:2026 Wrong Name",
         ),
-        (
-            owasp_llm_2026_registry(),
-            "OWASP LLM Top 10 2026",
-            "N/A (not exact)",
+        *(
+            (owasp_llm_2026_registry(), "OWASP LLM Top 10 2026", item)
+            for item in (
+                "N/A ()",
+                "N/A(annotation)",
+                "N/A (unterminated",
+                "n/a",
+                "N/A - annotation",
+            )
         ),
     ],
 )

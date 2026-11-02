@@ -243,7 +243,7 @@ class StatusResponse(BaseModel):
                     "sync_info": {
                         "last_synced_at": "2025-11-09T09:00:00Z",
                         "current_commit_sha": "abc123def456...",
-                        "framework_version": "1.20260911",
+                        "framework_version": "1.20261101",
                         "framework_public_schema_version": "2.3",
                         "index_schema_version": "3.3",
                         "source_kind": "github",
@@ -253,7 +253,7 @@ class StatusResponse(BaseModel):
                         "source_ref": "main",
                         "source_content_sha256": "0123456789abcdef...",
                         "framework_migrations_schema_version": "1.0",
-                        "framework_migrations_registry_version": "2026-09-11",
+                        "framework_migrations_registry_version": "2026-10-30",
                         "framework_migrations_sha256": "abcdef0123456789...",
                         "total_documents": 1250,
                         "is_syncing": False
@@ -915,7 +915,7 @@ class ClassifyThreatResponse(BaseModel):
                         "migration_registry_status": "active",
                         "owasp_llm_catalog_aligned": True
                     },
-                    "timestamp": "2026-09-11T10:30:00Z"
+                    "timestamp": "2026-11-01T10:30:00Z"
                 }
             ]
         }

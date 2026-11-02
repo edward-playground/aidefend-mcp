@@ -13,6 +13,7 @@ from fastembed import TextEmbedding
 
 from app.framework_migrations import (
     canonical_lookup_id,
+    is_atlas_technique_reference,
     is_cisco_reference,
     resolve_framework_reference,
 )
@@ -159,8 +160,13 @@ def _resolve_requested_threat_id(
     registry = version_info.get("framework_migrations") if isinstance(version_info, dict) else None
 
     catalogs = registry.get("frameworks", {}) if isinstance(registry, dict) else {}
+    atlas_catalog = catalogs.get("atlas") if isinstance(catalogs, dict) else None
     cisco_catalog = catalogs.get("cisco") if isinstance(catalogs, dict) else None
-    if is_cisco_reference(threat_id, cisco_catalog):
+    if atlas_catalog is not None and is_atlas_technique_reference(threat_id):
+        # An index built before the Framework published an ATLAS catalog keeps
+        # its own generation's identifiers on the legacy lookup path below.
+        resolution = resolve_framework_reference(threat_id, registry, framework_key="atlas")
+    elif is_cisco_reference(threat_id, cisco_catalog):
         if registry is None:
             resolution = {
                 "status": "invalid",

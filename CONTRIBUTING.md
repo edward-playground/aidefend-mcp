@@ -6,7 +6,7 @@ Thank you for your interest in contributing to the AIDEFEND MCP Service! This gu
 
 ### Prerequisites
 
-- Python 3.10 - 3.14
+- Python 3.11 - 3.14
 - Node.js 18+ (for JavaScript parsing)
 - Git
 
@@ -69,7 +69,7 @@ pytest -m "not slow and not current_snapshot"
 
 Run `python __main__.py --resync` before the rolling suite so live-corpus tests
 can inspect the current source and index. The `current_snapshot` tests retain
-exact counts and digests for the historical 2026-09-11 snapshot; run
+exact counts and digests for the historical 2026-11-01 snapshot; run
 `pytest -m current_snapshot` only with that snapshot. They are intentionally
 excluded from the rolling release gate in CI.
 

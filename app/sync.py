@@ -1641,7 +1641,11 @@ def validate_framework_migrations_corpus_contract(
                         f"{raw_item!r}"
                     )
                 item = raw_item
-                if item == "N/A":
+                # "N/A" may carry the same parenthesized reviewer annotation as
+                # a mapped item; it still declares no mapping for this control.
+                if item == "N/A" or (
+                    item.startswith("N/A (") and item.endswith(")") and len(item) > len("N/A") + 3
+                ):
                     continue
                 identifier = normalize_framework_item(
                     expected_label,

@@ -10,6 +10,7 @@ from email.parser import Parser
 import json
 import sys
 import tarfile
+import tomllib
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Sequence
@@ -17,11 +18,6 @@ from typing import Iterable, Sequence
 from packaging.markers import Marker
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 release jobs
-    import tomli as tomllib
 
 
 class DistributionInventoryError(RuntimeError):
@@ -90,6 +86,8 @@ SDIST_REQUIRED_TEST_FILES = {
     "tests/__init__.py",
     "tests/conftest.py",
     "tests/README.md",
+    "tests/fixtures/atlas-2026.10-catalog.json",
+    "tests/fixtures/cisco-v2-catalog.json",
     "tests/fixtures/test_example.js",
     "tests/framework_migration_fixtures.py",
     "THIRD_PARTY_CONTENT.md",

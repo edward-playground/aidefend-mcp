@@ -2,7 +2,7 @@
 AIDEFEND MCP - One-Click Installation
 
 This script provides a complete, automated installation of AIDEFEND MCP service:
-1. Checks system requirements (Python 3.10+, Node.js 18+)
+1. Checks system requirements (Python 3.11+, Node.js 18+)
 2. Installs Python dependencies
 3. Verifies the bundled JavaScript parser (no npm or network required)
 4. Configures MCP clients (Claude Desktop and/or Claude Code) with safe config merging
@@ -99,10 +99,10 @@ def print_step(step: int, total: int, description: str):
 
 def check_python_version() -> Tuple[bool, str]:
     """
-    Check if Python version meets requirements (3.10+).
+    Check if Python version meets requirements (3.11+).
 
-    Note: the effective floor is 3.10 because mcp==1.29.0 (and ipython in the dev extra)
-    require Python >=3.10; a 3.9 install fails at dependency resolution.
+    Note: the effective floor is 3.11 because pillow==13.0.0 requires Python >=3.11;
+    a 3.10 install fails at dependency resolution.
 
     Returns:
         (is_valid, version_string)
@@ -110,7 +110,7 @@ def check_python_version() -> Tuple[bool, str]:
     version = sys.version_info
     version_str = f"{version.major}.{version.minor}.{version.micro}"
 
-    if version.major < 3 or (version.major == 3 and version.minor < 10):
+    if version.major < 3 or (version.major == 3 and version.minor < 11):
         return False, version_str
 
     return True, version_str
@@ -1583,7 +1583,7 @@ def main():
         if py_valid:
             print(f"   ✅ Python {py_version} (OK)")
         else:
-            print(f"   ❌ Python {py_version} - Need 3.10+")
+            print(f"   ❌ Python {py_version} - Need 3.11+")
             print(f"      Download: https://www.python.org/downloads/")
             all_ok = False
 
@@ -1673,7 +1673,7 @@ def main():
     print(f"   Python version: {py_version}")
 
     if not py_valid:
-        print(f"❌ Python 3.10+ required, found {py_version}")
+        print(f"❌ Python 3.11+ required, found {py_version}")
         print("   Please upgrade Python: https://www.python.org/downloads/")
         return 1
     print("✅ Python version OK")

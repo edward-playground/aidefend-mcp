@@ -44,7 +44,7 @@ service or resync; stop the current owner or use a separate data directory.
 
 ## Prerequisites
 
-- Python 3.10 to 3.14
+- Python 3.11 to 3.14
 - Node.js 18+
 - Git
 - 2 to 3 GB free disk space

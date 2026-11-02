@@ -1,7 +1,7 @@
 # Performance Optimization Summary
 
 > AIDEFEND MCP 1.3.0 supports CPU inference only. Its supported embedding
-> runtime is `fastembed==0.8.0` with the project's declared CPU
+> runtime is `fastembed==0.9.1` with the project's declared CPU
 > `onnxruntime` dependency. Performance varies with hardware, operating system,
 > model cache state, Framework data, and query shape, so this project does not
 > publish a universal latency or speedup expectation.

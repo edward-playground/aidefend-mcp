@@ -3,7 +3,7 @@
 ## English
 
 AIDEFEND MCP 1.3.0 supports CPU inference only. The supported runtime is
-`fastembed==0.8.0` with the CPU `onnxruntime` dependency declared by the
+`fastembed==0.9.1` with the CPU `onnxruntime` dependency declared by the
 project. A fresh installation requires no GPU, CUDA, ROCm, or platform-specific
 accelerator setup.
 
@@ -24,7 +24,7 @@ For supported performance tuning, use the CPU and LanceDB guidance in the
 ## 繁體中文
 
 AIDEFEND MCP 1.3.0 僅支援 CPU 推論。正式支援的執行環境為
-`fastembed==0.8.0`，搭配專案所宣告的 CPU 版 `onnxruntime` 相依套件。
+`fastembed==0.9.1`，搭配專案所宣告的 CPU 版 `onnxruntime` 相依套件。
 全新安裝不需要 GPU、CUDA、ROCm 或任何平台專用的加速器設定。
 
 本版本未提供 GPU 加速的安裝選項，也不把 GPU 視為受支援的部署模式。

@@ -593,7 +593,7 @@ def test_ci_release_gate_proves_manifest_all_tools_and_zero_skips():
         "http://127.0.0.1:18000/health",
         "name: Clean wheel -",
         "os: [ubuntu-latest, windows-latest, macos-latest]",
-        'python: ["3.10", "3.11", "3.12", "3.13", "3.14"]',
+        'python: ["3.11", "3.12", "3.13", "3.14"]',
         "scripts/verify_clean_install.py",
         "cp scripts/verify_index_manifest.py /tmp/aidefend-wheel-smoke/scripts/verify_index_manifest.py",
         'export PYTHONPATH=""',

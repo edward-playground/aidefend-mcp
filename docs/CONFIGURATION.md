@@ -222,7 +222,7 @@ For advanced usage (changing models, custom ONNX models), see [Advanced Configur
 
 ### GPU Acceleration Status
 
-AIDEFEND MCP 1.3.0 supports `fastembed==0.8.0` with the project's declared CPU
+AIDEFEND MCP 1.3.0 supports `fastembed==0.9.1` with the project's declared CPU
 `onnxruntime` dependency. GPU and accelerator-specific package substitutions
 are not supported or release-tested. Do not replace the declared CPU packages
 with GPU variants. See [GPU Acceleration Status](advanced/GPU_ACCELERATION.md)

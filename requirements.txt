@@ -1,7 +1,7 @@
 # AIDEFEND MCP Service Dependencies
-# Requires Python >= 3.10 (mcp==1.29.0 and ipython require >=3.10).
-# The release matrix covers Python 3.10 through 3.14.
-# Last updated: 2026-08-06
+# Requires Python >= 3.11 (pillow==13.0.0 requires >=3.11; Python 3.10 reached
+# end of life on 2026-10-01). The release matrix covers Python 3.11 through 3.14.
+# Last updated: 2026-10-31
 
 # FastAPI and server
 fastapi==0.141.1
@@ -28,18 +28,17 @@ pandas>=2.0.0
 numpy>=1.24,<3
 
 # Embedding and ML (lightweight ONNX-based)
-fastembed==0.8.0
-pillow==12.3.0
+fastembed==0.9.1
+pillow==13.0.0
 # Imported directly by the installer and Docker runtime contract. These markers
-# mirror the pinned FastEmbed 0.8.0 backend compatibility ranges for every
+# mirror the pinned FastEmbed 0.9.1 backend compatibility ranges for every
 # Python version supported by this project.
-onnxruntime>=1.17.0,!=1.20.0,<1.24; python_version == '3.10'
 onnxruntime>=1.17.0,!=1.20.0,!=1.24.0,!=1.24.1; python_version >= '3.11' and python_version < '3.13'
 onnxruntime>1.21.0,!=1.24.0,!=1.24.1; python_version == '3.13'
 onnxruntime>=1.24.2; python_version >= '3.14'
 
 # MCP (Model Context Protocol) SDK
-mcp==1.29.0
+mcp==1.30.0
 
 # Structured cancellation shielding used by cancellation-safe worker drains
 anyio==4.14.2

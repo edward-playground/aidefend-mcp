@@ -26,7 +26,7 @@ and index. Use a fresh `DATA_PATH` and run `aidefend-mcp --resync` instead when
 testing an installed wheel or an extracted-and-installed sdist.
 
 The `current_snapshot` marker preserves exact counts and digests for the
-historical 2026-09-11 Framework snapshot. Use `pytest -m current_snapshot` only
+historical 2026-11-01 Framework snapshot. Use `pytest -m current_snapshot` only
 with that snapshot. CI excludes these historical assertions from its rolling
 release gate and requires zero skipped tests in the selected suite.
 

@@ -20,16 +20,17 @@ This document provides comprehensive information about all dependencies used by 
 
 ## Runtime Dependencies
 
-### 1. Python 3.10 - 3.14
+### 1. Python 3.11 - 3.14
 
 **Purpose**: Core programming language for the service
-**Minimum Version**: 3.10
+**Minimum Version**: 3.11
 **Recommended Version**: Latest Python 3.14 patch release, after the current
 hosted Python/OS release matrix passes
 **Installation**: https://www.python.org/downloads/
 **License**: PSF License (BSD-style, permissive)
 **Why this version range**:
-- 3.10+: Required by the declared MCP SDK and development dependency set
+- 3.11+: Required by the declared Pillow release (Python 3.10 reached end of
+  life on 2026-10-01)
 - Up to 3.14: Configured support range; every release requires the complete
   hosted Python/OS matrix to pass
 - Uses features: `asyncio`, `pathlib`, `typing` with modern syntax
@@ -106,9 +107,9 @@ The installed runtime dependency set is approximately 500MB-1GB.
 |---------|---------|---------|---------|
 | **lancedb** | 0.25.3 | Vector database for semantic search | Apache-2.0 |
 | **pyarrow** | >=16 | Arrow tables imported directly during index construction | Apache-2.0 |
-| **fastembed** | 0.8.0 | CPU ONNX-based embedding generation | Apache-2.0 |
-| **pillow** | 12.3.0 | Image support used by the embedding dependency chain | MIT-CMU |
-| **onnxruntime** | FastEmbed 0.8-compatible, Python-marked ranges | Supported CPU ONNX inference backend imported by installer and container checks | MIT |
+| **fastembed** | 0.9.1 | CPU ONNX-based embedding generation | Apache-2.0 |
+| **pillow** | 13.0.0 | Image support used by the embedding dependency chain | MIT-CMU |
+| **onnxruntime** | FastEmbed 0.9-compatible, Python-marked ranges | Supported CPU ONNX inference backend imported by installer and container checks | MIT |
 | **pandas** | >=2.0.0 | Data manipulation (required by LanceDB's `.to_pandas()`) | BSD-3-Clause |
 | **numpy** | >=1.24,<3 | Numerical arrays used directly by the embedding cache | BSD-3-Clause |
 
@@ -131,7 +132,7 @@ The installed runtime dependency set is approximately 500MB-1GB.
 
 | Package | Version | Purpose | License |
 |---------|---------|---------|---------|
-| **mcp** | 1.29.0 | Model Context Protocol SDK for Claude Desktop integration | MIT |
+| **mcp** | 1.30.0 | Model Context Protocol SDK for Claude Desktop integration | MIT |
 | **pywin32** | 312 | Windows platform APIs (Windows only, required by MCP SDK) | PSF License |
 
 **Why needed**:
@@ -189,7 +190,6 @@ verification only. They are not application runtime dependencies.
 |---------|---------|---------|---------|
 | **packaging** | 26.3 | Parse and compare artifact names and versions during wheel/sdist inventory verification | Apache-2.0 OR BSD-2-Clause |
 | **httpx2** | 2.12.0 | Supported Starlette TestClient backend used by the integration suite | BSD-3-Clause |
-| **tomli** | 2.4.1 (Python <3.11) | Read `pyproject.toml` in the Python 3.10 release verifier | MIT |
 | **tokenizers** | >=0.15,<1.0 | Construct exact tokenizer fixtures in compatibility contract tests | Apache-2.0 |
 
 ---
@@ -273,7 +273,7 @@ writable `DATA_PATH` volumes.
 
 ### GPU Acceleration Status
 
-AIDEFEND MCP 1.3.0 supports only the `fastembed==0.8.0` and CPU
+AIDEFEND MCP 1.3.0 supports only the `fastembed==0.9.1` and CPU
 `onnxruntime` dependency path declared by this project. It does not publish or
 test a GPU installation extra. The CPU and GPU FastEmbed distributions cannot
 coexist, and neither can the CPU and GPU ONNX Runtime distributions, so
@@ -342,7 +342,7 @@ All user inputs sanitized via:
 **Critical Security Updates**: Applied immediately upon disclosure
 
 **Release CI matrix** (must pass before publication):
-- Python 3.10, 3.11, 3.12, 3.13, 3.14
+- Python 3.11, 3.12, 3.13, 3.14
 - Windows, macOS, Linux
 - Full test suite (pytest)
 

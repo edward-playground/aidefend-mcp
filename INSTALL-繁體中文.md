@@ -42,7 +42,7 @@ python __main__.py
 
 ## 前置需求
 
-- Python 3.10 到 3.14
+- Python 3.11 到 3.14
 - Node.js 18+
 - Git
 - 2 到 3 GB 可用磁碟空間

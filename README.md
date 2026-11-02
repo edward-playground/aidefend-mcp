@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/edward-playground/aidefend-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10-3.14](https://img.shields.io/badge/python-3.10%20|%203.14-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11-3.14](https://img.shields.io/badge/python-3.11%20|%203.14-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-009688.svg)](https://fastapi.tiangolo.com)
 
 Local retrieval service for the [AIDEFEND framework](https://github.com/edward-playground/aidefense-framework).
@@ -37,7 +37,7 @@ This repository is **not** the framework itself. It is the service layer on top 
 
 ## Rolling Framework Compatibility
 
-The current release validation snapshot is AIDEFEND **1.20260911** with public
+The current release validation snapshot is AIDEFEND **1.20261101** with public
 schema **2.3** and MCP index schema **3.3**. It includes all three framework
 tool categories: open-source,
 source-available/open-weight, and commercial. Snapshot IDs, titles, counts,
@@ -79,6 +79,13 @@ retired IDs and ID/name conflicts return diagnostics without carrying old mappin
 forward. Other catalog profiles can remain available for ingestion and coverage;
 an unsupported reference format returns an explicit resolver error.
 
+MITRE ATLAS references resolve against the synchronized current catalog; the
+current Framework supplies **2026.10**. A retired ID with one reviewed successor
+migrates to it (`AML.T0056` resolves to `AML.T0085.003`); a split concept such as
+`AML.T0057` returns its current candidates without a lookup, and old mappings are
+never carried forward. Indexes synchronized before the Framework published an
+ATLAS catalog keep their exact legacy lookup until the next successful sync.
+
 To activate this update, update the MCP code/package used by your client and
 synchronize the newly published Framework. Existing processes must restart to load
 new code. For an explicit `python __main__.py --resync`, first stop the service
@@ -117,7 +124,7 @@ treated as a breaking contract and rejected rather than silently discarded.
 
 ## Requirements
 
-- Python 3.10 to 3.14
+- Python 3.11 to 3.14
 - Node.js 18+
 - Git
 - About 2 to 3 GB free disk space for dependencies, embedding model, and local database
@@ -312,7 +319,7 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for auth details.
 - CI builds and verifies a live upstream index, exercises all 18 MCP and 18
   REST tool paths from both the source checkout and an externally installed
   wheel on Linux, and runs clean-wheel install/parser/console checks on
-  Windows, macOS, and Linux across Python 3.10-3.14. A release is not ready
+  Windows, macOS, and Linux across Python 3.11-3.14. A release is not ready
   until that hosted matrix passes. Bandit and a real
   container build/runtime contract run alongside the daily rolling-upstream
   canary and framework release dispatches.

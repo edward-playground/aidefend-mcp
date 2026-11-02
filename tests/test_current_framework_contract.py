@@ -110,27 +110,27 @@ def test_current_framework_is_fully_parseable_and_contract_valid(tmp_path, monke
         all_documents.extend(extract_documents_from_tactic(tactic))
 
     document_types = Counter(document["type"] for document in all_documents)
-    assert len(seen_ids) == 365
-    assert len(seen_guidance_ids) == 872
-    assert guidance_total == 872
-    assert len(all_documents) == 1237
+    assert len(seen_ids) == 369
+    assert len(seen_guidance_ids) == 898
+    assert guidance_total == 898
+    assert len(all_documents) == 1267
     assert document_types == {
         "technique": 93,
-        "subtechnique": 272,
-        "strategy": 872,
+        "subtechnique": 276,
+        "strategy": 898,
     }
-    assert actionable_total == 307
+    assert actionable_total == 311
     assert parent_total == 58
     assert {
         field: (stats["controls"], stats["entries"], len(stats["unique"]))
         for field, stats in tool_category_stats.items()
     } == {
-        "toolsOpenSource": (307, 1984, 786),
+        "toolsOpenSource": (311, 1983, 801),
         "toolsSourceAvailable": (46, 86, 37),
-        "toolsCommercial": (277, 1379, 699),
+        "toolsCommercial": (279, 1388, 714),
     }
-    assert scope_boundary_controls == 364
-    assert len(scope_references) == 854
+    assert scope_boundary_controls == 368
+    assert len(scope_references) == 898
     assert not {
         target_id
         for _owner_id, target_id in scope_references
@@ -146,7 +146,7 @@ def test_current_framework_is_fully_parseable_and_contract_valid(tmp_path, monke
     scope_boundary_documents = [
         document for document in all_documents if document["scope_boundary"]
     ]
-    assert len(scope_boundary_documents) == 1236
+    assert len(scope_boundary_documents) == 1266
     for document in scope_boundary_documents:
         text = document["text"]
         scope_marker = "\nScope Boundary:"
@@ -215,7 +215,7 @@ def test_current_framework_version_export_is_resolved():
         pytest.fail("aidefend-intro.js is not available for the release gate")
 
     version = extract_framework_version(intro)
-    assert version == "1.20260911"
+    assert version == "1.20261101"
     assert "Identifier" not in version
 
     migration_path = root / "data" / "framework-migrations.json"
@@ -233,7 +233,7 @@ def test_current_framework_version_export_is_resolved():
         staged_files,
         algorithm="sha256",
         source_files=source_files,
-    ) == "4c1e492dad8359bc6ef7a9fe93d51e4fe73b2c69de0e1a79d9fe65bfc571d9bc"
+    ) == "99406e2b552da60063b73eeebd904088ea6de8502648d215d7518d2ebef5a59f"
 
 
 @pytest.mark.current_snapshot
@@ -251,12 +251,12 @@ def test_current_chained_static_guidance_outputs_are_exact(tmp_path, monkeypatch
             "b45f4450d7981ed05896fb954034b4fc4716e66ec18a01fd98b7ec6d26d5c430",
         ),
         "AID-D-005.009-G002": (
-            22_054,
-            "1788c625aa5f3937bd09b3f50321df24896b2e8cfe7b4b2ed160082c98142eac",
+            22_349,
+            "a2b537f25ac8f13e29b87dc1489b838b68d2b0992861ffd8744c4430e472e94e",
         ),
         "AID-D-005.009-G003": (
-            15_703,
-            "ac34608c5e4b14a169f6f0a1b859f6ccda6f60d6ade264f6fe9f118196df000d",
+            16_452,
+            "4d8a15161a6c4e623f1b0ae2bfc7462c1b7be966baca42b8e31fd8a339eec6a7",
         ),
     }
     actual = {}

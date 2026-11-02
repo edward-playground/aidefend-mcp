@@ -22,6 +22,12 @@ mapping decisions and resolver behavior are independently authored. Downstream
 users should preserve the registry's source-license metadata when redistributing
 that material.
 
+The registry and the pinned `tests/fixtures/atlas-2026.10-catalog.json` test
+fixture also include MITRE ATLAS technique identifiers, names, and structure
+under the Apache License 2.0; technique descriptions are not reproduced. The
+catalog's `sourceLicense` metadata carries MITRE's attribution and trademark
+notice. Use of this material does not imply endorsement by The MITRE Corporation.
+
 ## Acorn
 
 The Python distribution includes Acorn 8.18.0's `dist/acorn.mjs` JavaScript

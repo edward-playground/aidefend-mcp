@@ -74,7 +74,8 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "sensitive information disclosure": {
         "frameworks": {
             "owasp": ["LLM02:2026"],
-            "atlas": ["AML.T0057"],  # LLM data leakage
+            # Reviewed successors of the retired AML.T0057 LLM Data Leakage.
+            "atlas": ["AML.T0137.003", "AML.T0085.000", "AML.T0085.001", "AML.T0085.002"],
             "maestro": ["Cross-Data-Leakage", "L5-Data-Leakage-Through-Observability"],
         },
         "confidence": 0.92,
@@ -258,7 +259,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "system prompt leakage": {
         "frameworks": {
             "owasp": ["LLM08:2026"],
-            "atlas": ["AML.T0056"],
+            "atlas": ["AML.T0085.003"],
         },
         "confidence": 0.9,
         "aliases": [
@@ -272,7 +273,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "hidden context exposure": {
         "frameworks": {
             "owasp": ["LLM08:2026"],
-            "atlas": ["AML.T0056"],
+            "atlas": ["AML.T0085.003"],
         },
         "confidence": 0.95,
         "aliases": [
@@ -383,7 +384,7 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "high-volume llm model extraction": {
         "frameworks": {
             "owasp": ["LLM06:2026"],
-            "atlas": ["AML.T0024.002"],
+            "atlas": ["AML.T0005.001"],
             "maestro": ["L1-Model-Stealing"],
         },
         "confidence": 0.92,
@@ -514,7 +515,8 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "ml model theft": {
         "frameworks": {
             "owasp": ["ML05:2023"],
-            "atlas": ["AML.T0002"],
+            # Behavioral replication and parameter or weight recovery are separate ATLAS concepts.
+            "atlas": ["AML.T0005.001", "AML.T0144"],
             "maestro": ["L1-Model-Stealing"],
         },
         "confidence": 0.95,
@@ -1648,7 +1650,8 @@ THREAT_KEYWORDS: Dict[str, Dict[str, Any]] = {
 
     "model theft": {
         "frameworks": {
-            "atlas": ["AML.T0002"],
+            # Behavioral replication and parameter or weight recovery are separate ATLAS concepts.
+            "atlas": ["AML.T0005.001", "AML.T0144"],
             "maestro": ["L1-Model-Stealing"],
             "owasp": ["ML05:2023"],
         },
@@ -1675,11 +1678,11 @@ _RESOLVABLE_OWASP_IDS = {
 }
 
 _RESOLVABLE_ATLAS_IDS = {
+    "AML.T0005.001",
     "AML.T0010",
     "AML.T0018",
     "AML.T0020",
     "AML.T0024",
-    "AML.T0024.002",
     "AML.T0029",
     "AML.T0031",
     "AML.T0034",
@@ -1694,17 +1697,21 @@ _RESOLVABLE_ATLAS_IDS = {
     "AML.T0052.000",
     "AML.T0053",
     "AML.T0055",
-    "AML.T0056",
-    "AML.T0057",
     "AML.T0070",
     "AML.T0071",
     "AML.T0085.000",
+    "AML.T0085.001",
+    "AML.T0085.002",
+    "AML.T0085.003",
+    "AML.T0137.003",
+    "AML.T0144",
 }
 
-# AML.T0002 was the dictionary's legacy model-theft identifier. The current
-# framework represents inference-API model extraction as AML.T0024.002.
+# AML.T0002 was the dictionary's legacy model-theft identifier. ATLAS 2026.10
+# retired its former AML.T0024.002 target; the reviewed successor for replicating
+# model behavior from outputs is AML.T0005.001.
 _ATLAS_LEGACY_ALIASES = {
-    "AML.T0002": "AML.T0024.002",
+    "AML.T0002": "AML.T0005.001",
 }
 
 

@@ -894,8 +894,10 @@ async def api_get_defenses_for_threat(
     Supports threat IDs from the mapped framework set or natural-language
     threat keywords. Bare OWASP LLM ranks resolve to the active edition;
     explicit superseded IDs resolve through the published semantic migration
-    registry and return canonical plus migration metadata. Invalid or ambiguous
-    OWASP references are reported without guessing or running an ID lookup.
+    registry and return canonical plus migration metadata. Retired MITRE ATLAS
+    IDs resolve to their reviewed successor; a split concept returns candidates.
+    Invalid or ambiguous references are reported without guessing or running an
+    ID lookup.
     """
     start_time = datetime.now()
     audit_ctx = audit_tool_call(

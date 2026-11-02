@@ -509,7 +509,9 @@ async def _serve_with_instance_lock_held():
                     "or natural language threat keywords "
                     "(e.g., 'prompt injection'). Bare OWASP LLM IDs resolve to the "
                     "active edition; superseded IDs migrate by declared risk concept "
-                    "and return structured resolution metadata."
+                    "and return structured resolution metadata. Retired MITRE ATLAS "
+                    "IDs resolve to their reviewed successor, or list candidates when "
+                    "the concept was split."
                 ),
                 inputSchema={
                     "additionalProperties": False,
