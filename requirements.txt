@@ -14,7 +14,7 @@ pydantic==2.13.4
 pydantic-settings==2.14.2
 
 # Vector database
-lancedb==0.25.3
+lancedb==0.41.0
 
 # Apache Arrow tables are imported directly by app/sync.py. Match LanceDB's
 # supported floor instead of relying on its transitive dependency declaration.

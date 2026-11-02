@@ -50,7 +50,7 @@ dependencies = [
     "python-multipart==0.0.32",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
-    "lancedb==0.25.3",
+    "lancedb==0.41.0",
     "pyarrow>=16",
     "pandas>=2.0.0",
     "numpy>=1.24,<3",
