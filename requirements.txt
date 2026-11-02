@@ -38,7 +38,7 @@ onnxruntime>1.21.0,!=1.24.0,!=1.24.1; python_version == '3.13'
 onnxruntime>=1.24.2; python_version >= '3.14'
 
 # MCP (Model Context Protocol) SDK
-mcp==1.30.0
+mcp==2.3.0
 
 # Structured cancellation shielding used by cancellation-safe worker drains
 anyio==4.14.2
