@@ -44,13 +44,13 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi==0.141.1",
-    "starlette==1.4.1",
-    "uvicorn[standard]==0.52.4",
+    "fastapi==0.162.0",
+    "starlette==1.10.0",
+    "uvicorn[standard]==0.54.0",
     "python-multipart==0.0.32",
-    "pydantic==2.13.4",
-    "pydantic-settings==2.14.2",
-    "lancedb==0.25.3",
+    "pydantic==2.14.2",
+    "pydantic-settings==2.16.2",
+    "lancedb==0.41.0",
     "pyarrow>=16",
     "pandas>=2.0.0",
     "numpy>=1.24,<3",
@@ -60,12 +60,12 @@ dependencies = [
     "onnxruntime>1.21.0,!=1.24.0,!=1.24.1; python_version == '3.13'",
     "onnxruntime>=1.24.2; python_version >= '3.14'",
     "mcp==1.30.0",
-    "anyio==4.14.2",
+    "anyio==4.15.1",
     "httpx==0.28.1",
     "slowapi==0.1.10",
     "typing-extensions==4.16.0",
     "beautifulsoup4==4.15.0",
-    "rapidfuzz==3.14.5",
+    "rapidfuzz==3.14.6",
     "aiorwlock==1.5.1",
     "pywin32==312; sys_platform == 'win32'"
 ]
@@ -75,14 +75,14 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
-    "httpx2==2.12.0",
+    "httpx2==2.16.0",
     "black==26.10.1",
     "flake8==7.3.0",
     "mypy==1.14.1",
     "isort==5.13.2",
     "bandit==1.9.4",
     "pip-audit==2.10.1",
-    "cryptography==50.0.0",
+    "cryptography==50.0.2",
     "packaging==26.3",
     "tokenizers>=0.15,<1.0"
 ]

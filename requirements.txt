@@ -4,17 +4,17 @@
 # Last updated: 2026-11-02
 
 # FastAPI and server
-fastapi==0.141.1
-starlette==1.4.1
-uvicorn[standard]==0.52.4
+fastapi==0.162.0
+starlette==1.10.0
+uvicorn[standard]==0.54.0
 python-multipart==0.0.32
 
 # Pydantic and settings
-pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic==2.14.2
+pydantic-settings==2.16.2
 
 # Vector database
-lancedb==0.25.3
+lancedb==0.41.0
 
 # Apache Arrow tables are imported directly by app/sync.py. Match LanceDB's
 # supported floor instead of relying on its transitive dependency declaration.
@@ -41,7 +41,7 @@ onnxruntime>=1.24.2; python_version >= '3.14'
 mcp==1.30.0
 
 # Structured cancellation shielding used by cancellation-safe worker drains
-anyio==4.14.2
+anyio==4.15.1
 
 # Windows-specific: MCP SDK requires pywin32 for Windows platform APIs
 pywin32==312; sys_platform == 'win32'
@@ -59,7 +59,7 @@ typing-extensions==4.16.0
 beautifulsoup4==4.15.0
 
 # Optimized fuzzy string matching
-rapidfuzz==3.14.5
+rapidfuzz==3.14.6
 
 # Read-Write Lock for QueryEngine
 aiorwlock==1.5.1
