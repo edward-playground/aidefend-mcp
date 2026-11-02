@@ -60,7 +60,7 @@ dependencies = [
     "onnxruntime>1.21.0,!=1.24.0,!=1.24.1; python_version == '3.13'",
     "onnxruntime>=1.24.2; python_version >= '3.14'",
     "mcp==1.30.0",
-    "anyio==4.14.2",
+    "anyio==4.15.1",
     "httpx==0.28.1",
     "slowapi==0.1.10",
     "typing-extensions==4.16.0",

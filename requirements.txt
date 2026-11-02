@@ -41,7 +41,7 @@ onnxruntime>=1.24.2; python_version >= '3.14'
 mcp==1.30.0
 
 # Structured cancellation shielding used by cancellation-safe worker drains
-anyio==4.14.2
+anyio==4.15.1
 
 # Windows-specific: MCP SDK requires pywin32 for Windows platform APIs
 pywin32==312; sys_platform == 'win32'
