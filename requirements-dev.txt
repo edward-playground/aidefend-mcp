@@ -27,7 +27,7 @@ bandit==1.9.4
 cryptography==50.0.0
 
 # Development tools
-ipython==8.39.0
+ipython==9.18.0
 
 # Release artifact inventory verification (imported directly by
 # scripts/verify_distribution_inventory.py)
