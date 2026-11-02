@@ -46,7 +46,7 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.141.1",
     "starlette==1.4.1",
-    "uvicorn[standard]==0.52.4",
+    "uvicorn[standard]==0.54.0",
     "python-multipart==0.0.32",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
