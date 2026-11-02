@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leaking a Python `TypeError` from the tool function.
 - Document that `classify_threat` keyword matching is English-only; other
   languages are served by the multilingual semantic search tools.
+- Keep exact vector search below `VECTOR_INDEX_MIN_ROWS` (default 10,000 rows).
+  The IVF-PQ index built for any table of 1,000 or more rows returned only 57% of
+  the exact top-10 results on the current 1,267-document corpus at the same
+  latency. Synchronization and the index maintenance script no longer build an
+  index below the threshold, the script no longer prompts, and manifest
+  verification rejects an approximate index on a smaller table.
 - Upgrade Uvicorn to 0.52.4 and group Dependabot minor and patch updates into
   one pull request per ecosystem so stale single-package PRs cannot exhaust the
   open-PR limit; major updates still arrive individually.

@@ -196,8 +196,21 @@ class Settings(BaseSettings):
     AUTO_CREATE_INDEX: bool = Field(
         default=True,
         description=(
-            "Automatically create a LanceDB vector index after the first sync "
-            "when the dataset is large enough"
+            "Automatically create a LanceDB vector index after a sync when the "
+            "table has at least VECTOR_INDEX_MIN_ROWS rows"
+        )
+    )
+    # Exact search ranks every vector. On the 1,267-document AIDEFEND corpus the
+    # IVF-PQ index returned only 57% of the exact top-10 at the same ~6 ms
+    # latency, while exact search over 10,000 768-dimension vectors still took
+    # about 55 ms on a desktop CPU. Below this size an approximate index only
+    # costs accuracy.
+    VECTOR_INDEX_MIN_ROWS: int = Field(
+        default=10_000,
+        ge=1,
+        description=(
+            "Smallest table that receives an approximate (IVF-PQ) vector index; "
+            "smaller tables use exact search"
         )
     )
     ENABLE_AUTO_SYNC: bool = Field(

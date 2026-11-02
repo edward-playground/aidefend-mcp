@@ -1,7 +1,8 @@
 """
 LanceDB Index Creation Script
 
-Creates an IVF_PQ index for faster vector search.
+Creates an IVF_PQ index for faster vector search on a table with at least
+VECTOR_INDEX_MIN_ROWS rows; smaller tables keep exact search.
 Run this ONCE after initial sync completes.
 """
 
@@ -60,15 +61,15 @@ async def create_index():
         row_count = await asyncio.to_thread(table.count_rows)
         logger.info(f"📊 Table has {row_count} rows")
 
-        if row_count < 100:
-            logger.warning(
-                f"⚠️  Table only has {row_count} rows. "
-                "Index creation is most beneficial for >1000 rows."
+        if row_count < settings.VECTOR_INDEX_MIN_ROWS:
+            # Exact search is accurate and fast at this size; an approximate
+            # index would only lower ranking accuracy.
+            logger.info(
+                f"Table has {row_count} rows (< VECTOR_INDEX_MIN_ROWS="
+                f"{settings.VECTOR_INDEX_MIN_ROWS}); no index created. "
+                "Queries use exact vector search."
             )
-            proceed = input("Continue anyway? (y/n): ")
-            if proceed.lower() != 'y':
-                logger.info("Index creation cancelled")
-                return False
+            return True
 
         # Calculate optimal index parameters
         # num_partitions: sqrt(N) is a good heuristic for IVF
@@ -140,7 +141,7 @@ async def main():
             _release_sync_lock()
 
     if success:
-        logger.info("\n✅ Index creation completed successfully")
+        logger.info("\n✅ Index maintenance completed")
     else:
         logger.error("\n❌ Index creation failed")
         sys.exit(1)

@@ -5930,9 +5930,9 @@ async def run_sync(force_rebuild: bool = False) -> bool:
 
 async def _create_vector_index_if_needed() -> bool:
     """
-    Create a LanceDB vector index when the dataset is large enough to benefit.
+    Create a LanceDB vector index when the table reaches VECTOR_INDEX_MIN_ROWS.
 
-    This is automatically called after first successful sync.
+    This is automatically called after a successful sync.
     Users can disable with AUTO_CREATE_INDEX=false in .env
 
     Returns:
@@ -5976,12 +5976,14 @@ async def _create_vector_index_if_needed() -> bool:
         # Get row count
         row_count = await asyncio.to_thread(table.count_rows)
 
-        # For small datasets (< 1000 rows), index creation has minimal benefit
-        # and can cause KMeans warnings about empty clusters
-        if row_count < 1000:
+        # An approximate index trades ranking accuracy for speed. Below the
+        # configured size exact search is fast enough and returns the true
+        # nearest neighbors, so no index is built.
+        if row_count < settings.VECTOR_INDEX_MIN_ROWS:
             logger.info(
-                f"Database has {row_count} rows (< 1000). "
-                "Vector index provides minimal benefit for small datasets. Skipping index creation."
+                f"Database has {row_count} rows (< VECTOR_INDEX_MIN_ROWS="
+                f"{settings.VECTOR_INDEX_MIN_ROWS}); using exact vector search "
+                "without an approximate index."
             )
             return True
 

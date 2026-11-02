@@ -366,6 +366,13 @@ def verify() -> Dict[str, Any]:
     actual_records = table.to_pandas().to_dict("records")
     if table.count_rows() != len(actual_records):
         raise ManifestVerificationError("LanceDB row count differs from its full-table scan")
+    vector_indices = [index for index in table.list_indices() if "vector" in index.columns]
+    if vector_indices and len(actual_records) < settings.VECTOR_INDEX_MIN_ROWS:
+        raise ManifestVerificationError(
+            f"{len(actual_records)} rows are below VECTOR_INDEX_MIN_ROWS="
+            f"{settings.VECTOR_INDEX_MIN_ROWS}, yet an approximate vector index exists: "
+            + ", ".join(str(index.index_type) for index in vector_indices)
+        )
 
     _validate_storage_encodings(actual_records)
     expected = _records_by_id(expected_documents, label="staged source")

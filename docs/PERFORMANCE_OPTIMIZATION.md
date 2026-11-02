@@ -14,9 +14,11 @@ platform packages. For production tuning:
 
 1. Complete the initial Framework sync and model download.
 2. Measure representative queries on the target host.
-3. Optionally create a LanceDB vector index for a sufficiently large database.
-4. Measure the same workload again and keep the index only when it improves the
-   deployment's actual workload without unacceptable retrieval trade-offs.
+3. Keep exact vector search unless the table reaches `VECTOR_INDEX_MIN_ROWS`
+   (10,000 rows by default); the current Framework corpus is far below it.
+4. If you lower the threshold or index a larger table, measure the same
+   workload again and keep the index only when it improves the deployment's
+   actual workload without unacceptable retrieval trade-offs.
 
 GPU acceleration is not a supported installation or deployment mode in 1.3.0.
 See [GPU Acceleration Status](advanced/GPU_ACCELERATION.md) for the dependency
@@ -24,7 +26,16 @@ boundary and future support requirements.
 
 ## LanceDB vector index
 
-The repository includes
+An IVF-PQ index compresses vectors, so it returns approximate neighbors. On the
+1,267-document AIDEFEND 1.20261101 corpus, the index returned only 57% of the
+exact top-10 results (the same top result for 5 of 12 English and Chinese
+queries) at the same ~6 ms latency as exact search. Exact search over 10,000
+768-dimension vectors still took about 55 ms on a desktop CPU. Tables below
+`VECTOR_INDEX_MIN_ROWS` (default 10,000) therefore keep exact search: neither
+synchronization (`AUTO_CREATE_INDEX`) nor the maintenance script builds an index
+for them, and `scripts/verify_index_manifest.py` rejects one.
+
+For a table at or above the threshold, the repository includes
 [`scripts/create_lancedb_index.py`](../scripts/create_lancedb_index.py), which
 creates an IVF-PQ index over the synchronized `aidefend` table. It derives the
 partition and sub-vector settings from the current row count and configured
